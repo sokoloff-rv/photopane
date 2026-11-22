@@ -36,10 +36,15 @@ export class MenuBar {
   constructor(public el: HTMLElement) {
     document.addEventListener('pointerdown', e => { if (this.open && !this.el.contains(e.target as Node)) this.close(); });
     window.addEventListener('blur', () => this.close());
+    window.addEventListener('keydown', e => { if (e.key === 'Escape' && this.open) { e.stopPropagation(); this.close(); } }, true);
     this.render();
   }
 
-  close() { this.open?.classList.remove('open'); this.open = null; }
+  close() {
+    this.el.querySelectorAll('.menu-drop').forEach(n => n.remove());
+    this.el.querySelectorAll('.menu.open').forEach(n => n.classList.remove('open'));
+    this.open = null;
+  }
 
   render() {
     this.el.innerHTML = '';
@@ -63,7 +68,6 @@ export class MenuBar {
 
   private show(wrap: HTMLElement, items: Item[]) {
     this.close();
-    wrap.querySelector('.menu-drop')?.remove();
     wrap.append(this.buildList(items));
     wrap.classList.add('open');
     this.open = wrap;

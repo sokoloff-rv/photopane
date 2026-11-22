@@ -10,8 +10,14 @@ import { select, checkbox, iconButton, sep } from '../ui/controls';
 import { span, spacer, textButton } from './transform';
 import { css } from '../core/color';
 import { arrowBadgeCursor } from '../ui/icons';
+import { openDialog } from '../ui/dialog';
+import { el } from '../core/util';
+import { resizeDocument } from '../ui/docdialogs';
 
-const RATIOS: { value: string; label: string; r: number }[] = [
+/** A crop preset: an aspect ratio, or an exact size in pixels (the result is resampled to it). */
+interface CropPreset { value: string; label: string; r: number; px?: { w: number; h: number }; custom?: boolean }
+
+const RATIOS: CropPreset[] = [
   { value: 'free', label: '', r: 0 },
   { value: 'orig', label: '', r: -1 },
   { value: '1:1', label: '1 : 1', r: 1 },
@@ -20,6 +26,27 @@ const RATIOS: { value: string; label: string; r: number }[] = [
   { value: '4:3', label: '4 : 3', r: 4 / 3 },
   { value: '16:9', label: '16 : 9', r: 16 / 9 },
 ];
+const PX = (w: number, h: number, name: string): CropPreset => ({ value: `px:${w}x${h}`, label: `${w} × ${h} — ${name}`, r: w / h, px: { w, h } });
+const PIXEL_PRESETS: CropPreset[] = [
+  PX(1080, 1080, 'Instagram'),
+  PX(1080, 1350, 'Instagram 4:5'),
+  PX(1080, 1920, 'Stories / Reels'),
+  PX(1200, 630, 'Facebook / Open Graph'),
+  PX(1280, 720, 'HD'),
+  PX(1920, 1080, 'Full HD'),
+  PX(3840, 2160, '4K'),
+  PX(2560, 1440, 'YouTube'),
+  PX(1500, 500, 'X / Twitter'),
+];
+
+/** Saved user presets (settings). */
+function customPresets(): CropPreset[] {
+  const list: { kind: 'ratio' | 'px'; w: number; h: number; name?: string }[] = app.settings.cropPresets || [];
+  return list.map(p => p.kind === 'px'
+    ? { ...PX(p.w, p.h, p.name || t('opt.cropCustom')), value: `cpx:${p.w}x${p.h}:${p.name || ''}`, custom: true }
+    : { value: `cr:${p.w}:${p.h}:${p.name || ''}`, label: `${p.w} : ${p.h}${p.name ? ' — ' + p.name : ''}`, r: p.w / p.h, custom: true });
+}
+function allPresets(): CropPreset[] { return [...RATIOS, ...PIXEL_PRESETS, ...customPresets()]; }
 
 interface CropOpts { ratio: string; portrait: boolean; deletePixels: boolean; fill: 'transparent' | 'bg' }
 
@@ -49,8 +76,10 @@ export class CropTool extends Tool<CropOpts> {
   /** Remove the crop frame (Esc / Cancel); a new one can be drawn by dragging. */
   private clear() { this.rect = null; this.drag = null; app.update('overlay', 'options'); }
 
+  private preset(): CropPreset | undefined { return allPresets().find(x => x.value === this.o.ratio); }
+
   private ratio(): number {
-    const r = RATIOS.find(x => x.value === this.o.ratio)?.r ?? 0;
+    const r = this.preset()?.r ?? 0;
     const d = app.doc!;
     let v = r === -1 ? d.width / d.height : r;
     if (v && this.o.portrait) v = 1 / v;
@@ -143,6 +172,12 @@ export class CropTool extends Tool<CropOpts> {
       d.root.children.unshift(l); l.parent = d.root;
       if (d.root.children[1]) d.root.children[1].clipped = false;
     }
+    // pixel preset: scale the cropped image to the exact size (portrait swaps width and height)
+    const px = this.preset()?.px;
+    if (px) {
+      const W = this.o.portrait ? px.h : px.w, H = this.o.portrait ? px.w : px.h;
+      if (d.width !== W || d.height !== H) resizeDocument(d, W, H, 'auto');
+    }
     app.commit('tool.crop');
     app.viewport.fit(false);
     this.reset();
@@ -182,8 +217,9 @@ export class CropTool extends Tool<CropOpts> {
   options() {
     const r = this.rect;
     return [
-      select(RATIOS.map(x => ({ value: x.value, label: x.value === 'free' ? t('opt.ratioFree') : x.value === 'orig' ? t('opt.ratioOrig') : x.label })), this.o.ratio, v => { this.set('ratio', v); this.fitRatio(); }),
+      this.presetSelect(),
       iconButton('updown', t('opt.swapRatio'), () => { this.set('portrait', !this.o.portrait); this.fitRatio(); }),
+      this.preset()?.custom ? iconButton('trash', t('opt.cropDelete'), () => this.deletePreset()) : null,
       r ? span(`${Math.round(r.w)} × ${Math.round(r.h)} ${t('dlg.px')}`) : null,
       sep(),
       checkbox(t('opt.deleteCropped'), this.o.deletePixels, v => this.set('deletePixels', v)),
@@ -192,6 +228,62 @@ export class CropTool extends Tool<CropOpts> {
       textButton(t('dlg.cancel'), () => this.clear()),
       textButton(t('opt.apply'), () => this.apply(), true),
     ];
+  }
+
+  /** Ratios, sizes in pixels, the user's own presets and "New preset…". */
+  private presetSelect() {
+    const lab = (x: CropPreset) => x.value === 'free' ? t('opt.ratioFree') : x.value === 'orig' ? t('opt.ratioOrig') : x.label;
+    const custom = customPresets();
+    const opts: { value: string; label: string }[] = [
+      ...RATIOS.map(x => ({ value: x.value, label: lab(x) })),
+      { value: '-', label: '' },
+      ...PIXEL_PRESETS.map(x => ({ value: x.value, label: x.label })),
+      ...(custom.length ? [{ value: '-', label: '' }, ...custom.map(x => ({ value: x.value, label: x.label }))] : []),
+      { value: '-', label: '' },
+      { value: '__new', label: t('opt.cropNew') },
+    ];
+    const s = select(opts, this.o.ratio, v => {
+      if (v === '__new') { s.value = this.o.ratio; this.newPresetDialog(); return; }
+      this.set('ratio', v); this.fitRatio();
+    });
+    return s;
+  }
+
+  private newPresetDialog() {
+    let kind: 'ratio' | 'px' = 'ratio';
+    const name = el('input', { class: 'text-input', type: 'text', placeholder: t('opt.cropName') }) as HTMLInputElement;
+    const w = el('input', { class: 'text-input', type: 'number', min: 1, value: 3 }) as HTMLInputElement;
+    const h = el('input', { class: 'text-input', type: 'number', min: 1, value: 2 }) as HTMLInputElement;
+    const kindSel = select([{ value: 'ratio', label: t('opt.cropKindRatio') }, { value: 'px', label: t('opt.cropKindPx') }], kind, v => {
+      kind = v as any;
+      if (kind === 'px' && +w.value < 50) { w.value = '1920'; h.value = '1080'; }
+      if (kind === 'ratio' && +w.value > 50) { w.value = '3'; h.value = '2'; }
+    });
+    for (const i of [name, w, h]) i.addEventListener('keydown', e => e.stopPropagation());
+    const body = el('div', { class: 'form' },
+      el('div', { class: 'form-row' }, el('label', {}, t('opt.cropKind')), kindSel),
+      el('div', { class: 'form-row' }, el('label', {}, t('opt.cropSize')), w, el('span', { class: 'muted' }, '×'), h),
+      el('div', { class: 'form-row' }, el('label', {}, t('opt.cropNameLabel')), name));
+    openDialog({
+      title: t('opt.cropNewTitle'), body, width: 360,
+      onOk: () => {
+        const W = Math.round(+w.value), H = Math.round(+h.value);
+        if (!(W > 0 && H > 0)) return false;
+        const list = app.settings.cropPresets || [];
+        list.push({ kind, w: W, h: H, name: name.value.trim() || undefined });
+        app.settings.cropPresets = list;
+        this.set('ratio', kind === 'px' ? `cpx:${W}x${H}:${name.value.trim()}` : `cr:${W}:${H}:${name.value.trim()}`);
+        this.fitRatio();
+      },
+    });
+  }
+
+  private deletePreset() {
+    const cur = this.o.ratio;
+    const list: { kind: 'ratio' | 'px'; w: number; h: number; name?: string }[] = app.settings.cropPresets || [];
+    app.settings.cropPresets = list.filter(p => (p.kind === 'px' ? `cpx:${p.w}x${p.h}:${p.name || ''}` : `cr:${p.w}:${p.h}:${p.name || ''}`) !== cur);
+    this.set('ratio', 'free');
+    app.update('options');
   }
 
   private fitRatio() {

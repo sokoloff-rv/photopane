@@ -67,6 +67,12 @@ export function listedEffects(e: LayerEffects): boolean {
 export interface CharStyle {
   font: string; size: number; color: RGB; bold: boolean; italic: boolean; underline: boolean;
   tracking: number; vScale: number; leading: number;
+  /** CSS font weight 100–900 (absent: 700 when bold, else 400) */
+  weight?: number;
+  /** Original PostScript font name from PSD (exact face, written back to PSD) */
+  psName?: string;
+  /** Photoshop synthetic bold flag from PSD */
+  fauxBold?: boolean;
 }
 export interface StyleRun { len: number; s: CharStyle }
 
@@ -93,6 +99,9 @@ export interface TextData {
   mixedStyles?: boolean;
   /** Vertical glyph scale (Photoshop "vertical scale"), 1 = 100% */
   vScale?: number;
+  weight?: number;
+  psName?: string;
+  fauxBold?: boolean;
   /** Per-character styles (absent = the whole layer uses the base fields above) */
   runs?: StyleRun[];
   /** Linear transform of the text (rotation / skew / non-uniform scale, as in Photoshop) applied around a pivot:

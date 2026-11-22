@@ -355,12 +355,19 @@ export class TextTool extends Tool<TextOpts> {
         return;
       }
       if (systemFonts?.includes(v)) { await registerFamily(v); clearFontCaches(); }
-      this.setStyle({ font: v });
+      this.setStyle({ font: v, psName: undefined });
     }, 'font-select');
     const toggle = (k: 'bold' | 'italic' | 'underline', label: string, style: Partial<CSSStyleDeclaration>) => {
-      const b = el('button', { class: 'seg-btn' + (td[k] ? ' on' : ''), title: t('opt.' + k) }, el('span', { style }, label));
+      const b = el('button', { class: 'seg-btn' + (td[k] ? ' on' : ''), title: t('opt.' + k) + (k === 'bold' && (td as any).weight && (td as any).weight !== 700 && (td as any).weight !== 400 ? ` (${(td as any).weight})` : '') }, el('span', { style }, label));
       b.addEventListener('mousedown', e => e.preventDefault()); // keep text selection
-      b.addEventListener('click', () => this.setStyle({ [k]: !td[k] } as Partial<CharStyle>));
+      b.addEventListener('click', () => {
+        const on = !td[k];
+        const patch: Partial<CharStyle> = { [k]: on };
+        // a manual change leaves the exact PSD face: weight follows the B button
+        if (k === 'bold') Object.assign(patch, { weight: on ? Math.max(700, (td as any).weight ?? 700) : 400, psName: undefined, fauxBold: undefined });
+        if (k === 'italic') Object.assign(patch, { psName: undefined });
+        this.setStyle(patch);
+      });
       return b;
     };
     return [

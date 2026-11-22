@@ -6,7 +6,7 @@
 
 import { repairFont } from './fontrepair';
 
-export interface FontNeed { psName: string; family: string; bold: boolean; italic: boolean }
+export interface FontNeed { psName: string; family: string; bold: boolean; italic: boolean; weight?: number }
 
 interface LocalFontData { postscriptName: string; fullName: string; family: string; style: string; blob(): Promise<Blob> }
 
@@ -63,10 +63,11 @@ export async function registerNeeded(needs: FontNeed[]): Promise<string[]> {
     const fd = list.find(f => f.postscriptName === n.psName) || list.find(f => f.fullName.replace(/\s+/g, '') === n.psName.replace(/-/g, ''));
     if (!fd) continue;
     // exactly the family / weight our text style asks for …
-    await register(fd, n.family, n.bold ? '700' : '400', n.italic ? 'italic' : 'normal');
+    const w = String(n.weight ?? (n.bold ? 700 : 400));
+    await register(fd, n.family, w, n.italic ? 'italic' : 'normal');
     // … and the font's own family with its real weight (for the font menu and later edits)
     await register(fd, fd.family, weightOf(fd.style), italicOf(fd.style));
-    if (registered.has(`${n.family}|${n.bold ? '700' : '400'}|${n.italic ? 'italic' : 'normal'}`)) found.push(n.psName);
+    if (registered.has(`${n.family}|${w}|${n.italic ? 'italic' : 'normal'}`)) found.push(n.psName);
   }
   return found;
 }

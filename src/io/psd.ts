@@ -120,14 +120,27 @@ function effectsTo(fx: LayerEffects): LayerEffectsInfo | undefined {
 const STYLE_WORDS = /(Bold|Black|Heavy|SemiBold|Semibold|DemiBold|Demi|Medium|Light|Thin|Regular|Book|Italic|Oblique|It)/g;
 
 /** Map a PostScript font name (e.g. "Ralenta-Bold", "LazurskiBoldCyrillic", "ArialMT") to an installed family. */
-type Resolved = { family: string; bold: boolean; italic: boolean; available: boolean };
+type Resolved = { family: string; bold: boolean; italic: boolean; weight: number; available: boolean };
+
+/** Weight from a PostScript / style name. */
+export function weightFromName(n: string): number {
+  if (/thin|hairline/i.test(n)) return 100;
+  if (/extra-?light|ultra-?light/i.test(n)) return 200;
+  if (/light/i.test(n)) return 300;
+  if (/medium/i.test(n)) return 500;
+  if (/semi-?bold|demi-?bold|demi/i.test(n)) return 600;
+  if (/extra-?bold|ultra-?bold/i.test(n)) return 800;
+  if (/black|heavy/i.test(n)) return 900;
+  if (/bold/i.test(n)) return 700;
+  return 400;
+}
 const fontCache = new Map<string, Resolved>();
 /** Fonts of the document being imported that the browser cannot see by name. */
 let importNeeds: FontNeed[] = [];
 export function resolveFont(psName: string): Resolved {
   let res = fontCache.get(psName);
   if (!res || !res.available) { res = resolveFontUncached(psName); fontCache.set(psName, res); }
-  if (!res.available && !importNeeds.some(n => n.psName === psName)) importNeeds.push({ psName, family: res.family, bold: res.bold, italic: res.italic });
+  if (!res.available && !importNeeds.some(n => n.psName === psName)) importNeeds.push({ psName, family: res.family, bold: res.bold, italic: res.italic, weight: res.weight });
   return res;
 }
 
@@ -147,10 +160,11 @@ function resolveFontUncached(psName: string): Resolved {
   add(stripped, boldIn(psName), italicIn(psName));
   const firstWord = spaced(base).split(' ')[0];
   add(firstWord, boldIn(psName), italicIn(psName));
-  for (const c of cands) if (fontAvailable(c.family)) return { ...c, available: true };
+  const weight = weightFromName(psName);
+  for (const c of cands) if (fontAvailable(c.family)) return { ...c, weight, available: true };
   // not visible to the browser: keep the family name (it may be registered later from the font file)
   const first = cands[0] || { family: 'Arial', bold: false, italic: false };
-  return { ...first, bold: boldIn(psName), italic: italicIn(psName), available: false };
+  return { ...first, bold: boldIn(psName), italic: italicIn(psName), weight, available: false };
 }
 
 function textFrom(l: PsdLayer): TextData | null {
@@ -170,7 +184,8 @@ function textFrom(l: PsdLayer): TextData | null {
     const f = resolveFont(st.font?.name || 'Arial');
     return {
       font: f.family, size: fs * scale, color: colorFrom(st.fillColor, { r: 0, g: 0, b: 0 }),
-      bold: !!st.fauxBold || f.bold, italic: !!st.fauxItalic || f.italic, underline: !!st.underline,
+      bold: !!st.fauxBold || f.weight >= 600, italic: !!st.fauxItalic || f.italic, underline: !!st.underline,
+      weight: st.fauxBold ? Math.max(f.weight, 700) : f.weight, psName: st.font?.name, fauxBold: !!st.fauxBold,
       tracking: st.tracking ?? 0, vScale: st.verticalScale ?? 1,
       leading: st.autoLeading === false && st.leading ? st.leading / fs : (ps.autoLeading ?? 1.2),
     };
@@ -182,6 +197,7 @@ function textFrom(l: PsdLayer): TextData | null {
     ...defaultText(), text: tx.text.replace(/\r/g, '\n').replace(/\n$/, ''),
     font: first.font, size: first.size, color: first.color, bold: first.bold, italic: first.italic, underline: first.underline,
     align, leading: first.leading, tracking: first.tracking, vScale: first.vScale, box: null, psdPixels: true,
+    weight: first.weight, psName: first.psName, fauxBold: first.fauxBold,
   };
   if (psRuns.length > 1) setRuns(td, psRuns.map(r => ({ len: r.length, s: charStyle(r.style) })));
   if (tx.shapeType === 'box' && tx.boxBounds) {
@@ -203,7 +219,8 @@ function textFrom(l: PsdLayer): TextData | null {
 
 function psStyle(s: CharStyle) {
   return {
-    font: { name: s.font.replace(/\s+/g, '') }, fontSize: s.size, fauxBold: s.bold, fauxItalic: s.italic, underline: s.underline,
+    font: { name: s.psName || s.font.replace(/\s+/g, '') }, fontSize: s.size,
+    fauxBold: s.psName ? !!s.fauxBold : s.bold, fauxItalic: s.psName ? (s.italic && !/italic|oblique/i.test(s.psName)) : s.italic, underline: s.underline,
     tracking: s.tracking, autoLeading: false, leading: s.size * s.leading, fillColor: colorTo(s.color), verticalScale: s.vScale,
   };
 }

@@ -13,7 +13,11 @@ export const COMMON_FONTS = [
 export const STYLE_KEYS: (keyof CharStyle)[] = ['font', 'size', 'color', 'bold', 'italic', 'underline', 'tracking', 'vScale', 'leading'];
 
 export function baseStyle(t: TextData): CharStyle {
-  return { font: t.font, size: t.size, color: { ...t.color }, bold: t.bold, italic: t.italic, underline: t.underline, tracking: t.tracking, vScale: t.vScale ?? 1, leading: t.leading };
+  const s: CharStyle = { font: t.font, size: t.size, color: { ...t.color }, bold: t.bold, italic: t.italic, underline: t.underline, tracking: t.tracking, vScale: t.vScale ?? 1, leading: t.leading };
+  if (t.weight !== undefined) s.weight = t.weight;
+  if (t.psName !== undefined) s.psName = t.psName;
+  if (t.fauxBold !== undefined) s.fauxBold = t.fauxBold;
+  return s;
 }
 
 const sameStyle = (a: CharStyle, b: CharStyle) => JSON.stringify(a) === JSON.stringify(b);
@@ -42,7 +46,7 @@ export function setRuns(t: TextData, runs: StyleRun[]) {
     if (last && sameStyle(last.s, r.s)) last.len += r.len; else merged.push({ len: r.len, s: { ...r.s } });
   }
   const first = merged[0]?.s ?? (t.runs?.[0]?.s) ?? baseStyle(t);
-  Object.assign(t, { font: first.font, size: first.size, color: { ...first.color }, bold: first.bold, italic: first.italic, underline: first.underline, tracking: first.tracking, vScale: first.vScale, leading: first.leading });
+  Object.assign(t, { font: first.font, size: first.size, color: { ...first.color }, bold: first.bold, italic: first.italic, underline: first.underline, tracking: first.tracking, vScale: first.vScale, leading: first.leading, weight: first.weight, psName: first.psName, fauxBold: first.fauxBold });
   t.runs = merged.length > 1 ? merged : undefined;
 }
 
@@ -112,7 +116,13 @@ export function hasMixedStyles(t: TextData) { return !!t.runs && t.runs.length >
 
 /* ---------------- fonts & metrics ---------------- */
 export function styleFont(s: CharStyle, scale = 1): string {
-  return `${s.italic ? 'italic ' : ''}${s.bold ? '700' : '400'} ${s.size * scale}px "${s.font}", sans-serif`;
+  return `${s.italic ? 'italic ' : ''}${fontWeight(s)} ${s.size * scale}px "${s.font}", sans-serif`;
+}
+
+/** Effective CSS weight of a style. */
+export function fontWeight(s: CharStyle): number {
+  const w = s.weight ?? (s.bold ? 700 : 400);
+  return s.bold && w < 700 ? 700 : w;
 }
 export function fontString(t: TextData, scale = 1): string { return styleFont(baseStyle(t), scale); }
 

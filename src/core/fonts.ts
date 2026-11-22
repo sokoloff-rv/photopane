@@ -4,6 +4,8 @@
  * registered as FontFace objects under the family names our text styles use.
  */
 
+import { repairFont } from './fontrepair';
+
 export interface FontNeed { psName: string; family: string; bold: boolean; italic: boolean }
 
 interface LocalFontData { postscriptName: string; fullName: string; family: string; style: string; blob(): Promise<Blob> }
@@ -37,11 +39,19 @@ const italicOf = (style: string) => /italic|oblique/i.test(style) ? 'italic' : '
 async function register(fd: LocalFontData, family: string, weight: string, style: string) {
   const key = `${family}|${weight}|${style}`;
   if (registered.has(key)) return;
-  registered.add(key);
   const buf = await (await fd.blob()).arrayBuffer();
-  const face = new FontFace(family, buf, { weight, style });
-  await face.load();
-  document.fonts.add(face);
+  // fonts with a broken or byte-only character map are rejected by the browser — rebuild the map first
+  const fixed = repairFont(buf);
+  for (const data of fixed.repaired ? [fixed.buffer, buf] : [buf]) {
+    try {
+      const face = new FontFace(family, data, { weight, style });
+      await face.load();
+      document.fonts.add(face);
+      registered.add(key);
+      return;
+    } catch { /* try the next variant */ }
+  }
+  console.warn('PhotoPane: could not load font', fd.postscriptName);
 }
 
 /** Register the faces our styles need. Returns the PostScript names that were found. */
@@ -56,7 +66,7 @@ export async function registerNeeded(needs: FontNeed[]): Promise<string[]> {
     await register(fd, n.family, n.bold ? '700' : '400', n.italic ? 'italic' : 'normal');
     // … and the font's own family with its real weight (for the font menu and later edits)
     await register(fd, fd.family, weightOf(fd.style), italicOf(fd.style));
-    found.push(n.psName);
+    if (registered.has(`${n.family}|${n.bold ? '700' : '400'}|${n.italic ? 'italic' : 'normal'}`)) found.push(n.psName);
   }
   return found;
 }

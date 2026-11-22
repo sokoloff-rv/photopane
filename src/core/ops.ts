@@ -3,6 +3,7 @@ import { Layer, Surface, newRasterLayer } from './layer';
 import { Selection } from './selection';
 import { createCanvas, ctx2d, cloneCanvas, Rect, alphaBounds } from './util';
 import { drawNode, renderChildren } from './render';
+import { transformText } from './text';
 
 export function cloneSurface<T extends Surface>(s: T): T {
   const n = new Surface(1, 1, s.x, s.y, s.fill) as T;
@@ -44,8 +45,9 @@ export function transformSurface(s: Surface, m: DOMMatrix, smooth = true) {
 }
 
 export function transformLayer(l: Layer, m: DOMMatrix) {
-  if (l.kind === 'text') { l.kind = 'raster'; l.text = null; }
-  if (!l.isGroup) transformSurface(l.content, m);
+  // type stays editable: the transform goes into the text itself
+  if (l.kind === 'text' && l.text) transformText(l, m);
+  else if (!l.isGroup) transformSurface(l.content, m);
   if (l.mask) transformSurface(l.mask, m);
   for (const c of l.children) transformLayer(c, m);
   l.touch();

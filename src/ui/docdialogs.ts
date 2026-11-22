@@ -4,7 +4,7 @@ import { Layer, Surface } from '../core/layer';
 import { Selection } from '../core/selection';
 import { createCanvas, ctx2d, el } from '../core/util';
 import { css } from '../core/color';
-import { renderTextLayer } from '../core/text';
+import { transformText } from '../core/text';
 import { cropDocument, transformLayer } from '../core/ops';
 import { t } from '../i18n';
 import { openDialog } from './dialog';
@@ -41,13 +41,8 @@ export function resizeDocument(d: Doc, W: number, H: number, method: Method) {
     s.replace(resample(s.canvas, nw, nh, method), nx, ny);
   };
   const walk = (l: Layer) => {
-    if (l.kind === 'text' && l.text) {
-      const tx = l.text;
-      tx.size *= sy; tx.ax *= sx; tx.ay *= sy;
-      if (tx.runs) tx.runs.forEach(r => { r.s.size *= sy; });
-      if (tx.box) tx.box = { w: tx.box.w * sx, h: tx.box.h * sy };
-      renderTextLayer(l);
-    } else if (!l.isGroup) scaleSurface(l.content);
+    if (l.kind === 'text' && l.text) transformText(l, new DOMMatrix().scale(sx, sy));
+    else if (!l.isGroup) scaleSurface(l.content);
     if (l.mask) scaleSurface(l.mask);
     l.children.forEach(walk);
     l.touch();

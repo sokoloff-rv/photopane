@@ -8,7 +8,8 @@ import { previews } from '../core/render';
 import { layerBounds } from '../core/ops';
 import { P, Quad, homography, applyH, rectQuad, quadBounds, pointInPoly, isParallelogram, warp, drawMesh, H } from '../core/geom';
 import { numberField, iconButton, sep } from '../ui/controls';
-import { toast } from '../ui/dialog';
+import { toast, confirmDialog } from '../ui/dialog';
+import { transformText } from '../core/text';
 
 interface Item { layer: Layer; surface: Surface | null; src: HTMLCanvasElement; sx: number; sy: number; kind: 'content' | 'mask' | 'float' | 'sel' }
 interface Affine { cx: number; cy: number; sx: number; sy: number; rot: number }
@@ -29,6 +30,8 @@ export class TransformTool extends Tool {
   private aff: Affine | null = null;
   private floatInfo: { layer: Layer; backup: HTMLCanvasElement; bx: number; by: number; sel: Selection } | null = null;
   private maskStates: { s: Layer; enabled: boolean }[] = [];
+  /** Type layer being transformed: its text is transformed (stays editable) instead of its pixels */
+  private textLayer: Layer | null = null;
   private drag: { kind: 'move' | 'rotate' | 'handle'; h?: number; start: P; quad: Quad; aff: Affine | null; ctrl: boolean; perspective: boolean } | null = null;
 
   constructor() { super({}); }
@@ -42,15 +45,15 @@ export class TransformTool extends Tool {
     this.floatInfo = null;
     this.maskStates = [];
     this.selOnly = selOnly;
+    this.textLayer = null;
     if (selOnly) {
       if (!d.selection) return false;
       this.items.push({ layer: d.root, surface: null, src: d.selection.mask, sx: 0, sy: 0, kind: 'sel' });
       this.B = { ...d.selection.bounds };
       app.hideSelection = true;
     } else if (!l) return false;
-    else if (l.kind === 'text') { app.askRasterize(); return false; }
     if (selOnly) { /* set up above */ }
-    else if (d.selection && !l!.isGroup && !(d.editMask && l!.mask)) {
+    else if (d.selection && !l!.isGroup && l!.kind !== 'text' && !(d.editMask && l!.mask)) {
       const sel = d.selection;
       const fc = createCanvas(sel.bounds.w, sel.bounds.h);
       const g = ctx2d(fc);
@@ -78,6 +81,7 @@ export class TransformTool extends Tool {
       const b = layerBounds(L);
       if (!b) { toast(t('app.emptyArea')); return false; }
       this.B = b;
+      if (L.kind === 'text') this.textLayer = L;
       const layers = L.isGroup ? [...L.descendants()] : [L];
       for (const x of layers) {
         if (!x.isGroup) this.items.push({ layer: x, surface: x.content, src: x.canvas, sx: x.x, sy: x.y, kind: 'content' });
@@ -137,8 +141,49 @@ export class TransformTool extends Tool {
   }
 
   /* ---------------- commit / cancel ---------------- */
+  /** Affine matrix of the current transform (null for a perspective / distorted quad). */
+  private affineMatrix(): DOMMatrix | null {
+    if (this.aff) return this.matrix();
+    if (!isParallelogram(this.quad, 0.05)) return null;
+    // maps the layer bounds B onto the parallelogram: x axis → edge q0q1, y axis → edge q0q3
+    const B = this.B, q = this.quad;
+    const a = (q[1].x - q[0].x) / B.w, b = (q[1].y - q[0].y) / B.w;
+    const c = (q[3].x - q[0].x) / B.h, d = (q[3].y - q[0].y) / B.h;
+    return new DOMMatrix([a, b, c, d, q[0].x - a * B.x - c * B.y, q[0].y - b * B.x - d * B.y]);
+  }
+
   apply(pop = true) {
     if (!this.active) return;
+    const tl = this.textLayer;
+    if (tl && tl.kind === 'text') {
+      const M = this.affineMatrix();
+      if (!M) {
+        // distort / perspective cannot be expressed by type: ask, like a pixel operation would
+        confirmDialog(t('app.rasterizeAsk'), t('cmd.rasterize')).then(ok => {
+          if (!ok || !this.active) return;
+          tl.kind = 'raster'; tl.text = null;
+          this.textLayer = null;
+          this.apply(pop);
+        });
+        return;
+      }
+      this.active = false;
+      this.removePreview();
+      transformText(tl, M);
+      // the layer mask (if any) is transformed as pixels
+      for (const it of this.items) {
+        if (it.kind !== 'mask' || !it.surface) continue;
+        const r = transformPixels(it.src, it.sx, it.sy, M, it.surface.fill, app.doc!);
+        it.surface.replace(r.c, r.x, r.y);
+        it.layer.touch();
+      }
+      this.items = [];
+      this.textLayer = null;
+      app.hideSelection = false;
+      app.commit('cmd.freeTransform');
+      if (pop) app.popTool();
+      return;
+    }
     this.active = false;
     this.removePreview();
     const d = app.doc!;
@@ -403,6 +448,25 @@ export class TransformTool extends Tool {
     els.push(spacer(), textButton(t('dlg.cancel'), () => this.cancel()), textButton(t('opt.apply'), () => this.apply(), true));
     return els;
   }
+}
+
+/** Affine pixel transform of a surface canvas living at (sx, sy); masks (fill 255) keep white outside. */
+function transformPixels(src: HTMLCanvasElement, sx: number, sy: number, M: DOMMatrix, fill: 0 | 255, d: { width: number; height: number }) {
+  const corners = rectQuad({ x: sx, y: sy, w: src.width, h: src.height }).map(p => new DOMPoint(p.x, p.y).matrixTransform(M));
+  let r = quadBounds(corners);
+  if (fill === 255) r = unionRect(r, { x: 0, y: 0, w: d.width, h: d.height });
+  const c = createCanvas(r.w, r.h);
+  const g = ctx2d(c);
+  if (fill === 255) {
+    g.fillStyle = '#fff'; g.fillRect(0, 0, r.w, r.h);
+    g.globalCompositeOperation = 'destination-out';
+    g.beginPath(); corners.forEach((p, i) => (i ? g.lineTo(p.x - r.x, p.y - r.y) : g.moveTo(p.x - r.x, p.y - r.y))); g.closePath(); g.fill();
+    g.globalCompositeOperation = 'source-over';
+  }
+  g.imageSmoothingQuality = 'high';
+  g.setTransform(new DOMMatrix().translate(-r.x, -r.y).multiply(M).translate(sx, sy));
+  g.drawImage(src, 0, 0);
+  return { c, x: r.x, y: r.y };
 }
 
 function unionRect(a: Rect, b: Rect): Rect {

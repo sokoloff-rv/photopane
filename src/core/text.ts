@@ -348,37 +348,75 @@ export function renderTextLayer(l: Layer) {
   const pad = Math.ceil(maxSize * 0.6);
   const f = lay.frame;
   const c = createCanvas(Math.ceil(f.w) + pad * 2, Math.ceil(f.h) + pad * 2);
-  const g = ctx2d(c);
-  g.textBaseline = 'alphabetic';
-  if (t.box) { g.beginPath(); g.rect(pad, pad, f.w, f.h); g.clip(); }
   const ox = f.x - Math.floor(f.x), oy = f.y - Math.floor(f.y);
-  if (ox || oy) g.translate(ox, oy);
-  for (const ln of lay.lines) {
-    let x = pad + ln.x;
-    const y = pad + ln.baseline;
-    for (const sg of ln.segs) {
-      const s = sg.s;
-      g.font = styleFont(s);
-      (g as any).letterSpacing = `${(s.tracking / 1000) * s.size}px`;
-      g.fillStyle = css(s.color);
-      if (s.vScale !== 1) { g.save(); g.translate(x, y); g.scale(1, s.vScale); g.fillText(sg.text, 0, 0); g.restore(); }
-      else g.fillText(sg.text, x, y);
-      if (s.underline && sg.text.trim()) g.fillRect(x, y + s.size * 0.1, sg.w, Math.max(1, s.size / 16));
-      x += sg.w;
+  /** Draw the glyphs in the upright frame canvas coordinates (frame origin at pad + sub-pixel offset). */
+  const paint = (g: CanvasRenderingContext2D) => {
+    g.textBaseline = 'alphabetic';
+    if (t.box) { g.beginPath(); g.rect(pad, pad, f.w, f.h); g.clip(); }
+    if (ox || oy) g.translate(ox, oy);
+    for (const ln of lay.lines) {
+      let x = pad + ln.x;
+      const y = pad + ln.baseline;
+      for (const sg of ln.segs) {
+        const s = sg.s;
+        g.font = styleFont(s);
+        (g as any).letterSpacing = `${(s.tracking / 1000) * s.size}px`;
+        g.fillStyle = css(s.color);
+        if (s.vScale !== 1) { g.save(); g.translate(x, y); g.scale(1, s.vScale); g.fillText(sg.text, 0, 0); g.restore(); }
+        else g.fillText(sg.text, x, y);
+        if (s.underline && sg.text.trim()) g.fillRect(x, y + s.size * 0.1, sg.w, Math.max(1, s.size / 16));
+        x += sg.w;
+      }
     }
-  }
+  };
   const lx = Math.floor(f.x) - pad, ly = Math.floor(f.y) - pad;
   const m = textMatrix(t, lay);
-  if (!m) { l.content.replace(c, lx, ly); l.touch(); return; }
-  // transformed text: draw the upright rendering through the text matrix
+  if (!m) { paint(ctx2d(c)); l.content.replace(c, lx, ly); l.touch(); return; }
+  // transformed text: draw the glyph outlines through the text matrix (stays crisp when scaled or rotated)
   const pts = [[lx, ly], [lx + c.width, ly], [lx + c.width, ly + c.height], [lx, ly + c.height]].map(([x, y]) => new DOMPoint(x, y).matrixTransform(m));
   const x0 = Math.floor(Math.min(...pts.map(p => p.x))), y0 = Math.floor(Math.min(...pts.map(p => p.y)));
   const x1 = Math.ceil(Math.max(...pts.map(p => p.x))), y1 = Math.ceil(Math.max(...pts.map(p => p.y)));
-  const out = createCanvas(x1 - x0, y1 - y0);
+  const out = createCanvas(Math.max(1, x1 - x0), Math.max(1, y1 - y0));
   const og = ctx2d(out);
-  og.imageSmoothingQuality = 'high';
   og.setTransform(new DOMMatrix().translate(-x0, -y0).multiply(m).translate(lx, ly));
-  og.drawImage(c, 0, 0);
+  paint(og);
   l.content.replace(out, x0, y0);
   l.touch();
+}
+
+/**
+ * Apply a document-space affine transform to a type layer while keeping the text editable
+ * (Photoshop's free transform / rotate / flip on type). Uniform scale is baked into the font sizes;
+ * rotation, skew, mirroring and non-uniform scale stay in the text matrix.
+ */
+export function transformText(l: Layer, M: DOMMatrix) {
+  const t = l.text;
+  if (!t) return;
+  const P = textPivot(t);
+  const L = t.tf?.m ?? [1, 0, 0, 1];
+  // L' = A·L (DOMMatrix order: x' = a·x + c·y, y' = b·x + d·y)
+  let a = M.a * L[0] + M.c * L[1], b = M.b * L[0] + M.d * L[1];
+  let c = M.a * L[2] + M.c * L[3], d = M.b * L[2] + M.d * L[3];
+  // the pivot follows the transform; the layout moves with the anchor
+  const MP = new DOMPoint(P.x, P.y).matrixTransform(M);
+  let dx = t.tf?.dx ?? 0, dy = t.tf?.dy ?? 0;
+  t.psdPixels = false;
+  delete t.psdFrame;
+  // bake a uniform scale (rotation / reflection with equal axes) into the type size, like Photoshop's size field
+  const s = Math.sqrt(Math.abs(a * d - b * c));
+  const ortho = s > 1e-6 && Math.abs((a * a + b * b) / (s * s) - 1) < 1e-3 && Math.abs((c * c + d * d) / (s * s) - 1) < 1e-3 && Math.abs((a * c + b * d) / (s * s)) < 1e-3;
+  if (ortho && Math.abs(s - 1) > 1e-6) {
+    const r2 = (v: number) => Math.round(v * 1000) / 1000;
+    t.size = r2(t.size * s);
+    if (t.runs) t.runs.forEach(r => { r.s.size = r2(r.s.size * s); });
+    if (t.box) t.box = { w: t.box.w * s, h: t.box.h * s };
+    dx *= s; dy *= s;
+    a /= s; b /= s; c /= s; d /= s;
+  }
+  const ident = Math.abs(a - 1) < 1e-6 && Math.abs(b) < 1e-6 && Math.abs(c) < 1e-6 && Math.abs(d - 1) < 1e-6;
+  t.tf = ident ? null : { m: [a, b, c, d], dx: t.box ? dx : 0, dy: t.box ? dy : 0 };
+  // place the anchor so that the pivot lands on its transformed position
+  if (t.box) { t.ax = MP.x - dx; t.ay = MP.y - dy; }
+  else { t.ax = MP.x; t.ay = MP.y - baselineOffset(t); }
+  renderTextLayer(l);
 }

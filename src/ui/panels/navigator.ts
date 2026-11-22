@@ -7,14 +7,26 @@ import { t } from '../../i18n';
 export class NavigatorPanel extends Panel {
   private canvas: HTMLCanvasElement;
   private slider: HTMLInputElement;
-  private pct: HTMLElement;
+  private pct: HTMLInputElement;
   private box = { x: 0, y: 0, w: 0, h: 0, scale: 1 };
 
   constructor() {
     super('panel.navigator', 'nav');
     this.canvas = el('canvas', { class: 'nav-canvas' }) as HTMLCanvasElement;
     this.slider = el('input', { type: 'range', class: 'range', min: -460, max: 416, step: 1 }) as HTMLInputElement;
-    this.pct = el('span', { class: 'nav-pct' });
+    this.pct = el('input', { class: 'nav-pct', title: t('nav.zoomHint') }) as HTMLInputElement;
+    this.pct.addEventListener('focus', () => this.pct.select());
+    this.pct.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Enter') this.pct.blur();
+      if (e.key === 'Escape') { this.pct.value = ''; this.pct.blur(); }
+    });
+    this.pct.addEventListener('change', () => {
+      const v = parseFloat(this.pct.value.replace(',', '.'));
+      if (!isNaN(v) && v > 0 && app.doc) app.viewport.setZoom(v / 100);
+      this.render();
+    });
+    this.pct.addEventListener('blur', () => setTimeout(() => this.render(), 0));
     this.slider.addEventListener('input', () => app.viewport.setZoom(Math.pow(2, +this.slider.value / 100)));
     const out = iconButton('zoomOut', t('cmd.zoomOut'), () => app.viewport.zoomStep(-1));
     const inn = iconButton('zoomIn', t('cmd.zoomIn'), () => app.viewport.zoomStep(1));
@@ -53,7 +65,8 @@ export class NavigatorPanel extends Panel {
     const g = this.canvas.getContext('2d')!;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, W, H);
-    if (!d) { this.pct.textContent = ''; return; }
+    if (!d) { this.pct.value = ''; this.pct.disabled = true; return; }
+    this.pct.disabled = false;
     const scale = Math.min(W / d.width, H / d.height);
     const w = d.width * scale, h = d.height * scale;
     const x = (W - w) / 2, y = (H - h) / 2;
@@ -72,6 +85,6 @@ export class NavigatorPanel extends Panel {
     g.strokeRect(vx, vy, vw, vh);
     g.restore();
     if (document.activeElement !== this.slider) this.slider.value = String(Math.round(Math.log2(d.zoom) * 100));
-    this.pct.textContent = Math.round(d.zoom * 1000) / 10 + '%';
+    if (document.activeElement !== this.pct) this.pct.value = Math.round(d.zoom * 1000) / 10 + '%';
   }
 }

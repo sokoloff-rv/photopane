@@ -50,6 +50,8 @@ export class App {
   selOffset = { x: 0, y: 0 };
   /** Hide marching ants (selection is being transformed). */
   hideSelection = false;
+  /** Set while the color picker is open: clicks on the canvas sample a color. */
+  colorPick: ((c: RGB) => void) | null = null;
   settings: any = {};
   spaceDown = false;
 

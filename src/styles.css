@@ -159,7 +159,9 @@ button { cursor: default; }
 .nav-canvas { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .nav-zoom { display: flex; align-items: center; gap: 4px; margin-top: 8px; }
 .nav-zoom .range { flex: 1; }
-.nav-pct { width: 50px; text-align: right; color: var(--text2); font-variant-numeric: tabular-nums; font-size: 11.5px; }
+.nav-pct { width: 56px; height: 22px; text-align: right; color: var(--text2); background: var(--fill); border: 0; border-radius: 5px; padding: 0 6px; font-variant-numeric: tabular-nums; font-size: 11.5px; outline: none; }
+.nav-pct:hover { color: var(--text); }
+.nav-pct:focus { color: var(--text); box-shadow: 0 0 0 2px var(--accent-soft), inset 0 0 0 1px var(--accent); }
 
 .hist .panel-body { flex: 1; padding-left: 6px; padding-right: 6px; }
 .hist-list { overflow-y: auto; flex: 1; min-height: 0; }
@@ -328,3 +330,5 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .lv-track { width: 100%; height: 16px; display: block; cursor: ew-resize; touch-action: none; }
 .curves-canvas { width: 280px; height: 280px; display: block; border-radius: 4px; background: rgba(0, 0, 0, 0.25); touch-action: none; cursor: crosshair; }
 .curve-info { display: flex; gap: 14px; color: var(--text2); font-variant-numeric: tabular-nums; }
+.dlg-overlay.pass { background: transparent; pointer-events: none; animation: none; }
+.dlg-overlay.pass .dlg { pointer-events: auto; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(255, 255, 255, 0.14); }

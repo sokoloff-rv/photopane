@@ -166,6 +166,8 @@ const D: Record<string, [string, string]> = {
   'blur.amount': ['Размытие', 'Blur'],
   'blur.fieldHint': ['Щелчок по изображению — новая булавка', 'Click the image to add a pin'],
 
+  'nav.zoomHint': ['Масштаб: введите значение и нажмите Enter', 'Zoom: type a value and press Enter'],
+
   // menus
   'menu.file': ['Файл', 'File'],
   'menu.edit': ['Редактирование', 'Edit'],

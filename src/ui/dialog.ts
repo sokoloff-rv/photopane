@@ -13,6 +13,8 @@ export interface DialogOptions {
   extraButtons?: HTMLElement[];
   /** Non-dimming dialog placed beside the image (adjustments with live preview). */
   side?: boolean;
+  /** Non-dimming dialog that lets clicks through to the canvas (color picker eyedropper). */
+  passthrough?: boolean;
 }
 
 let openCount = 0;
@@ -28,7 +30,7 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
     header,
     el('div', { class: 'dlg-body' }, o.body),
     el('div', { class: 'dlg-foot' }, ...(o.extraButtons || []), el('div', { style: { flex: '1' } }), cancel, ok));
-  const overlay = el('div', { class: 'dlg-overlay' + (o.side ? ' side' : '') }, card);
+  const overlay = el('div', { class: 'dlg-overlay' + (o.side ? ' side' : '') + (o.passthrough ? ' pass' : '') }, card);
   document.body.append(overlay);
   let closed = false;
   const close = () => {

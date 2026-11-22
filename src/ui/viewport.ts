@@ -5,6 +5,8 @@ import { PEvent } from '../tools/tool';
 import { icon } from './icons';
 import { smartLines } from '../core/snap';
 import { openCanvasContextMenu } from './contextmenu';
+import { iconCursor } from './icons';
+import { sampleColor } from '../tools/paint';
 
 const RB = 18; // ruler band size
 
@@ -17,7 +19,7 @@ export class Viewport {
   w = 0; h = 0; dpr = 1;
   pointer: { sx: number; sy: number; inside: boolean } = { sx: 0, sy: 0, inside: false };
   private antsPhase = 0;
-  private dragging: 'tool' | 'pan' | 'guide' | null = null;
+  private dragging: 'tool' | 'pan' | 'guide' | 'pick' | null = null;
   private guideDrag: { axis: 'h' | 'v'; index: number } | null = null;
   private panStart = { x: 0, y: 0, px: 0, py: 0 };
   private checker: CanvasPattern | null = null;
@@ -219,7 +221,7 @@ export class Viewport {
     this.drawGuides(g);
     // brush outline
     const bs = app.tool.brushSize();
-    if (bs > 0 && this.pointer.inside && !app.spaceDown) {
+    if (bs > 0 && this.pointer.inside && !app.spaceDown && !app.colorPick) {
       const r = (bs * d.zoom) / 2;
       const { sx, sy } = this.pointer;
       g.save();
@@ -235,6 +237,11 @@ export class Viewport {
       g.restore();
     }
     if (app.settings.rulers) this.drawRulers(g);
+  }
+
+  private pickAt(pe: PEvent) {
+    const c = sampleColor(pe.x, pe.y, 1, true);
+    if (c && app.colorPick) app.colorPick(c);
   }
 
   /* ---------- guides & rulers ---------- */
@@ -319,7 +326,7 @@ export class Viewport {
   isPanTool() { return app.spaceDown || app.tool.id === 'hand'; }
 
   updateCursor() {
-    const c = this.isPanTool() ? (this.dragging === 'pan' ? 'grabbing' : 'grab') : app.tool.brushSize() > 0 ? 'none' : app.tool.cursor;
+    const c = app.colorPick ? iconCursor('eyedropper', 2, 22) : this.isPanTool() ? (this.dragging === 'pan' ? 'grabbing' : 'grab') : app.tool.brushSize() > 0 ? 'none' : app.tool.cursor;
     this.overlay.style.cursor = c;
     this.renderOverlay();
   }
@@ -351,6 +358,7 @@ export class Viewport {
     if (e.button !== 0) return;
     const pe = this.ev(e);
     const d = app.doc;
+    if (app.colorPick) { this.dragging = 'pick'; this.pickAt(pe); return; }
     // new guide dragged out of a ruler
     if (app.settings.rulers && (pe.sy < RB || pe.sx < RB) && !(pe.sy < RB && pe.sx < RB)) {
       const axis = pe.sy < RB ? 'h' : 'v';
@@ -381,6 +389,7 @@ export class Viewport {
       app.update('view');
       return;
     }
+    if (this.dragging === 'pick') { this.pickAt(pe); return; }
     if (this.dragging === 'guide' && this.guideDrag) {
       const g = this.guideDrag;
       app.doc.guides[g.axis][g.index] = Math.round(g.axis === 'h' ? pe.y : pe.x);

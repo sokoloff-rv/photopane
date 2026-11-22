@@ -2,6 +2,7 @@ import { RGB, rgbToHsv, hsvToRgb, rgbToHex, hexToRgb, css } from '../core/color'
 import { el, clamp } from '../core/util';
 import { t } from '../i18n';
 import { openDialog } from './dialog';
+import { app } from '../app';
 
 const RECENT_KEY = 'pp.recentColors';
 
@@ -92,9 +93,15 @@ export function openColorPicker(initial: RGB, title: string, onPick: (c: RGB) =>
   drawHue();
   sync();
 
+  // while the picker is open, clicking the image samples a color (like Photoshop)
+  app.colorPick = c => setRgb(c);
+  app.viewport.updateCursor();
+  const stopPick = () => { app.colorPick = null; app.viewport.updateCursor(); };
   openDialog({
-    title, body, width: 520,
+    title, body, width: 520, passthrough: true,
+    onCancel: stopPick,
     onOk: () => {
+      stopPick();
       const c = cur();
       const hx = rgbToHex(c);
       recent = [hx, ...recent.filter(x => x !== hx)].slice(0, 14);

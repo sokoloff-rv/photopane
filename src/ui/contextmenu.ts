@@ -88,7 +88,8 @@ export function selectionMenu(): CtxItem[] {
   return [
     { cmd: 'deselect', label: 'ctx.deselect' },
     { cmd: 'inverse', label: 'ctx.inverse' },
-    { cmd: 'feather' },
+    '-',
+    { cmd: 'feather' }, { cmd: 'expand' }, { cmd: 'contract' }, { cmd: 'smooth' },
     '-',
     { cmd: 'layerViaCopy', label: 'ctx.layerViaCopy' },
     { cmd: 'layerViaCut', label: 'ctx.layerViaCut' },
@@ -112,11 +113,15 @@ export function openCanvasContextMenu(e: MouseEvent, pe: PEvent) {
     const ls = layersAt(pe.x, pe.y);
     const items: CtxItem[] = ls.map(l => ({ label: l.name, checked: l.id === d.activeId, run: () => { d.setActive(l); app.layersPanel.clearMulti(); app.update('layers', 'options'); } }));
     if (d.selection) items.push('-', ...selectionMenu());
+    else items.push(...(items.length ? ['-' as const] : []), { cmd: 'freeTransform' });
     showContextMenu(e.clientX, e.clientY, items);
     return;
   }
   if (d.selection) { showContextMenu(e.clientX, e.clientY, selectionMenu()); return; }
   if (SELECT_TOOLS.includes(id)) {
-    showContextMenu(e.clientX, e.clientY, [{ cmd: 'selectAll', label: 'ctx.selectAll' }, { cmd: 'reselect' }, '-', { cmd: 'newLayer' }, { cmd: 'freeTransform' }]);
+    showContextMenu(e.clientX, e.clientY, [
+      { cmd: 'selectAll', label: 'ctx.selectAll' }, { cmd: 'reselect' }, { cmd: 'selectSubject' }, { cmd: 'selectLayerPixels', label: 'ctx.selectPixels' },
+      '-', { cmd: 'newLayer' }, { cmd: 'freeTransform' },
+    ]);
   }
 }

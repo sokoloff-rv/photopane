@@ -208,19 +208,25 @@ export class LayersPanel extends Panel {
   /** Right-click menu on a layer row. */
   private layerMenu(d: Doc, l: Layer, e: MouseEvent) {
     if (d.activeId !== l.id) { d.setActive(l); this.clearMulti(); app.update('layers', 'options'); }
+    // everything the old Layer menu had, in one place
+    const mask: CtxItem[] = l.mask
+      ? [{ cmd: 'maskToggle' }, { cmd: 'maskApply' }, { cmd: 'maskDelete' }]
+      : [{ cmd: 'maskReveal', label: 'layers.mask' }, ...(d.selection ? [{ cmd: 'maskFromSel', label: 'ctx.maskFromSel' } as CtxItem] : [])];
     const items: CtxItem[] = [
       { label: t('ctx.blending'), run: () => layerStyleDialog('blending') },
       { cmd: 'layerStyle' },
       { cmd: 'clearStyle' },
       '-',
-      { cmd: 'duplicate' }, { cmd: 'deleteLayer' }, { cmd: 'groupLayers' },
+      { cmd: 'duplicate' }, { cmd: 'deleteLayer' },
+      l.isGroup ? { cmd: 'ungroup' } : { cmd: 'groupLayers' },
       '-',
+      { cmd: 'selectLayerPixels', label: 'ctx.selectPixels' },
       { cmd: 'rasterize' },
       '-',
-      { cmd: l.mask ? 'maskDelete' : 'maskReveal', label: l.mask ? 'cmd.maskDelete' : 'layers.mask' },
+      ...mask,
       { cmd: 'clipMask' },
       '-',
-      { cmd: 'mergeDown' }, { cmd: 'mergeVisible' }, { cmd: 'flatten' },
+      { cmd: 'mergeDown' }, { cmd: 'mergeVisible' }, { cmd: 'stampVisible' }, { cmd: 'flatten' },
     ];
     showContextMenu(e.clientX, e.clientY, items);
   }

@@ -5,26 +5,18 @@ import { icon } from './icons';
 
 type Item = string | { sub: string; items: Item[] };
 
+// One obvious path per action: selection commands live in the canvas context menu, layer commands in the
+// Layers panel (buttons and right-click menu), language in the corner switch. Shortcuts keep working.
 const MENUS: { key: string; items: Item[] }[] = [
   { key: 'menu.file', items: ['new', 'newFromClipboard', 'open', '-', 'place', '-', 'save', 'saveAs', 'export', '-', 'close'] },
-  { key: 'menu.edit', items: ['undo', 'redo', '-', 'cut', 'copy', 'copyMerged', 'paste', 'clear', '-', 'fillDialog', 'strokeSel', '-', 'freeTransform',
-    { sub: 'cmd.transform', items: ['rotateLayer180', 'rotateLayerCW', 'rotateLayerCCW', '-', 'flipLayerH', 'flipLayerV'] }, '-', 'settings'] },
+  { key: 'menu.edit', items: ['undo', 'redo', '-', 'cut', 'copy', 'copyMerged', 'paste', 'clear', '-', 'settings'] },
   { key: 'menu.image', items: [
     'enhance', 'levels', 'curves', '-',
-    'autoTone', 'autoContrast', 'autoColor', '-',
-    'invert', 'desaturate', '-',
     'imageSize', 'canvasSize',
     { sub: 'cmd.rotation', items: ['rot180', 'rotCW', 'rotCCW', 'rotArbitrary', '-', 'flipCanvasH', 'flipCanvasV'] }, 'cropToSel', '-',
     'upscale', 'removeBg', 'removeObject'] },
-  { key: 'menu.layer', items: ['newLayer', 'newGroup', 'duplicate', 'deleteLayer', '-', 'layerViaCopy', 'layerViaCut', '-', 'layerStyle', 'clearStyle',
-    { sub: 'cmd.layerMask', items: ['maskReveal', 'maskHide', 'maskFromSel', 'maskHideSel', '-', 'maskToggle', 'maskApply', 'maskDelete'] },
-    'clipMask', '-', 'groupLayers', 'ungroup', '-',
-    { sub: 'cmd.arrange', items: ['bringFront', 'bringForward', 'sendBackward', 'sendBack'] }, 'lockAlpha', '-',
-    'rasterize', '-', 'mergeDown', 'mergeVisible', 'stampVisible', 'flatten'] },
-  { key: 'menu.select', items: ['selectAll', 'deselect', 'reselect', 'inverse', '-',
-    { sub: 'cmd.modify', items: ['feather', 'expand', 'contract', 'smooth'] }, 'transformSel', '-', 'selectLayerPixels', 'selectSubject'] },
-  { key: 'menu.filter', items: ['gaussian', 'unsharp', 'noise', '-', { sub: 'cmd.blurGallery', items: ['fieldBlur', 'irisBlur', 'tiltShift'] }, '-', 'vignette'] },
-  { key: 'menu.view', items: ['zoomIn', 'zoomOut', 'fit', 'actual', '-', 'compare', '-', 'rulers', 'showGuides', 'snap', 'clearGuides', '-', 'language'] },
+  { key: 'menu.filter', items: ['gaussian', 'unsharp', 'noise', '-', { sub: 'cmd.blurGallery', items: ['fieldBlur', 'irisBlur', 'tiltShift'] }, '-', 'invert', 'desaturate'] },
+  { key: 'menu.view', items: ['zoomIn', 'zoomOut', 'fit', 'actual', '-', 'compare', '-', 'rulers', 'showGuides', 'snap', 'clearGuides'] },
   { key: 'menu.help', items: ['shortcuts', 'about'] },
 ];
 

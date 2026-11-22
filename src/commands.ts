@@ -151,13 +151,9 @@ export function registerCommands(app: App) {
   R('curves', () => curvesDialog(), ['Ctrl+M'], hasPixelLayer);
   R('invert', () => instantAdjust('cmd.invert', invert), ['Ctrl+I'], hasPixelLayer);
   R('desaturate', () => instantAdjust('cmd.desaturate', desaturate), ['Ctrl+Shift+U'], hasPixelLayer);
-  R('autoTone', () => instantAdjust('cmd.autoTone', (a, b, s) => autoTone(a, b, s.sel)), ['Ctrl+Shift+L'], hasPixelLayer);
-  R('autoContrast', () => instantAdjust('cmd.autoContrast', (a, b, s) => autoContrast(a, b, s.sel)), ['Ctrl+Alt+Shift+L'], hasPixelLayer);
-  R('autoColor', () => instantAdjust('cmd.autoColor', (a, b, s) => autoColor(a, b, s.sel)), ['Ctrl+Shift+B'], hasPixelLayer);
   R('gaussian', () => gaussianDialog(), [], hasPixelLayer);
   R('unsharp', () => unsharpDialog(), [], hasPixelLayer);
   R('noise', () => noiseDialog(), [], hasPixelLayer);
-  R('vignette', () => enhanceDialog(true), [], hasPixelLayer);
   const gallery = (id: string, mode: 'field' | 'iris' | 'tilt') => R(id, () => { if (blurGalleryTool.begin(mode)) app.pushTool(blurGalleryTool); }, [], hasPixelLayer);
   gallery('fieldBlur', 'field');
   gallery('irisBlur', 'iris');
@@ -350,7 +346,6 @@ export function registerCommands(app: App) {
   toggleSetting('showGuides', 'showGuides', true, ['Ctrl+;']);
   toggleSetting('snap', 'snap', true, ['Ctrl+Shift+;']);
   R('clearGuides', () => { const d = D(); d.guides = { h: [], v: [] }; app.update('overlay'); }, [], () => !!app.doc && (app.doc.guides.h.length + app.doc.guides.v.length > 0));
-  R('language', () => { setLang(getLang() === 'ru' ? 'en' : 'ru'); app.relocalize(); });
 
   /* ---------- Help ---------- */
   R('shortcuts', () => shortcutsDialog(app));

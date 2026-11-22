@@ -7,6 +7,7 @@ import { smartLines } from '../core/snap';
 import { openCanvasContextMenu } from './contextmenu';
 import { iconCursor } from './icons';
 import { sampleColor } from '../tools/paint';
+import { resampleSharp } from './resample';
 
 const RB = 18; // ruler band size
 
@@ -23,6 +24,10 @@ export class Viewport {
   private guideDrag: { axis: 'h' | 'v'; index: number } | null = null;
   private panStart = { x: 0, y: 0, px: 0, py: 0 };
   private checker: CanvasPattern | null = null;
+  /** Exact canvas size in physical pixels reported by the browser (avoids a resampled, soft canvas) */
+  private devSize: { w: number; h: number } | null = null;
+  /** Cached sharp downscale of the picture for zooms below 100% */
+  private scaled: { canvas: HTMLCanvasElement; doc: unknown; ver: number; w: number; h: number; ok: boolean } | null = null;
 
   constructor(public el: HTMLElement) {
     this.main = document.createElement('canvas');
@@ -31,7 +36,12 @@ export class Viewport {
     this.overlay.className = 'vp-overlay';
     this.welcome = this.buildWelcome();
     el.append(this.main, this.overlay, this.welcome);
-    new ResizeObserver(() => requestAnimationFrame(() => this.resize())).observe(el);
+    const ro = new ResizeObserver(entries => {
+      const dp = entries[0]?.devicePixelContentBoxSize?.[0];
+      this.devSize = dp ? { w: dp.inlineSize, h: dp.blockSize } : null;
+      requestAnimationFrame(() => this.resize());
+    });
+    try { ro.observe(this.main, { box: 'device-pixel-content-box' }); } catch { ro.observe(this.main); }
     this.resize();
 
     const ov = this.overlay;
@@ -79,11 +89,11 @@ export class Viewport {
     const r = this.el.getBoundingClientRect();
     this.dpr = window.devicePixelRatio || 1;
     this.w = r.width; this.h = r.height;
+    // the backing store must match the physical pixels exactly, otherwise the browser rescales the canvas
+    const dw = this.devSize?.w ?? Math.round(r.width * this.dpr), dh = this.devSize?.h ?? Math.round(r.height * this.dpr);
     for (const c of [this.main, this.overlay]) {
-      c.width = Math.max(1, Math.round(r.width * this.dpr));
-      c.height = Math.max(1, Math.round(r.height * this.dpr));
-      c.style.width = r.width + 'px';
-      c.style.height = r.height + 'px';
+      if (c.width !== Math.max(1, dw)) c.width = Math.max(1, dw);
+      if (c.height !== Math.max(1, dh)) c.height = Math.max(1, dh);
     }
     const d = app?.doc;
     if (d && (!d.fitted || d.autoFit)) this.fit(true);
@@ -108,6 +118,8 @@ export class Viewport {
     let z = Math.min((this.w - pad) / d.width, (this.h - pad) / d.height);
     // 100% = one image pixel per physical screen pixel (like Photoshop), regardless of Windows scaling
     if (onlyShrink) z = Math.min(z, 1 / this.dpr);
+    // prefer exact 100% over a slightly smaller zoom when only the decorative margin is in the way
+    if (z < 1 / this.dpr && d.width / this.dpr <= this.w - 4 && d.height / this.dpr <= this.h - 4) z = 1 / this.dpr;
     d.zoom = clamp(z, 0.01, 64);
     d.panX = Math.round((this.w - d.width * d.zoom) / 2);
     d.panY = Math.round((this.h - d.height * d.zoom) / 2);
@@ -184,9 +196,7 @@ export class Viewport {
     g.beginPath(); g.rect(x, y, w, h); g.clip();
     g.fillStyle = this.checker!;
     g.fillRect(x, y, w, h);
-    g.imageSmoothingEnabled = d.zoom * this.dpr < 2;
-    g.imageSmoothingQuality = 'high';
-    g.drawImage(comp, x, y, w, h);
+    this.drawPicture(g, comp, d);
     // pixel grid at high zoom
     if (d.zoom * this.dpr >= 12) {
       g.strokeStyle = 'rgba(128,128,128,0.25)';
@@ -197,6 +207,34 @@ export class Viewport {
       for (let i = x0; i <= x1; i++) { const sx = Math.round(x + i * d.zoom) + 0.5 / this.dpr; g.moveTo(sx, y + y0 * d.zoom); g.lineTo(sx, y + y1 * d.zoom); }
       for (let j = y0; j <= y1; j++) { const sy = Math.round(y + j * d.zoom) + 0.5 / this.dpr; g.moveTo(x + x0 * d.zoom, sy); g.lineTo(x + x1 * d.zoom, sy); }
       g.stroke();
+    }
+    g.restore();
+  }
+
+  /**
+   * Draw the picture in physical pixels: exactly 1:1 at 100%, sharp bicubic below 100%
+   * (the browser's own filter is bilinear and softens the image), smooth/pixelated above.
+   */
+  private drawPicture(g: CanvasRenderingContext2D, comp: HTMLCanvasElement, d: NonNullable<typeof app.doc>) {
+    const k = this.dpr, dz = d.zoom * k;
+    const dx = Math.round(d.panX * k), dy = Math.round(d.panY * k);
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    if (Math.abs(dz - 1) < 1e-6) {
+      g.drawImage(comp, dx, dy);
+    } else if (dz < 1) {
+      const dw = Math.max(1, Math.round(d.width * dz)), dh = Math.max(1, Math.round(d.height * dz));
+      let s = this.scaled;
+      if (!s || s.doc !== d || s.ver !== d.version || s.w !== dw || s.h !== dh) {
+        const canvas = s?.canvas ?? document.createElement('canvas');
+        s = this.scaled = { canvas, doc: d, ver: d.version, w: dw, h: dh, ok: resampleSharp(comp, dw, dh, canvas) };
+      }
+      if (s.ok) g.drawImage(s.canvas, dx, dy);
+      else { g.imageSmoothingQuality = 'high'; g.drawImage(comp, dx, dy, dw, dh); }
+    } else {
+      g.imageSmoothingEnabled = dz < 2;
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(comp, dx, dy, d.width * dz, d.height * dz);
     }
     g.restore();
   }

@@ -121,7 +121,7 @@ button { cursor: default; }
 
 /* ---------- viewport ---------- */
 .viewport { position: relative; flex: 1; min-height: 0; background: var(--canvas); overflow: hidden; }
-.viewport canvas { position: absolute; left: 0; top: 0; }
+.viewport canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 .vp-overlay { touch-action: none; }
 .welcome { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; pointer-events: none; }
 .welcome > * { pointer-events: auto; }

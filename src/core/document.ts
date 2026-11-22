@@ -136,12 +136,15 @@ export class Doc {
   }
 
   /* ---------- composite ---------- */
-  invalidate() { this._compositeValid = false; this._displayValid = false; }
+  /** Bumped on every content change (caches keyed on the picture, e.g. the scaled view) */
+  version = 0;
+  invalidate() { this._compositeValid = false; this._displayValid = false; this.version++; }
 
   setIccProfile(bytes: Uint8Array | null | undefined) {
     this.iccProfile = bytes ? new Uint8Array(bytes) : null;
     this.colorProfile = parseIcc(this.iccProfile);
     this._displayValid = false;
+    this.version++;
   }
 
   /** Composite converted to sRGB for the screen (same canvas as composite() when the document is sRGB). */

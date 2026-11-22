@@ -310,7 +310,7 @@ export class WandTool extends Tool<WandOpts> {
   readonly id = 'wand';
   readonly iconName = 'wand';
   readonly key = 'W';
-  cursor = iconCursor('wand', 21, 3);
+  cursor = arrowBadgeCursor('wand');
 
   constructor() { super({ mode: 'new', tolerance: 32, contiguous: true, allLayers: false, antialias: true }); }
 

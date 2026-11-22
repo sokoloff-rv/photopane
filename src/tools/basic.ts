@@ -10,7 +10,7 @@ import { previews } from '../core/render';
 import { numberField, checkbox, segmented, select, sep } from '../ui/controls';
 import { applyBuffer, sampleColor } from './paint';
 import { snap45 } from './select';
-import { iconCursor } from '../ui/icons';
+import { iconCursor, arrowBadgeCursor } from '../ui/icons';
 import { collectTargets, snapRect, clearSmart, Targets, snapEnabled } from '../core/snap';
 import { layerBounds } from '../core/ops';
 import { iconButton } from '../ui/controls';
@@ -314,7 +314,7 @@ export class BucketTool extends Tool<BucketOpts> {
   readonly id = 'bucket';
   readonly iconName = 'bucket';
   readonly key = 'G';
-  cursor = iconCursor('bucket', 20, 21);
+  cursor = arrowBadgeCursor('bucket');
   constructor() { super({ tolerance: 32, contiguous: true, allLayers: false, antialias: true, opacity: 100 }); }
 
   down(e: PEvent) {

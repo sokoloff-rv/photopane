@@ -299,3 +299,8 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .align-grid button { width: 22px; height: 22px; border: 0; border-radius: 4px; background: var(--fill); padding: 0; }
 .align-grid button.on { background: var(--text); }
 .align-grid button:hover:not(.on) { background: var(--fill-active); }
+.ctx-menu { position: fixed; top: 0; left: 0; min-width: 240px; }
+.ctx-pop { min-width: 220px; padding: 10px 12px; display: flex; flex-direction: column; gap: 12px; }
+.ctx-row { display: flex; flex-direction: column; gap: 7px; }
+.ctx-row-head { display: flex; justify-content: space-between; color: var(--text2); }
+.ctx-val { color: var(--text); }

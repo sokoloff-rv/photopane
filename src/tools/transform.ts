@@ -10,7 +10,7 @@ import { P, Quad, homography, applyH, rectQuad, quadBounds, pointInPoly, isParal
 import { numberField, iconButton, sep } from '../ui/controls';
 import { toast } from '../ui/dialog';
 
-interface Item { layer: Layer; surface: Surface | null; src: HTMLCanvasElement; sx: number; sy: number; kind: 'content' | 'mask' | 'float' }
+interface Item { layer: Layer; surface: Surface | null; src: HTMLCanvasElement; sx: number; sy: number; kind: 'content' | 'mask' | 'float' | 'sel' }
 interface Affine { cx: number; cy: number; sx: number; sy: number; rot: number }
 
 const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M5 12a7 7 0 1 1 7 7" fill="none" stroke="#000" stroke-width="4" stroke-linecap="round"/><path d="M5 12a7 7 0 1 1 7 7" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><path d="M2 9l3 4 3-4" fill="#fff" stroke="#000" stroke-width="1"/></svg>')}") 12 12, crosshair`;
@@ -22,6 +22,7 @@ export class TransformTool extends Tool {
   readonly iconName = 'move';
   cursor = 'default';
   active = false;
+  private selOnly = false;
   private items: Item[] = [];
   private B: Rect = { x: 0, y: 0, w: 1, h: 1 };
   private quad: Quad = rectQuad({ x: 0, y: 0, w: 1, h: 1 });
@@ -33,47 +34,56 @@ export class TransformTool extends Tool {
   constructor() { super({}); }
 
   /** Prepare a transform of the active layer or selection. Returns false if nothing to transform. */
-  begin(): boolean {
+  begin(selOnly = false): boolean {
     const d = app.doc;
     const l = d?.active;
-    if (!d || !l) return false;
-    if (l.kind === 'text') { l.kind = 'raster'; l.text = null; toast(t('app.rasterized')); }
+    if (!d || (!l && !selOnly)) return false;
     this.items = [];
     this.floatInfo = null;
     this.maskStates = [];
-    if (d.selection && !l.isGroup && !(d.editMask && l.mask)) {
+    this.selOnly = selOnly;
+    if (selOnly) {
+      if (!d.selection) return false;
+      this.items.push({ layer: d.root, surface: null, src: d.selection.mask, sx: 0, sy: 0, kind: 'sel' });
+      this.B = { ...d.selection.bounds };
+      app.hideSelection = true;
+    } else if (!l) return false;
+    else if (l.kind === 'text') { l.kind = 'raster'; l.text = null; toast(t('app.rasterized')); }
+    if (selOnly) { /* set up above */ }
+    else if (d.selection && !l!.isGroup && !(d.editMask && l!.mask)) {
       const sel = d.selection;
       const fc = createCanvas(sel.bounds.w, sel.bounds.h);
       const g = ctx2d(fc);
-      g.drawImage(l.canvas, l.x - sel.bounds.x, l.y - sel.bounds.y);
+      g.drawImage(l!.canvas, l!.x - sel.bounds.x, l!.y - sel.bounds.y);
       g.globalCompositeOperation = 'destination-in';
       g.drawImage(sel.mask, -sel.bounds.x, -sel.bounds.y);
       const ab = alphaBounds(fc);
       if (!ab) { toast(t('app.emptyArea')); return false; }
       const piece = createCanvas(ab.w, ab.h);
       ctx2d(piece).drawImage(fc, -ab.x, -ab.y);
-      const backup = cloneCanvas(l.canvas);
-      this.floatInfo = { layer: l, backup, bx: l.x, by: l.y, sel };
-      const lg = l.content.ctx;
+      const backup = cloneCanvas(l!.canvas);
+      this.floatInfo = { layer: l!, backup, bx: l!.x, by: l!.y, sel };
+      const lg = l!.content.ctx;
       lg.globalCompositeOperation = 'destination-out';
-      lg.drawImage(sel.mask, -l.x, -l.y);
+      lg.drawImage(sel.mask, -l!.x, -l!.y);
       lg.globalCompositeOperation = 'source-over';
-      this.items.push({ layer: l, surface: null, src: piece, sx: sel.bounds.x + ab.x, sy: sel.bounds.y + ab.y, kind: 'float' });
+      this.items.push({ layer: l!, surface: null, src: piece, sx: sel.bounds.x + ab.x, sy: sel.bounds.y + ab.y, kind: 'float' });
       this.B = { x: sel.bounds.x + ab.x, y: sel.bounds.y + ab.y, w: ab.w, h: ab.h };
-    } else if (d.editMask && l.mask) {
-      const m = l.mask;
-      this.items.push({ layer: l, surface: m, src: m.canvas, sx: m.x, sy: m.y, kind: 'mask' });
-      this.B = layerBounds(l) || m.bounds();
+    } else if (d.editMask && l!.mask) {
+      const m = l!.mask;
+      this.items.push({ layer: l!, surface: m, src: m.canvas, sx: m.x, sy: m.y, kind: 'mask' });
+      this.B = layerBounds(l!) || m.bounds();
     } else {
-      const b = layerBounds(l);
+      const L = l!;
+      const b = layerBounds(L);
       if (!b) { toast(t('app.emptyArea')); return false; }
       this.B = b;
-      const layers = l.isGroup ? [...l.descendants()] : [l];
+      const layers = L.isGroup ? [...L.descendants()] : [L];
       for (const x of layers) {
         if (!x.isGroup) this.items.push({ layer: x, surface: x.content, src: x.canvas, sx: x.x, sy: x.y, kind: 'content' });
         if (x.mask) this.items.push({ layer: x, surface: x.mask, src: x.mask.canvas, sx: x.mask.x, sy: x.mask.y, kind: 'mask' });
       }
-      if (l.isGroup && l.mask) this.items.push({ layer: l, surface: l.mask, src: l.mask.canvas, sx: l.mask.x, sy: l.mask.y, kind: 'mask' });
+      if (L.isGroup && L.mask) this.items.push({ layer: L, surface: L.mask, src: L.mask.canvas, sx: L.mask.x, sy: L.mask.y, kind: 'mask' });
     }
     // masks are hidden while the preview is shown
     for (const it of this.items) if (it.kind === 'mask' && it.layer.mask) { this.maskStates.push({ s: it.layer, enabled: it.layer.mask.enabled }); it.layer.mask.enabled = false; }
@@ -112,7 +122,7 @@ export class TransformTool extends Tool {
 
   private installPreview() {
     const byLayer = new Map<Layer, Item[]>();
-    for (const it of this.items) if (it.kind !== 'mask') { const a = byLayer.get(it.layer) || []; a.push(it); byLayer.set(it.layer, a); }
+    for (const it of this.items) if (it.kind === 'content' || it.kind === 'float') { const a = byLayer.get(it.layer) || []; a.push(it); byLayer.set(it.layer, a); }
     for (const [l, its] of byLayer) {
       previews.set(l.id, g => {
         if (this.floatInfo) g.drawImage(l.canvas, l.x, l.y);
@@ -161,6 +171,13 @@ export class TransformTool extends Tool {
       return { c, x: r.x, y: r.y };
     };
     for (const it of this.items) {
+      if (it.kind === 'sel') {
+        const res = xform(it.src, 0, 0, 0);
+        const m = createCanvas(d.width, d.height);
+        ctx2d(m).drawImage(res.c, res.x, res.y);
+        d.selection = Selection.fromMask(m);
+        continue;
+      }
       if (it.kind === 'float') {
         const fi = this.floatInfo!;
         const res = xform(it.src, it.sx, it.sy, 0);
@@ -179,7 +196,8 @@ export class TransformTool extends Tool {
       it.layer.touch();
     }
     this.items = [];
-    app.commit('cmd.freeTransform');
+    app.hideSelection = false;
+    app.commit(this.selOnly ? 'cmd.transformSel' : 'cmd.freeTransform');
     if (pop) app.popTool();
   }
 
@@ -194,6 +212,7 @@ export class TransformTool extends Tool {
       fi.layer.touch();
     }
     this.items = [];
+    app.hideSelection = false;
     app.update('canvas', 'overlay');
     if (app.tool === this) app.popTool();
   }
@@ -345,6 +364,10 @@ export class TransformTool extends Tool {
     const v = app.viewport;
     const q = this.quad.map(p => v.toScreen(p.x, p.y));
     g.save();
+    if (this.selOnly) {
+      g.save(); g.beginPath(); q.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y))); g.closePath();
+      g.setLineDash([4, 4]); g.strokeStyle = '#000'; g.lineWidth = 1; g.stroke(); g.restore();
+    }
     g.beginPath();
     q.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
     g.closePath();

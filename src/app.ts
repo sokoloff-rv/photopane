@@ -48,6 +48,8 @@ export class App {
   lastSelection: Selection | null = null;
   /** Offset applied when drawing selection ants (move tool preview). */
   selOffset = { x: 0, y: 0 };
+  /** Hide marching ants (selection is being transformed). */
+  hideSelection = false;
   settings: any = {};
   spaceDown = false;
 

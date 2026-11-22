@@ -7,7 +7,7 @@ type Item = string | { sub: string; items: Item[] };
 
 const MENUS: { key: string; items: Item[] }[] = [
   { key: 'menu.file', items: ['new', 'newFromClipboard', 'open', '-', 'place', '-', 'save', 'saveAs', 'export', '-', 'close'] },
-  { key: 'menu.edit', items: ['undo', 'redo', '-', 'cut', 'copy', 'copyMerged', 'paste', 'clear', '-', 'fill', 'fillBg', '-', 'freeTransform',
+  { key: 'menu.edit', items: ['undo', 'redo', '-', 'cut', 'copy', 'copyMerged', 'paste', 'clear', '-', 'fillDialog', 'strokeSel', '-', 'freeTransform',
     { sub: 'cmd.transform', items: ['rotateLayer180', 'rotateLayerCW', 'rotateLayerCCW', '-', 'flipLayerH', 'flipLayerV'] }, '-', 'settings'] },
   { key: 'menu.image', items: [
     { sub: 'cmd.adjustments', items: ['enhance', 'levels', 'curves', 'hueSat', '-', 'invert', 'desaturate'] }, '-',
@@ -20,7 +20,7 @@ const MENUS: { key: string; items: Item[] }[] = [
     { sub: 'cmd.arrange', items: ['bringFront', 'bringForward', 'sendBackward', 'sendBack'] }, 'lockAlpha', '-',
     'rasterize', '-', 'mergeDown', 'mergeVisible', 'stampVisible', 'flatten'] },
   { key: 'menu.select', items: ['selectAll', 'deselect', 'reselect', 'inverse', '-',
-    { sub: 'cmd.modify', items: ['feather', 'expand', 'contract', 'smooth'] }, '-', 'selectLayerPixels', 'selectSubject'] },
+    { sub: 'cmd.modify', items: ['feather', 'expand', 'contract', 'smooth'] }, 'transformSel', '-', 'selectLayerPixels', 'selectSubject'] },
   { key: 'menu.filter', items: ['gaussian', 'unsharp', 'noise', '-', { sub: 'cmd.blurGallery', items: ['fieldBlur', 'irisBlur', 'tiltShift'] }, '-', 'vignette'] },
   { key: 'menu.view', items: ['zoomIn', 'zoomOut', 'fit', 'actual', '-', 'rulers', 'showGuides', 'snap', 'clearGuides', '-', 'language'] },
   { key: 'menu.help', items: ['shortcuts', 'about'] },

@@ -11,6 +11,7 @@ import { cloneLayer, transformLayer, transformDocument, cropDocument, mergeDown,
 import { pickFiles, openFiles, saveDoc, exportDialog, readClipboardImage, writeClipboard, placeImage } from './io/files';
 import { TransformTool } from './tools/transform';
 import { imageSizeDialog, canvasSizeDialog, rotateArbitraryDialog } from './ui/docdialogs';
+import { fillDialog, strokeDialog } from './ui/filldialogs';
 
 export const transformTool = new TransformTool();
 
@@ -111,6 +112,9 @@ export function registerCommands(app: App) {
   R('fillBg', () => fillWith(true), ['Ctrl+Backspace', 'Ctrl+Delete'], hasPixelLayer);
 
   R('freeTransform', () => { if (transformTool.begin()) app.pushTool(transformTool); }, ['Ctrl+T'], hasLayer);
+  R('transformSel', () => { if (transformTool.begin(true)) app.pushTool(transformTool); }, [], hasSel);
+  R('fillDialog', () => fillDialog(), ['Shift+F5'], hasPixelLayer);
+  R('strokeSel', () => strokeDialog(), [], () => hasPixelLayer() && hasSel());
 
   const layerXform = (id: string, mk: (b: { x: number; y: number; w: number; h: number }) => DOMMatrix) => {
     R(id, () => {

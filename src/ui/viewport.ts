@@ -4,6 +4,7 @@ import { t } from '../i18n';
 import { PEvent } from '../tools/tool';
 import { icon } from './icons';
 import { smartLines } from '../core/snap';
+import { openCanvasContextMenu } from './contextmenu';
 
 const RB = 18; // ruler band size
 
@@ -40,10 +41,10 @@ export class Viewport {
     ov.addEventListener('pointerenter', () => { this.pointer.inside = true; });
     ov.addEventListener('pointerleave', () => { this.pointer.inside = false; this.renderOverlay(); app.statusbar.setCursor(null); });
     ov.addEventListener('wheel', e => this.onWheel(e), { passive: false });
-    ov.addEventListener('contextmenu', e => e.preventDefault());
+    ov.addEventListener('contextmenu', e => { e.preventDefault(); if (app.doc && !app.spaceDown) openCanvasContextMenu(e, this.ev(e)); });
 
     setInterval(() => {
-      if (app.doc?.selection || app.tool.id === 'lasso') { this.antsPhase = (this.antsPhase + 1) % 8; this.renderOverlay(); }
+      if (app.doc?.selection || app.tool.id === 'lasso') { this.antsPhase = (this.antsPhase + 1) % 1e6; this.renderOverlay(); }
     }, 90);
   }
 
@@ -188,11 +189,14 @@ export class Viewport {
     g.clearRect(0, 0, this.w, this.h);
     const d = app.doc;
     if (!d) return;
-    // marching ants: crisp 1px black/white dashes flowing along continuous contours
-    if (d.selection) {
-      const z = d.zoom;
-      const ox = d.panX + app.selOffset.x * z, oy = d.panY + app.selOffset.y * z;
+    // marching ants: thin black/white dashes flowing along continuous contours,
+    // drawn in device pixels and snapped to the pixel grid so they stay crisp on HiDPI screens
+    if (d.selection && !app.hideSelection) {
+      const k = this.dpr;
+      const z = d.zoom * k;
+      const ox = (d.panX + app.selOffset.x * d.zoom) * k, oy = (d.panY + app.selOffset.y * d.zoom) * k;
       g.save();
+      g.setTransform(1, 0, 0, 1, 0, 0);
       g.beginPath();
       for (const loop of d.selection.contours) {
         for (let i = 0; i < loop.length; i += 2) {
@@ -201,12 +205,13 @@ export class Viewport {
         }
         g.closePath();
       }
-      g.lineWidth = 1;
+      const dash = Math.max(3, Math.round(4 * k));
+      g.lineWidth = k >= 1.5 ? 1.3 : 1;
       g.strokeStyle = '#fff';
       g.stroke();
       g.strokeStyle = '#000';
-      g.setLineDash([4, 4]);
-      g.lineDashOffset = -this.antsPhase;
+      g.setLineDash([dash, dash]);
+      g.lineDashOffset = -((this.antsPhase * Math.max(1, Math.round(k))) % (dash * 2));
       g.stroke();
       g.restore();
     }

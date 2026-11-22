@@ -166,15 +166,35 @@ export function autoColor(src: Uint8ClampedArray, dst: Uint8ClampedArray, sel: U
 }
 
 /* ---------------- Enhance (Google Photos-like) ---------------- */
+/** How much a colour looks like skin (0..1): warm hues 0–50°, moderate saturation, not too dark or bright. */
+function skinWeight(hDeg: number, s: number, l: number): number {
+  const d = Math.abs(((hDeg - 25 + 540) % 360) - 180);              // distance from the skin hue centre
+  const hw = d < 11 ? 1 : d < 23 ? 1 - (d - 11) / 12 : 0;            // pure red (0°) and yellow (55°+) stay out
+  if (!hw) return 0;
+  const sw = s < 0.08 ? 0 : s < 0.18 ? (s - 0.08) / 0.1 : s < 0.6 ? 1 : s < 0.8 ? (0.8 - s) / 0.2 : 0;
+  const lw = l < 0.12 ? 0 : l < 0.25 ? (l - 0.12) / 0.13 : l < 0.85 ? 1 : l < 0.95 ? (0.95 - l) / 0.1 : 0;
+  return hw * sw * lw;
+}
+
+/** Deterministic noise in −1..1 (roughly Gaussian) for a pixel, so the grain does not crawl between previews. */
+function grainNoise(x: number, y: number): number {
+  let h = (x * 374761393 + y * 668265263) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  const a = ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  h = Math.imul(h ^ 0x9e3779b9, 2246822519);
+  const b = ((h ^ (h >>> 15)) >>> 0) / 4294967296;
+  return (a + b - 1) * 1.2;
+}
+
 export interface EnhanceParams {
   brightness: number; contrast: number; highlights: number; shadows: number; whites: number; blacks: number;
-  saturation: number; vibrance: number; warmth: number; tint: number; hue: number;
-  sharpness: number; clarity: number;
+  saturation: number; vibrance: number; warmth: number; tint: number; skin: number; hue: number;
+  sharpness: number; clarity: number; grain: number;
   vignette: number; vigMidpoint: number; vigRoundness: number; vigFeather: number;
 }
 export const ENHANCE_DEFAULTS: EnhanceParams = {
   brightness: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
-  saturation: 0, vibrance: 0, warmth: 0, tint: 0, hue: 0, sharpness: 0, clarity: 0,
+  saturation: 0, vibrance: 0, warmth: 0, tint: 0, skin: 0, hue: 0, sharpness: 0, clarity: 0, grain: 0,
   vignette: 0, vigMidpoint: 50, vigRoundness: 0, vigFeather: 50,
 };
 
@@ -220,6 +240,10 @@ export function enhance(p: EnhanceParams, s: AdjustSession, cache: DetailCache, 
   const sharp = p.sharpness / 100 * 1.6, clar = p.clarity / 100 * 0.7;
   // hue: shift around the colour wheel in HSL, as Photoshop's Hue (red +120° → pure green)
   const hshift = ((p.hue % 360) + 360) % 360 / 360;
+  // skin tone (Google Photos-like): only skin-coloured pixels move, towards pink (−) or golden/tan (+)
+  const skin = p.skin / 100;
+  // grain: luminance noise, stable per document pixel, strongest in the midtones
+  const grain = p.grain / 100 * 0.16;
   const small = sharp ? cache.getSmall() : null;
   const large = clar ? cache.getLarge() : null;
   const doc = app.doc!;
@@ -239,6 +263,16 @@ export function enhance(p: EnhanceParams, s: AdjustSession, cache: DetailCache, 
       const [h, sl, l] = rgbToHsl(Math.min(1, Math.max(0, r)), Math.min(1, Math.max(0, g)), Math.min(1, Math.max(0, b)));
       [r, g, b] = hslToRgb((h + hshift) % 1, sl, l);
     }
+    if (skin) {
+      const [h, sl, l] = rgbToHsl(Math.min(1, Math.max(0, r)), Math.min(1, Math.max(0, g)), Math.min(1, Math.max(0, b)));
+      const w = skinWeight(h * 360, sl, l);
+      if (w > 0) {
+        // + : warmer / more golden and a little richer; − : pinker and a little paler
+        const nh = (h + w * skin * (10 / 360) + 1) % 1;
+        const ns = Math.min(1, Math.max(0, sl * (1 + w * skin * 0.12)));
+        [r, g, b] = hslToRgb(nh, ns, l);
+      }
+    }
     if (sat !== 1 || vib) {
       const l = 0.299 * r + 0.587 * g + 0.114 * b;
       const cur = Math.max(r, g, b) - Math.min(r, g, b);
@@ -256,6 +290,12 @@ export function enhance(p: EnhanceParams, s: AdjustSession, cache: DetailCache, 
       const tt = vig(x, y) * Math.abs(vamt);
       if (vamt > 0) { const k = 1 - tt * 0.9; r *= k; g *= k; b *= k; }
       else { r += (1 - r) * tt * 0.9; g += (1 - g) * tt * 0.9; b += (1 - b) * tt * 0.9; }
+    }
+    if (grain) {
+      const x = (px % W) + s.ox, y = Math.floor(px / W) + s.oy;
+      const L = Math.min(1, Math.max(0, 0.299 * r + 0.587 * g + 0.114 * b));
+      const nz = grainNoise(x, y) * grain * (0.45 + 2.2 * L * (1 - L));
+      r += nz; g += nz; b += nz;
     }
     dst[i] = r * 255; dst[i + 1] = g * 255; dst[i + 2] = b * 255; dst[i + 3] = src[i + 3];
   }

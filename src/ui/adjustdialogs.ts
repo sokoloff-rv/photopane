@@ -66,8 +66,8 @@ export function enhanceDialog(vignetteOnly = false) {
   const S = (key: keyof EnhanceParams, min = -100, max = 100, def = 0): SliderSpec => ({ key, label: t('adj.' + key), min, max, def });
   if (!vignetteOnly) {
     section(t('adj.sec.light'), [S('brightness'), S('contrast'), S('highlights'), S('shadows'), S('whites'), S('blacks')]);
-    section(t('adj.sec.color'), [S('saturation'), S('vibrance'), S('warmth'), S('tint'), S('hue', -180, 180)]);
-    section(t('adj.sec.detail'), [S('sharpness', 0, 100), S('clarity', -100, 100)]);
+    section(t('adj.sec.color'), [S('saturation'), S('vibrance'), S('warmth'), S('tint'), S('skin'), S('hue', -180, 180)]);
+    section(t('adj.sec.detail'), [S('sharpness', 0, 100), S('clarity', -100, 100), S('grain', 0, 100)]);
   }
   section(t('adj.sec.vignette'), [S('vignette'), S('vigMidpoint', 0, 100, 50), S('vigRoundness', -100, 100, 0), S('vigFeather', 0, 100, 50)]);
   const reset = el('button', { class: 'btn sm' }, t('adj.reset'));

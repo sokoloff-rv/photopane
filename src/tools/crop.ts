@@ -37,7 +37,9 @@ export class CropTool extends Tool<CropOpts> {
     const d = app.doc;
     this.rect = d ? { x: 0, y: 0, w: d.width, h: d.height } : null;
     this.docId = d?.id ?? -1;
-    app.update('overlay');
+    // start with the largest centered frame of the chosen aspect ratio
+    if (d && this.ratio()) this.fitRatio();
+    app.update('overlay', 'options');
   }
   private ensure() { if (!app.doc) return false; if (this.docId !== app.doc.id || !this.rect) this.reset(); return !!this.rect; }
 

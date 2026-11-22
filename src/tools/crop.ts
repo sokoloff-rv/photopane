@@ -13,6 +13,8 @@ import { arrowBadgeCursor } from '../ui/icons';
 import { openDialog } from '../ui/dialog';
 import { el } from '../core/util';
 import { resizeDocument } from '../ui/docdialogs';
+import { outpaintAfterCrop } from '../ui/aidialogs';
+import { cloneCanvas } from '../core/util';
 
 /** A crop preset: an aspect ratio, or an exact size in pixels (the result is resampled to it). */
 interface CropPreset { value: string; label: string; r: number; px?: { w: number; h: number }; custom?: boolean }
@@ -48,7 +50,7 @@ function customPresets(): CropPreset[] {
 }
 function allPresets(): CropPreset[] { return [...RATIOS, ...PIXEL_PRESETS, ...customPresets()]; }
 
-interface CropOpts { ratio: string; portrait: boolean; deletePixels: boolean; fill: 'transparent' | 'bg' }
+interface CropOpts { ratio: string; portrait: boolean; deletePixels: boolean; fill: 'transparent' | 'bg' | 'ai' }
 
 export class CropTool extends Tool<CropOpts> {
   readonly id = 'crop';
@@ -165,6 +167,8 @@ export class CropTool extends Tool<CropOpts> {
     if (!r || r.w < 1 || r.h < 1) return;
     if (r.x === 0 && r.y === 0 && r.w === d.width && r.h === d.height) return;
     const extends_ = r.x < 0 || r.y < 0 || r.x + r.w > d.width || r.y + r.h > d.height;
+    const before = extends_ && this.o.fill === 'ai' ? cloneCanvas(d.composite()) : null;
+    const rr = { ...r };
     cropDocument(d, r, this.o.deletePixels);
     if (extends_ && this.o.fill === 'bg') {
       const l = new Layer('raster', t('layers.background'), d.width, d.height);
@@ -181,6 +185,8 @@ export class CropTool extends Tool<CropOpts> {
     app.commit('tool.crop');
     app.viewport.fit(false);
     this.reset();
+    // AI outpainting of the new area (Stability AI) as its own history step
+    if (before && !px) outpaintAfterCrop(before, rr);
   }
 
   overlay(g: CanvasRenderingContext2D) {
@@ -223,7 +229,7 @@ export class CropTool extends Tool<CropOpts> {
       r ? span(`${Math.round(r.w)} × ${Math.round(r.h)} ${t('dlg.px')}`) : null,
       sep(),
       checkbox(t('opt.deleteCropped'), this.o.deletePixels, v => this.set('deletePixels', v)),
-      select([{ value: 'transparent', label: t('opt.extendTransparent') }, { value: 'bg', label: t('opt.extendBg') }], this.o.fill, v => this.set('fill', v)),
+      select([{ value: 'transparent', label: t('opt.extendTransparent') }, { value: 'bg', label: t('opt.extendBg') }, { value: 'ai', label: t('opt.extendAi') }], this.o.fill, v => this.set('fill', v as any)),
       spacer(),
       textButton(t('dlg.cancel'), () => this.clear()),
       textButton(t('opt.apply'), () => this.apply(), true),

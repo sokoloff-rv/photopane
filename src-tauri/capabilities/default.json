@@ -1,8 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: saving files through the system dialog",
-  "windows": ["main"],
+  "description": "Main window: saving files through the system dialog and calling the cloud AI services",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "dialog:allow-save",
@@ -11,7 +13,25 @@
     "fs:allow-read-file",
     {
       "identifier": "fs:scope",
-      "allow": [{ "path": "$HOME/**" }, { "path": "**" }]
+      "allow": [
+        {
+          "path": "$HOME/**"
+        },
+        {
+          "path": "**"
+        }
+      ]
+    },
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://api.stability.ai/*"
+        },
+        {
+          "url": "https://api.topazlabs.com/*"
+        }
+      ]
     }
   ]
 }

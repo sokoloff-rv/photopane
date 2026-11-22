@@ -140,6 +140,8 @@ export function selectionMenu(): CtxItem[] {
     '-',
     { cmd: 'fillDialog' },
     { cmd: 'strokeSel' },
+    '-',
+    { cmd: 'removeObject' },
   ];
 }
 

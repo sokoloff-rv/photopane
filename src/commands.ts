@@ -12,6 +12,7 @@ import { pickFiles, openFiles, saveDoc, exportDialog, readClipboardImage, writeC
 import { TransformTool } from './tools/transform';
 import { imageSizeDialog, canvasSizeDialog, rotateArbitraryDialog } from './ui/docdialogs';
 import { fillDialog, strokeDialog } from './ui/filldialogs';
+import { aiSettingsDialog, upscaleDialog, removeBackground, selectSubject, removeObject } from './ui/aidialogs';
 import {
   motionBlurDialog, radialBlurDialog, surfaceBlurDialog, highPassDialog, dehazeDialog, denoiseDialog, glowDialog,
   chromaticDialog, pixelateDialog, halftoneDialog, gradientMapDialog, lutDialog,
@@ -151,6 +152,11 @@ export function registerCommands(app: App) {
   docXform('flipCanvasV', 'flipV');
   // adjustments & filters
   R('enhance', () => enhanceDialog(false), ['Ctrl+U'], hasPixelLayer);
+  R('settings', () => aiSettingsDialog(), ['Ctrl+K']);
+  R('upscale', () => upscaleDialog(), [], hasDoc);
+  R('removeBg', () => removeBackground(), [], hasPixelLayer);
+  R('removeObject', () => removeObject(), [], () => hasPixelLayer() && hasSel());
+  R('selectSubject', () => selectSubject(), [], hasDoc);
   R('motionBlur', () => motionBlurDialog(), [], hasPixelLayer);
   R('radialBlur', () => radialBlurDialog(), [], hasPixelLayer);
   R('surfaceBlur', () => surfaceBlurDialog(), [], hasPixelLayer);

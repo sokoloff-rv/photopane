@@ -184,3 +184,17 @@ export class Doc {
     return g.getImageData(0, 0, this.width, this.height);
   }
 }
+
+/** Independent copy of a document including its whole history (used by Compare). */
+export function cloneDoc(src: Doc, name: string): Doc {
+  const d = new Doc(name, src.width, src.height);
+  d.history.adopt(src.history);
+  d.zoom = src.zoom; d.panX = src.panX; d.panY = src.panY; d.fitted = src.fitted; d.autoFit = src.autoFit;
+  d.exif = src.exif;
+  d.missingFonts = src.missingFonts.map(f => ({ ...f }));
+  d.guides = { h: [...src.guides.h], v: [...src.guides.v] };
+  if (src.iccProfile) d.setIccProfile(src.iccProfile);
+  d.dirty = true;
+  d.invalidate();
+  return d;
+}

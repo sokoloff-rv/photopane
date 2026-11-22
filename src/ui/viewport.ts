@@ -8,6 +8,7 @@ import { openCanvasContextMenu } from './contextmenu';
 import { iconCursor } from './icons';
 import { sampleColor } from '../tools/paint';
 import { resampleSharp } from './resample';
+import type { Doc } from '../core/document';
 
 const RB = 18; // ruler band size
 
@@ -29,6 +30,12 @@ export class Viewport {
   /** Cached sharp downscale of the picture for zooms below 100% */
   private scaled: { canvas: HTMLCanvasElement; doc: unknown; ver: number; w: number; h: number; ok: boolean } | null = null;
 
+  /** Compare: the document shown in this pane (null = the current document). */
+  bound: Doc | null = null;
+  get doc(): Doc | null { return this.bound ?? app?.doc ?? null; }
+  /** The pane that receives tool input (the only one outside Compare). */
+  get active(): boolean { return !app || app.viewport === this; }
+
   constructor(public el: HTMLElement) {
     this.main = document.createElement('canvas');
     this.overlay = document.createElement('canvas');
@@ -49,14 +56,14 @@ export class Viewport {
     ov.addEventListener('pointermove', e => this.onMove(e));
     ov.addEventListener('pointerup', e => this.onUp(e));
     ov.addEventListener('pointercancel', e => this.onUp(e));
-    ov.addEventListener('dblclick', e => { if (app.doc && !app.spaceDown) (this.isPanTool() ? this.fit(false) : app.tool.dblclick(this.ev(e))); });
+    ov.addEventListener('dblclick', e => { if (this.doc && this.active && !app.spaceDown) (this.isPanTool() ? this.fit(false) : app.tool.dblclick(this.ev(e))); });
     ov.addEventListener('pointerenter', () => { this.pointer.inside = true; });
     ov.addEventListener('pointerleave', () => { this.pointer.inside = false; this.renderOverlay(); app.statusbar.setCursor(null); });
     ov.addEventListener('wheel', e => this.onWheel(e), { passive: false });
-    ov.addEventListener('contextmenu', e => { e.preventDefault(); if (app.doc && !app.spaceDown) openCanvasContextMenu(e, this.ev(e)); });
+    ov.addEventListener('contextmenu', e => { e.preventDefault(); if (this.doc && this.active && !app.spaceDown) openCanvasContextMenu(e, this.ev(e)); });
 
     setInterval(() => {
-      if (app.doc?.selection || app.tool.id === 'lasso') { this.antsPhase = (this.antsPhase + 1) % 1e6; this.renderOverlay(); }
+      if (this.doc?.selection || (this.active && app.tool.id === 'lasso')) { this.antsPhase = (this.antsPhase + 1) % 1e6; this.renderOverlay(); }
     }, 90);
   }
 
@@ -74,8 +81,8 @@ export class Viewport {
 
   private renderWelcome() {
     const w = this.welcome;
-    w.style.display = app.doc ? 'none' : '';
-    if (app.doc) return;
+    w.style.display = this.doc ? 'none' : '';
+    if (this.doc) return;
     const logo = w.querySelector('.welcome-logo')!;
     if (!logo.firstChild) logo.append(icon('logo', 56));
     w.querySelector('h1')!.textContent = t('app.welcome.title');
@@ -95,24 +102,25 @@ export class Viewport {
       if (c.width !== Math.max(1, dw)) c.width = Math.max(1, dw);
       if (c.height !== Math.max(1, dh)) c.height = Math.max(1, dh);
     }
-    const d = app?.doc;
+    const d = this.doc;
     if (d && (!d.fitted || d.autoFit)) this.fit(true);
+    else if (d) this.snapPan();
     this.render();
     this.renderOverlay();
   }
 
   /* ---------- coordinates ---------- */
   toDoc(sx: number, sy: number) {
-    const d = app.doc!;
+    const d = this.doc!;
     return { x: (sx - d.panX) / d.zoom, y: (sy - d.panY) / d.zoom };
   }
   toScreen(x: number, y: number) {
-    const d = app.doc!;
+    const d = this.doc!;
     return { x: x * d.zoom + d.panX, y: y * d.zoom + d.panY };
   }
 
   fit(onlyShrink: boolean) {
-    const d = app.doc;
+    const d = this.doc;
     if (!d || this.w < 10) return;
     const pad = 48;
     let z = Math.min((this.w - pad) / d.width, (this.h - pad) / d.height);
@@ -130,19 +138,42 @@ export class Viewport {
   }
 
   /** Zoom as Photoshop shows it: image pixels per physical screen pixel. */
-  deviceZoom(): number { return (app.doc?.zoom ?? 1) * this.dpr; }
+  deviceZoom(): number { return (this.doc?.zoom ?? 1) * this.dpr; }
   setDeviceZoom(z: number, sx?: number, sy?: number) { this.setZoom(z / this.dpr, sx, sy); }
 
-  /** Align the image to physical pixels so 100% is perfectly sharp. */
+  /**
+   * While the picture fits in the view it stays exactly centred; once it is larger it can be moved,
+   * but not pushed out of sight (a small margin past its edges).
+   */
+  private constrainPan() {
+    const d = this.doc;
+    if (!d || this.w < 10 || this.h < 10) return;
+    const m = 32;
+    const iw = d.width * d.zoom, ih = d.height * d.zoom;
+    d.panX = iw <= this.w ? (this.w - iw) / 2 : clamp(d.panX, this.w - iw - m, m);
+    d.panY = ih <= this.h ? (this.h - ih) / 2 : clamp(d.panY, this.h - ih - m, m);
+  }
+
+  /** Keep the view within bounds and align the image to physical pixels so 100% is perfectly sharp. */
   snapPan() {
-    const d = app.doc;
+    const d = this.doc;
     if (!d) return;
+    this.constrainPan();
     d.panX = Math.round(d.panX * this.dpr) / this.dpr;
     d.panY = Math.round(d.panY * this.dpr) / this.dpr;
   }
 
+  /** Keep the document point `p` in the middle of the view (after the pane size changed). */
+  centerOn(p: { x: number; y: number }) {
+    const d = this.doc;
+    if (!d) return;
+    d.panX = this.w / 2 - p.x * d.zoom;
+    d.panY = this.h / 2 - p.y * d.zoom;
+    this.snapPan();
+  }
+
   setZoom(z: number, sx = this.w / 2, sy = this.h / 2) {
-    const d = app.doc;
+    const d = this.doc;
     if (!d) return;
     z = clamp(z, 0.01, 64);
     d.autoFit = false;
@@ -155,7 +186,7 @@ export class Viewport {
   }
 
   zoomStep(dir: 1 | -1, sx?: number, sy?: number) {
-    const d = app.doc;
+    const d = this.doc;
     if (!d) return;
     const z = d.zoom;
     const dz = z * this.dpr;
@@ -167,11 +198,11 @@ export class Viewport {
   /* ---------- rendering ---------- */
   render() {
     this.renderWelcome();
-    app.tool.viewChanged();
+    if (this.active) app.tool.viewChanged();
     const g = this.main.getContext('2d')!;
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     g.clearRect(0, 0, this.w, this.h);
-    const d = app.doc;
+    const d = this.doc;
     if (!d) return;
     const comp = d.displayComposite();
     const x = d.panX, y = d.panY, w = d.width * d.zoom, h = d.height * d.zoom;
@@ -215,7 +246,7 @@ export class Viewport {
    * Draw the picture in physical pixels: exactly 1:1 at 100%, sharp bicubic below 100%
    * (the browser's own filter is bilinear and softens the image), smooth/pixelated above.
    */
-  private drawPicture(g: CanvasRenderingContext2D, comp: HTMLCanvasElement, d: NonNullable<typeof app.doc>) {
+  private drawPicture(g: CanvasRenderingContext2D, comp: HTMLCanvasElement, d: Doc) {
     const k = this.dpr, dz = d.zoom * k;
     const dx = Math.round(d.panX * k), dy = Math.round(d.panY * k);
     g.save();
@@ -243,7 +274,7 @@ export class Viewport {
     const g = this.overlay.getContext('2d')!;
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     g.clearRect(0, 0, this.w, this.h);
-    const d = app.doc;
+    const d = this.doc;
     if (!d) return;
     // marching ants: thin black/white dashes flowing along continuous contours,
     // drawn in device pixels and snapped to the pixel grid so they stay crisp on HiDPI screens
@@ -271,10 +302,10 @@ export class Viewport {
       g.stroke();
       g.restore();
     }
-    app.tool.overlay(g);
+    if (this.active) app.tool.overlay(g);
     this.drawGuides(g);
     // brush outline
-    const bs = app.tool.brushSize();
+    const bs = this.active ? app.tool.brushSize() : 0;
     if (bs > 0 && this.pointer.inside && !app.spaceDown && !app.colorPick) {
       const r = (bs * d.zoom) / 2;
       const { sx, sy } = this.pointer;
@@ -300,7 +331,7 @@ export class Viewport {
 
   /* ---------- guides & rulers ---------- */
   private drawGuides(g: CanvasRenderingContext2D) {
-    const d = app.doc!;
+    const d = this.doc!;
     g.save();
     g.lineWidth = 1;
     if (app.settings.showGuides !== false) {
@@ -323,7 +354,7 @@ export class Viewport {
   }
 
   private drawRulers(g: CanvasRenderingContext2D) {
-    const d = app.doc!;
+    const d = this.doc!;
     const z = d.zoom;
     const steps = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000, 10000];
     const step = steps.find(s => s * z >= 60) || 10000;
@@ -369,7 +400,7 @@ export class Viewport {
   }
 
   private guideAt(pe: PEvent): { axis: 'h' | 'v'; index: number } | null {
-    const d = app.doc!;
+    const d = this.doc!;
     if (app.settings.showGuides === false) return null;
     for (let i = 0; i < d.guides.h.length; i++) if (Math.abs(d.guides.h[i] * d.zoom + d.panY - pe.sy) < 4) return { axis: 'h', index: i };
     for (let i = 0; i < d.guides.v.length; i++) if (Math.abs(d.guides.v[i] * d.zoom + d.panX - pe.sx) < 4) return { axis: 'v', index: i };
@@ -389,7 +420,7 @@ export class Viewport {
   ev(e: PointerEvent | MouseEvent): PEvent {
     const r = this.overlay.getBoundingClientRect();
     const sx = e.clientX - r.left, sy = e.clientY - r.top;
-    const p = app.doc ? this.toDoc(sx, sy) : { x: 0, y: 0 };
+    const p = this.doc ? this.toDoc(sx, sy) : { x: 0, y: 0 };
     const pe = e as PointerEvent;
     const pen = pe.pointerType === 'pen';
     return {
@@ -399,19 +430,20 @@ export class Viewport {
   }
 
   private onDown(e: PointerEvent) {
-    if (!app.doc) return;
+    if (!this.doc) return;
+    if (!this.active) { if (this.bound) app.activatePane(this); return; }
     (document.activeElement as HTMLElement)?.blur?.();
     this.overlay.setPointerCapture(e.pointerId);
     if (this.isPanTool() || e.button === 1) {
       this.dragging = 'pan';
-      const d = app.doc;
+      const d = this.doc;
       this.panStart = { x: e.clientX, y: e.clientY, px: d.panX, py: d.panY };
       this.updateCursor();
       return;
     }
     if (e.button !== 0) return;
     const pe = this.ev(e);
-    const d = app.doc;
+    const d = this.doc;
     if (app.colorPick) { this.dragging = 'pick'; this.pickAt(pe); return; }
     // new guide dragged out of a ruler
     if (app.settings.rulers && (pe.sy < RB || pe.sx < RB) && !(pe.sy < RB && pe.sx < RB)) {
@@ -433,10 +465,10 @@ export class Viewport {
   private onMove(e: PointerEvent) {
     const pe = this.ev(e);
     this.pointer.sx = pe.sx; this.pointer.sy = pe.sy; this.pointer.inside = true;
-    if (!app.doc) return;
+    if (!this.doc || !this.active) return;
     app.statusbar.setCursor({ x: pe.x, y: pe.y });
     if (this.dragging === 'pan') {
-      const d = app.doc;
+      const d = this.doc;
       d.autoFit = false;
       d.panX = this.panStart.px + (e.clientX - this.panStart.x);
       d.panY = this.panStart.py + (e.clientY - this.panStart.y);
@@ -447,7 +479,7 @@ export class Viewport {
     if (this.dragging === 'pick') { this.pickAt(pe); return; }
     if (this.dragging === 'guide' && this.guideDrag) {
       const g = this.guideDrag;
-      app.doc.guides[g.axis][g.index] = Math.round(g.axis === 'h' ? pe.y : pe.x);
+      this.doc.guides[g.axis][g.index] = Math.round(g.axis === 'h' ? pe.y : pe.x);
       this.renderOverlay();
       return;
     }
@@ -468,11 +500,11 @@ export class Viewport {
     const was = this.dragging;
     this.dragging = null;
     try { this.overlay.releasePointerCapture(e.pointerId); } catch {}
-    if (was === 'tool' && app.doc) app.tool.up(this.ev(e));
-    if (was === 'guide' && this.guideDrag && app.doc) {
+    if (was === 'tool' && this.doc) app.tool.up(this.ev(e));
+    if (was === 'guide' && this.guideDrag && this.doc) {
       const pe = this.ev(e);
       const g = this.guideDrag;
-      const d = app.doc;
+      const d = this.doc;
       const pos = d.guides[g.axis][g.index];
       const outside = g.axis === 'h' ? pe.sy < RB || pos < 0 || pos > d.height : pe.sx < RB || pos < 0 || pos > d.width;
       if (outside) d.guides[g.axis].splice(g.index, 1);
@@ -484,7 +516,8 @@ export class Viewport {
 
   private onWheel(e: WheelEvent) {
     e.preventDefault();
-    const d = app.doc;
+    if (!this.active && this.bound) app.activatePane(this);
+    const d = this.doc;
     if (!d) return;
     const r = this.overlay.getBoundingClientRect();
     const sx = e.clientX - r.left, sy = e.clientY - r.top;

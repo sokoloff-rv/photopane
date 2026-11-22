@@ -328,6 +328,8 @@ const D: Record<string, [string, string]> = {
   'cmd.zoomIn': ['Увеличить', 'Zoom In'],
   'cmd.zoomOut': ['Уменьшить', 'Zoom Out'],
   'cmd.fit': ['Показать во весь экран', 'Fit on Screen'],
+  'cmd.compare': ['Сравнить', 'Compare'],
+  'app.compareCopy': ['{0} (копия)', '{0} (copy)'],
   'cmd.actual': ['100%', '100%'],
   'cmd.rulers': ['Линейки', 'Rulers'],
   'cmd.snap': ['Привязка', 'Snap'],

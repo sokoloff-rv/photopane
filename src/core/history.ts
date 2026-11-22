@@ -1,6 +1,6 @@
 import { Layer, Surface, TILE, LayerKind, BlendMode, LayerEffects, TextData } from './layer';
 import { Selection } from './selection';
-import { createCanvas, ctx2d } from './util';
+import { createCanvas, ctx2d, uid } from './util';
 import type { Doc } from './document';
 
 type Tile = ImageData | null;
@@ -62,6 +62,22 @@ export class History {
       total -= this.entries[0].bytes;
       this.entries.shift(); this.index--;
     }
+  }
+
+  /**
+   * Take over a copy of another document's history (Compare): the steps share their immutable tiles,
+   * layer ids are remapped so both documents stay independent, and the current step is restored here.
+   */
+  adopt(src: History) {
+    const ids = new Map<number, number>();
+    const id = (n: number) => { let v = ids.get(n); if (v === undefined) { v = uid(); ids.set(n, v); } return v; };
+    const layer = (l: LayerSnap): LayerSnap => ({ ...l, id: id(l.id), children: l.children.map(layer) });
+    this.entries = src.entries.map(e => ({
+      label: e.label, bytes: e.bytes,
+      snap: { ...e.snap, layers: e.snap.layers.map(layer), activeId: e.snap.activeId >= 0 ? id(e.snap.activeId) : -1, selObj: null },
+    }));
+    this.index = src.index;
+    if (this.index >= 0) this.restore(this.entries[this.index].snap);
   }
 
   undo() { if (this.canUndo) this.goto(this.index - 1); }

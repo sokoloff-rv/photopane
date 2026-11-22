@@ -24,7 +24,7 @@ const MENUS: { key: string; items: Item[] }[] = [
   { key: 'menu.select', items: ['selectAll', 'deselect', 'reselect', 'inverse', '-',
     { sub: 'cmd.modify', items: ['feather', 'expand', 'contract', 'smooth'] }, 'transformSel', '-', 'selectLayerPixels', 'selectSubject'] },
   { key: 'menu.filter', items: ['gaussian', 'unsharp', 'noise', '-', { sub: 'cmd.blurGallery', items: ['fieldBlur', 'irisBlur', 'tiltShift'] }, '-', 'vignette'] },
-  { key: 'menu.view', items: ['zoomIn', 'zoomOut', 'fit', 'actual', '-', 'rulers', 'showGuides', 'snap', 'clearGuides', '-', 'language'] },
+  { key: 'menu.view', items: ['zoomIn', 'zoomOut', 'fit', 'actual', '-', 'compare', '-', 'rulers', 'showGuides', 'snap', 'clearGuides', '-', 'language'] },
   { key: 'menu.help', items: ['shortcuts', 'about'] },
 ];
 

@@ -355,3 +355,10 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .lfx-row.head .lfx-label { color: var(--text3); }
 .lfx-row.off .lfx-label { opacity: 0.45; }
 .lrow-eye.sm { width: 22px; height: 20px; }
+
+/* compare: two panes side by side */
+.viewports { flex: 1; min-height: 0; display: flex; gap: 1px; background: var(--sep-strong); }
+.viewports .viewport { flex: 1; min-width: 0; }
+.viewport.hidden { display: none; }
+.viewports.split .viewport::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: transparent; pointer-events: none; z-index: 3; }
+.viewports.split .viewport.pane-active::after { background: var(--accent); }

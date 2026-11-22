@@ -1,4 +1,4 @@
-import { Doc } from './core/document';
+import { Doc, cloneDoc } from './core/document';
 import { RGB, BLACK, WHITE } from './core/color';
 import { Layer, Surface } from './core/layer';
 import { Selection } from './core/selection';
@@ -57,6 +57,11 @@ export class App {
   spaceDown = false;
 
   viewport!: Viewport;
+  /** Compare: left and right panes (viewport is the active one) */
+  viewportA!: Viewport;
+  viewportB!: Viewport;
+  split: { a: Doc; b: Doc } | null = null;
+  private viewportsEl!: HTMLElement;
   menubar!: MenuBar;
   toolbar!: Toolbar;
   optionsbar!: OptionsBar;
@@ -88,14 +93,17 @@ export class App {
     const toolbarEl = el('aside', { class: 'toolbar' });
     const tabsEl = el('div', { class: 'tabs' });
     const viewportEl = el('div', { class: 'viewport' });
+    const viewportElB = el('div', { class: 'viewport hidden' });
+    this.viewportsEl = el('div', { class: 'viewports' }, viewportEl, viewportElB);
     const panelsEl = el('aside', { class: 'panels' });
     const statusEl = el('footer', { class: 'statusbar' });
     this.root.append(
       menubarEl, optionsEl,
-      el('div', { class: 'main' }, toolbarEl, el('section', { class: 'center' }, tabsEl, viewportEl), panelsEl),
+      el('div', { class: 'main' }, toolbarEl, el('section', { class: 'center' }, tabsEl, this.viewportsEl), panelsEl),
       statusEl,
     );
-    this.viewport = new Viewport(viewportEl);
+    this.viewport = this.viewportA = new Viewport(viewportEl);
+    this.viewportB = new Viewport(viewportElB);
     this.menubar = new MenuBar(menubarEl);
     this.toolbar = new Toolbar(toolbarEl);
     this.optionsbar = new OptionsBar(optionsEl);
@@ -151,6 +159,7 @@ export class App {
     if (canvas) { this.doc?.invalidate(); this.layersPanel.refreshThumbs(); }
     if (canvas || p.has('view')) { this.viewport.render(); this.navigator.render(); }
     if (canvas || p.has('view') || p.has('overlay')) this.viewport.renderOverlay();
+    if (this.split && (canvas || p.has('view'))) this.syncPartner();
     if (all || p.has('layers')) this.layersPanel.render();
     if (all || p.has('history')) this.historyPanel.render();
     if (all || p.has('tabs')) this.tabs.render();
@@ -176,6 +185,11 @@ export class App {
   }
 
   setDoc(doc: Doc | null) {
+    if (this.split) {
+      const pane = doc === this.split.a ? this.viewportA : doc === this.split.b ? this.viewportB : null;
+      if (pane) { this.activatePane(pane); return; }
+      this.endCompare();
+    }
     if (this.doc === doc) return;
     this.tool.cancel();
     this.doc = doc;
@@ -184,12 +198,83 @@ export class App {
 
   async closeDoc(doc: Doc) {
     if (doc.dirty && !(await confirmDialog(t('app.unsaved')))) return;
+    if (this.split && (doc === this.split.a || doc === this.split.b)) this.endCompare();
     if (doc === this.doc) this.tool.cancel();
     const i = this.docs.indexOf(doc);
     this.docs.splice(i, 1);
     if (this.doc === doc) { this.doc = null; this.setDoc(this.docs[Math.min(i, this.docs.length - 1)] || null); }
     this.update('all');
   }
+
+  /* ---------------- compare ---------------- */
+  /**
+   * Split the view in two: the right pane gets an independent copy of the document with its whole history,
+   * so each side can step back in history or be edited on its own. Zoom and position follow the active side.
+   */
+  startCompare() {
+    const a = this.doc;
+    if (!a || this.split) return;
+    this.tool.cancel();
+    const center = this.viewport.toDoc(this.viewport.w / 2, this.viewport.h / 2);
+    const b = cloneDoc(a, t('app.compareCopy', a.name));
+    this.docs.splice(this.docs.indexOf(a) + 1, 0, b);
+    this.split = { a, b };
+    this.viewportA.bound = a;
+    this.viewportB.bound = b;
+    this.viewportB.el.classList.remove('hidden');
+    this.viewportsEl.classList.add('split');
+    this.viewport = this.viewportA;
+    this.markActivePane();
+    this.afterLayout(() => { for (const vp of [this.viewportA, this.viewportB]) if (vp.doc?.autoFit) vp.fit(true); else vp.centerOn(center); this.update('all'); });
+    this.update('all');
+  }
+
+  /** Back to one view; both documents stay open as tabs. */
+  endCompare() {
+    if (!this.split) return;
+    this.tool.cancel();
+    const center = this.viewport.toDoc(this.viewport.w / 2, this.viewport.h / 2);
+    const keep = this.viewport.bound;
+    this.split = null;
+    this.viewportA.bound = null;
+    this.viewportB.bound = null;
+    this.viewportB.el.classList.add('hidden');
+    this.viewportsEl.classList.remove('split');
+    this.viewport = this.viewportA;
+    this.doc = keep ?? this.doc;
+    this.markActivePane();
+    this.afterLayout(() => { if (this.doc?.autoFit) this.viewport.fit(true); else this.viewport.centerOn(center); this.update('all'); });
+    this.update('all');
+  }
+
+  /** Make a Compare pane the active one (its document becomes the current document). */
+  activatePane(vp: Viewport) {
+    if (!this.split || vp === this.viewport) return;
+    this.tool.cancel();
+    this.viewport = vp;
+    this.doc = vp.bound;
+    this.markActivePane();
+    this.update('all');
+  }
+
+  private markActivePane() {
+    this.viewportA.el.classList.toggle('pane-active', !!this.split && this.viewport === this.viewportA);
+    this.viewportB.el.classList.toggle('pane-active', !!this.split && this.viewport === this.viewportB);
+  }
+
+  /** The inactive pane follows the active one's zoom and position. */
+  private syncPartner() {
+    const s = this.split!;
+    const other = this.viewport === this.viewportA ? this.viewportB : this.viewportA;
+    const d = this.doc, od = other.doc;
+    if (d && od && (d === s.a || d === s.b)) {
+      od.zoom = d.zoom; od.panX = d.panX; od.panY = d.panY; od.autoFit = d.autoFit; od.fitted = true;
+    }
+    other.render();
+    other.renderOverlay();
+  }
+
+  private afterLayout(fn: () => void) { requestAnimationFrame(() => requestAnimationFrame(fn)); }
 
   /** Jump in history; refit the view if the document size changed. */
   historyGo(fn: (d: Doc) => void) {

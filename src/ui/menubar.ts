@@ -15,7 +15,12 @@ const MENUS: { key: string; items: Item[] }[] = [
     'imageSize', 'canvasSize',
     { sub: 'cmd.rotation', items: ['rot180', 'rotCW', 'rotCCW', 'rotArbitrary', '-', 'flipCanvasH', 'flipCanvasV'] }, 'cropToSel', '-',
     'upscale', 'removeBg', 'removeObject'] },
-  { key: 'menu.filter', items: ['gaussian', 'unsharp', 'noise', '-', { sub: 'cmd.blurGallery', items: ['fieldBlur', 'irisBlur', 'tiltShift'] }, '-', 'invert', 'desaturate'] },
+  { key: 'menu.filter', items: [
+    { sub: 'flt.grp.blur', items: ['gaussian', 'motionBlur', 'radialBlur', 'surfaceBlur', '-', 'fieldBlur', 'irisBlur', 'tiltShift'] },
+    { sub: 'flt.grp.detail', items: ['unsharp', 'highPass', 'dehaze', 'denoise'] },
+    { sub: 'flt.grp.light', items: ['glow', 'chromatic', 'noise'] },
+    { sub: 'flt.grp.style', items: ['gradientMap', 'lut', '-', 'pixelate', 'halftone', '-', 'invert', 'desaturate'] },
+  ] },
   { key: 'menu.view', items: ['zoomIn', 'zoomOut', 'fit', 'actual', '-', 'compare', '-', 'rulers', 'showGuides', 'snap', 'clearGuides'] },
   { key: 'menu.help', items: ['shortcuts', 'about'] },
 ];

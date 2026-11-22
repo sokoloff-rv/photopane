@@ -7,6 +7,8 @@ import {
   AdjustSession, DetailCache, enhance, EnhanceParams, ENHANCE_DEFAULTS, autoEnhanceParams, applyLUTs, unsharp, addNoise,
 } from '../core/adjust';
 import { histogram, levelsLUT, curveLUT, composeLUT, gaussianBlur, clipPoints, Histogram } from '../core/filters';
+import { keepAlpha } from '../core/fx';
+import { splitCompareTool } from '../tools/splitcompare';
 
 /* ---------------- controls ---------------- */
 export interface SliderSpec { key: string; label: string; min: number; max: number; def: number; step?: number; unit?: string }
@@ -26,23 +28,41 @@ export function sliderRow(spec: SliderSpec, value: number, onInput: (v: number) 
   return row;
 }
 
-/** Common dialog with live preview over an AdjustSession. */
-function adjustDialog(opts: {
+/**
+ * Common dialog with live preview over an AdjustSession. "Before / after" puts a draggable line on the
+ * canvas (original on the left); `alpha` adds "Preserve transparency" for filters that spread pixels.
+ */
+export function adjustDialog(opts: {
   title: string; body: HTMLElement; width?: number; label: string;
   compute: (s: AdjustSession) => (src: Uint8ClampedArray, dst: Uint8ClampedArray) => void;
   onReady?: (s: AdjustSession, refresh: () => void) => void;
   extra?: HTMLElement[];
+  alpha?: boolean;
 }) {
   const s = AdjustSession.start();
   if (!s) return null;
   let previewOn = true;
-  const refresh = () => { if (previewOn) s.preview(opts.compute(s)); };
+  let keepA = opts.alpha ? !!app.settings.fltKeepAlpha : false;
+  const fn = () => {
+    const f = opts.compute(s);
+    return keepA ? (src: Uint8ClampedArray, dst: Uint8ClampedArray) => { f(src, dst); keepAlpha(src, dst); } : f;
+  };
+  const refresh = () => { if (previewOn) s.preview(fn()); };
   const prev = checkbox(t('adj.preview'), true, v => { previewOn = v; if (v) refresh(); else s.restore(); });
-  opts.body.append(el('div', { class: 'adj-foot' }, prev, ...(opts.extra || [])));
+  let splitOn = false;
+  const endSplit = () => { if (!splitOn) return; splitOn = false; splitCompareTool.detach(); if (app.tool === splitCompareTool) app.popTool(); app.update('overlay'); };
+  const split = checkbox(t('adj.beforeAfter'), false, v => {
+    if (v) { splitOn = true; splitCompareTool.attach(s, refresh); app.pushTool(splitCompareTool); }
+    else endSplit();
+    refresh();
+  });
+  const rows: HTMLElement[] = [prev, split];
+  if (opts.alpha) rows.push(checkbox(t('adj.keepAlpha'), keepA, v => { keepA = v; app.settings.fltKeepAlpha = v; app.saveSettings(); refresh(); }));
+  opts.body.append(el('div', { class: 'adj-foot adj-foot-wrap' }, ...rows, ...(opts.extra || [])));
   openDialog({
     title: opts.title, body: opts.body, width: opts.width || 340, side: true,
-    onOk: () => { s.commit(opts.label, opts.compute(s)); },
-    onCancel: () => s.cancel(),
+    onOk: () => { endSplit(); s.commit(opts.label, fn()); },
+    onCancel: () => { endSplit(); s.cancel(); },
   });
   opts.onReady?.(s, refresh);
   return { s, refresh };
@@ -307,7 +327,7 @@ export function gaussianDialog() {
   let refresh = () => {};
   const body = el('div', { class: 'adj' }, sliderRow({ key: 'r', label: t('dlg.radius'), min: 0.1, max: 250, step: 0.1, def: 4, unit: ' px' }, radius, v => { radius = v; refresh(); }));
   const res = adjustDialog({
-    title: t('cmd.gaussian'), body, label: 'cmd.gaussian',
+    title: t('cmd.gaussian'), body, label: 'cmd.gaussian', alpha: true,
     compute: s => (src, dst) => { dst.set(gaussianBlur(src, s.w, s.h, radius)); app.settings.gaussR = radius; },
   });
   if (res) { refresh = res.refresh; refresh(); }

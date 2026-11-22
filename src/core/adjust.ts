@@ -19,6 +19,8 @@ export class AdjustSession {
   private pending: (() => void) | null = null;
   private raf = 0;
   done = false;
+  /** Before/after line (document x) for the preview: the original is shown left of it. */
+  split: number | null = null;
 
   static start(): AdjustSession | null {
     const target = app.paintTarget();
@@ -48,11 +50,15 @@ export class AdjustSession {
     if (!this.raf) this.raf = requestAnimationFrame(() => { this.raf = 0; const p = this.pending; this.pending = null; p?.(); });
   }
 
-  apply(fn: (src: Uint8ClampedArray, dst: Uint8ClampedArray) => void) {
+  apply(fn: (src: Uint8ClampedArray, dst: Uint8ClampedArray) => void, final = false) {
     const src = this.orig.data;
     const out = new ImageData(this.w, this.h);
     const dst = out.data;
     fn(src, dst);
+    if (!final && this.split != null) {
+      const cut = Math.max(0, Math.min(this.w, Math.round(this.split - this.ox)));
+      for (let y = 0; y < this.h; y++) { const r = y * this.w * 4; dst.set(src.subarray(r, r + cut * 4), r); }
+    }
     // keep alpha unless the function changed it; blend with selection
     if (this.sel) {
       const s = this.sel;
@@ -78,7 +84,8 @@ export class AdjustSession {
 
   commit(label: string, fn?: (src: Uint8ClampedArray, dst: Uint8ClampedArray) => void) {
     if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
-    if (fn) this.apply(fn); else if (this.pending) { this.pending(); this.pending = null; }
+    this.split = null;
+    if (fn) this.apply(fn, true); else if (this.pending) { this.pending(); this.pending = null; }
     this.done = true;
     this.target.surface.markDirty();
     app.commit(label);

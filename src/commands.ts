@@ -12,6 +12,10 @@ import { pickFiles, openFiles, saveDoc, exportDialog, readClipboardImage, writeC
 import { TransformTool } from './tools/transform';
 import { imageSizeDialog, canvasSizeDialog, rotateArbitraryDialog } from './ui/docdialogs';
 import { fillDialog, strokeDialog } from './ui/filldialogs';
+import {
+  motionBlurDialog, radialBlurDialog, surfaceBlurDialog, highPassDialog, dehazeDialog, denoiseDialog, glowDialog,
+  chromaticDialog, pixelateDialog, halftoneDialog, gradientMapDialog, lutDialog,
+} from './ui/filterdialogs';
 import { enhanceDialog, levelsDialog, curvesDialog, gaussianDialog, unsharpDialog, noiseDialog } from './ui/adjustdialogs';
 import { instantAdjust, invert, desaturate, autoTone, autoContrast, autoColor } from './core/adjust';
 import { blurGalleryTool } from './tools/blurgallery';
@@ -147,6 +151,18 @@ export function registerCommands(app: App) {
   docXform('flipCanvasV', 'flipV');
   // adjustments & filters
   R('enhance', () => enhanceDialog(false), ['Ctrl+U'], hasPixelLayer);
+  R('motionBlur', () => motionBlurDialog(), [], hasPixelLayer);
+  R('radialBlur', () => radialBlurDialog(), [], hasPixelLayer);
+  R('surfaceBlur', () => surfaceBlurDialog(), [], hasPixelLayer);
+  R('highPass', () => highPassDialog(), [], hasPixelLayer);
+  R('dehaze', () => dehazeDialog(), [], hasPixelLayer);
+  R('denoise', () => denoiseDialog(), [], hasPixelLayer);
+  R('glow', () => glowDialog(), [], hasPixelLayer);
+  R('chromatic', () => chromaticDialog(), [], hasPixelLayer);
+  R('pixelate', () => pixelateDialog(), [], hasPixelLayer);
+  R('halftone', () => halftoneDialog(), [], hasPixelLayer);
+  R('gradientMap', () => gradientMapDialog(), [], hasPixelLayer);
+  R('lut', () => lutDialog(), [], hasPixelLayer);
   R('levels', () => levelsDialog(), ['Ctrl+L'], hasPixelLayer);
   R('curves', () => curvesDialog(), ['Ctrl+M'], hasPixelLayer);
   R('invert', () => instantAdjust('cmd.invert', invert), ['Ctrl+I'], hasPixelLayer);

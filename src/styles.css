@@ -362,3 +362,8 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .viewport.hidden { display: none; }
 .viewports.split .viewport::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: transparent; pointer-events: none; z-index: 3; }
 .viewports.split .viewport.pane-active::after { background: var(--accent); }
+
+/* brush settings popover (right click with a brush-like tool) */
+.ctx-seg { display: flex; }
+.ctx-seg .seg-btn { flex: 1; }
+.ctx-check { display: flex; align-items: center; gap: 8px; color: var(--text2); cursor: default; }

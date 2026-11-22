@@ -57,18 +57,58 @@ export function showContextMenu(x: number, y: number, items: CtxItem[]) {
 }
 
 /** Brush size / hardness popover (Photoshop shows a brush picker on right click). */
+/** Sliders for every brush-like tool option, in the order the options bar shows them. */
+const BRUSH_SLIDERS: { key: string; label: string; min: number; max: number; unit: string }[] = [
+  { key: 'size', label: 'opt.size', min: 1, max: 1000, unit: 'px' },
+  { key: 'hardness', label: 'opt.hardness', min: 0, max: 100, unit: '%' },
+  { key: 'opacity', label: 'opt.opacity', min: 1, max: 100, unit: '%' },
+  { key: 'flow', label: 'opt.flow', min: 1, max: 100, unit: '%' },
+  { key: 'strength', label: 'opt.strength', min: 1, max: 100, unit: '%' },
+  { key: 'tolerance', label: 'opt.tolerance', min: 0, max: 100, unit: '%' },
+];
+const BRUSH_CHECKS: { key: string; label: string }[] = [
+  { key: 'pressure', label: 'opt.pressure' }, { key: 'aligned', label: 'opt.aligned' }, { key: 'allLayers', label: 'opt.allLayers' },
+];
+
+/**
+ * Right click with a brush-like tool: the same settings as the options bar, as sliders that are easy to
+ * move on the fly (size and hardness first, then opacity, flow, strength/exposure, range…).
+ */
 function brushPopover(x: number, y: number) {
   closeContextMenu();
-  const o = app.tool.o as any;
-  const row = (label: string, key: 'size' | 'hardness', min: number, max: number, unit: string) => {
+  const tool = app.tool;
+  const o = tool.o as any;
+  const changed = () => { app.saveSettings(); app.update('options', 'overlay'); };
+  const row = (label: string, key: string, min: number, max: number, unit: string) => {
     const val = el('span', { class: 'ctx-val mono' }, `${o[key]} ${unit}`);
     const r = el('input', { type: 'range', class: 'range', min, max, value: o[key] }) as HTMLInputElement;
-    r.addEventListener('input', () => { o[key] = +r.value; val.textContent = `${r.value} ${unit}`; app.saveSettings(); app.update('options', 'overlay'); });
+    r.addEventListener('input', () => { o[key] = +r.value; val.textContent = `${r.value} ${unit}`; changed(); });
     return el('div', { class: 'ctx-row' }, el('div', { class: 'ctx-row-head' }, el('span', {}, label), val), r);
   };
-  const pop = el('div', { class: 'menu-drop ctx-menu ctx-pop' },
-    row(t('opt.size'), 'size', 1, 1000, 'px'),
-    row(t('opt.hardness'), 'hardness', 0, 100, '%'));
+  const rows: HTMLElement[] = [];
+  for (const s of BRUSH_SLIDERS) {
+    if (typeof o[s.key] !== 'number') continue;
+    const label = s.key === 'strength' && (tool.id === 'dodge' || tool.id === 'burn') ? 'opt.exposure' : s.label;
+    rows.push(row(t(label), s.key, s.min, s.max, s.unit));
+  }
+  // dodge / burn range as a segmented choice
+  if (typeof o.range === 'string') {
+    const seg = el('div', { class: 'seg ctx-seg' });
+    for (const v of ['shadows', 'midtones', 'highlights']) {
+      const b = el('button', { class: 'seg-btn' + (o.range === v ? ' on' : '') }, t('opt.' + v));
+      b.addEventListener('click', () => { o.range = v; seg.querySelectorAll('.seg-btn').forEach(x => x.classList.toggle('on', x === b)); changed(); });
+      seg.append(b);
+    }
+    rows.push(seg);
+  }
+  for (const c of BRUSH_CHECKS) {
+    if (typeof o[c.key] !== 'boolean') continue;
+    const cb = el('input', { type: 'checkbox' }) as HTMLInputElement;
+    cb.checked = o[c.key];
+    cb.addEventListener('change', () => { o[c.key] = cb.checked; changed(); });
+    rows.push(el('label', { class: 'ctx-check' }, cb, el('span', {}, t(c.label))));
+  }
+  const pop = el('div', { class: 'menu-drop ctx-menu ctx-pop' }, ...rows);
   place(pop, x, y);
 }
 
@@ -108,7 +148,7 @@ export function openCanvasContextMenu(e: MouseEvent, pe: PEvent) {
   const d = app.doc;
   if (!d || app.tool.busy()) return;
   const id = app.tool.id;
-  if (id === 'brush' || id === 'eraser') { brushPopover(e.clientX, e.clientY); return; }
+  if (app.tool.brushSize() > 0) { brushPopover(e.clientX, e.clientY); return; }
   if (id === 'move') {
     const ls = layersAt(pe.x, pe.y);
     const items: CtxItem[] = ls.map(l => ({ label: l.name, checked: l.id === d.activeId, run: () => { d.setActive(l); app.layersPanel.clearMulti(); app.update('layers', 'options'); } }));

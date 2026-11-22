@@ -332,3 +332,4 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .curve-info { display: flex; gap: 14px; color: var(--text2); font-variant-numeric: tabular-nums; }
 .dlg-overlay.pass { background: transparent; pointer-events: none; animation: none; }
 .dlg-overlay.pass .dlg { pointer-events: auto; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(255, 255, 255, 0.14); }
+.icon-btn:disabled { opacity: 0.35; pointer-events: none; }

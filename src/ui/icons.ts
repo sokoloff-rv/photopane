@@ -5,12 +5,16 @@ import {
   ArrowLeftRight, Sparkles, Square, Circle, Minus, X, Check, Languages, Undo2, Redo2, ZoomIn, ZoomOut,
   Lasso, CornerDownRight, SquarePlus, Link2, Maximize, FilePlus, Image as ImageIcon, Settings, ArrowUpDown,
   TextAlignStart, TextAlignCenter, TextAlignEnd, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
-  AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, Ruler, Magnet,
+  AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, Ruler, Magnet, RotateCw, RotateCcw,
 } from 'lucide';
 
 type IconNode = Parameters<typeof createElement>[0];
 
 const custom: Record<string, string> = {
+  rot180: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13a8 8 0 0 0 16 0"/><path d="M20 13a8 8 0 0 0-14.5-4.6"/><path d="M4 4v5h5"/><text x="12" y="15.5" font-size="7" font-family="sans-serif" text-anchor="middle" fill="currentColor" stroke="none">180</text></svg>`,
+  rotAny: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="M4 20 15 6"/><path d="M11 20a7 7 0 0 0-1.6-4.5"/></svg>`,
+  canvasFlipH: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16" stroke-dasharray="2 2.5"/><path d="M9 9l-3 3 3 3"/><path d="M15 9l3 3-3 3"/></svg>`,
+  canvasFlipV: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18" stroke-dasharray="2 2.5"/><path d="M9 9l3-3 3 3"/><path d="M9 15l3 3 3-3"/></svg>`,
   polyLasso: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M3 21 7 11 15 4 21 9 17 16 9 15Z"/></svg>`,
   flipH: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18" stroke-dasharray="2 2.5"/><path d="M9 6 3 18h6Z"/><path d="M15 6l6 12h-6Z" fill="currentColor" fill-opacity=".3"/></svg>`,
   flipV: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18" stroke-dasharray="2 2.5"/><path d="M6 9 18 3v6Z"/><path d="M6 15l12 6v-6Z" fill="currentColor" fill-opacity=".3"/></svg>`,
@@ -39,7 +43,7 @@ const lucideMap: Record<string, IconNode> = {
   alignL: TextAlignStart, alignC: TextAlignCenter, alignR: TextAlignEnd,
   layAlignL: AlignStartVertical, layAlignCX: AlignCenterVertical, layAlignR: AlignEndVertical,
   layAlignT: AlignStartHorizontal, layAlignCY: AlignCenterHorizontal, layAlignB: AlignEndHorizontal,
-  ruler: Ruler, magnet: Magnet,
+  ruler: Ruler, magnet: Magnet, rotCW: RotateCw, rotCCW: RotateCcw,
 };
 
 export function icon(name: string, size = 18): HTMLElement {

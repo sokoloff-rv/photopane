@@ -17,7 +17,7 @@ export class Toolbar {
     this.colors.className = 'colors';
     this.build();
     this.buildColors();
-    new ResizeObserver(() => this.layout()).observe(el);
+    new ResizeObserver(() => requestAnimationFrame(() => this.layout())).observe(el);
   }
 
   /** One column when there is room, otherwise wrap into more columns. */

@@ -197,8 +197,26 @@ export class MoveTool extends Tool<MoveOpts> {
       sep(),
       al('left', 'layAlignL', 'opt.alLeft'), al('cx', 'layAlignCX', 'opt.alCX'), al('right', 'layAlignR', 'opt.alRight'),
       al('top', 'layAlignT', 'opt.alTop'), al('cy', 'layAlignCY', 'opt.alCY'), al('bottom', 'layAlignB', 'opt.alBottom'),
+      sep(),
+      el2span(t('opt.layerGroup')),
+      cmdBtn('rotateLayerCCW', 'rotCCW'), cmdBtn('rotateLayerCW', 'rotCW'), cmdBtn('rotateLayer180', 'rot180'),
+      cmdBtn('flipLayerH', 'flipH'), cmdBtn('flipLayerV', 'flipV'),
+      sep(),
+      el2span(t('opt.canvasGroup')),
+      cmdBtn('rotCCW', 'rotCCW'), cmdBtn('rotCW', 'rotCW'), cmdBtn('rot180', 'rot180'), cmdBtn('rotArbitrary', 'rotAny'),
+      cmdBtn('flipCanvasH', 'canvasFlipH'), cmdBtn('flipCanvasV', 'canvasFlipV'),
     ];
   }
+}
+
+/** Icon button running a registered command; tooltip = command name. */
+function cmdBtn(cmd: string, ico: string) {
+  const c = app.commands.get(cmd);
+  let title = t('cmd.' + cmd).replace('…', '');
+  if (cmd.startsWith('rot') && !cmd.includes('Layer')) title = `${t('cmd.rotation')}: ${title}`;
+  const b = iconButton(ico, title, () => app.run(cmd));
+  if (c?.enabled && !c.enabled()) b.disabled = true;
+  return b;
 }
 
 type AlignKind = 'left' | 'cx' | 'right' | 'top' | 'cy' | 'bottom';

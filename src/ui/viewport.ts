@@ -31,7 +31,7 @@ export class Viewport {
     this.overlay.className = 'vp-overlay';
     this.welcome = this.buildWelcome();
     el.append(this.main, this.overlay, this.welcome);
-    new ResizeObserver(() => this.resize()).observe(el);
+    new ResizeObserver(() => requestAnimationFrame(() => this.resize())).observe(el);
     this.resize();
 
     const ov = this.overlay;

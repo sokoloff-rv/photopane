@@ -168,6 +168,9 @@ const D: Record<string, [string, string]> = {
 
   'nav.zoomHint': ['Масштаб: введите значение и нажмите Enter', 'Zoom: type a value and press Enter'],
 
+  'opt.layerGroup': ['Слой:', 'Layer:'],
+  'opt.canvasGroup': ['Холст:', 'Canvas:'],
+
   // menus
   'menu.file': ['Файл', 'File'],
   'menu.edit': ['Редактирование', 'Edit'],

@@ -202,6 +202,8 @@ const D: Record<string, [string, string]> = {
   'dlg.noExif': ['в исходном файле нет EXIF', 'no EXIF in the source file'],
   'dlg.fmt.psd': ['Photoshop (PSD) — со слоями', 'Photoshop (PSD) — with layers'],
 
+  'text.mixed': ['В этом слое из PSD несколько стилей текста — при правке будет использован первый', 'This PSD text layer has several styles — editing uses the first one'],
+
   // menus
   'menu.file': ['Файл', 'File'],
   'menu.edit': ['Редактирование', 'Edit'],

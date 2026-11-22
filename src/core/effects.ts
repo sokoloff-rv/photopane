@@ -1,5 +1,5 @@
 import { Layer, LayerEffects, compositeOp, hasEffects } from './layer';
-import { createCanvas, ctx2d, Rect, rectIntersect } from './util';
+import { createCanvas, ctx2d, Rect, rectIntersect, alphaBounds } from './util';
 import { css } from './color';
 import { distanceTransform } from './selection';
 import { hooks } from './render';
@@ -68,7 +68,8 @@ export function renderEffects(l: Layer, g: CanvasRenderingContext2D, W: number, 
   og.drawImage(src, 0, 0);
 
   // 4. overlays (gradient, then color on top — like Photoshop)
-  const bounds = l.isGroup ? { x: 0, y: 0, w: R.w, h: R.h } : { x: l.x - R.x, y: l.y - R.y, w: l.canvas.width, h: l.canvas.height };
+  // gradient overlay is aligned to the visible content bounds (like Photoshop's 'Align with layer')
+  const bounds = alphaBounds(src, 8) || { x: 0, y: 0, w: R.w, h: R.h };
   const go = fx.gradientOverlay;
   if (go.enabled) {
     const c = createCanvas(R.w, R.h), cg = ctx2d(c);

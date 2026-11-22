@@ -2,7 +2,7 @@ import { app } from '../app';
 import { t } from '../i18n';
 import { Tool, PEvent } from './tool';
 import { Layer, TextData, defaultText } from '../core/layer';
-import { layoutText, renderTextLayer, COMMON_FONTS, fontString } from '../core/text';
+import { layoutText, renderTextLayer, COMMON_FONTS, fontString, baselineOffset, cssHalfLeading } from '../core/text';
 import { css, RGB } from '../core/color';
 import { el, normRect } from '../core/util';
 import { numberField, select, segmented, colorSwatch, sep } from '../ui/controls';
@@ -61,7 +61,7 @@ export class TextTool extends Tool<TextOpts> {
       td.box = { w: Math.max(10, r.w), h: Math.max(td.size * td.leading, r.h) };
       td.ax = r.x; td.ay = r.y; td.align = this.o.align;
     } else {
-      td.ax = s.x; td.ay = s.y - td.size * td.leading * 0.6;
+      td.ax = s.x; td.ay = s.y - baselineOffset(td);
     }
     const l = new Layer('text', `${t('tool.text')} ${textCounter++}`);
     l.text = td;
@@ -77,6 +77,7 @@ export class TextTool extends Tool<TextOpts> {
   edit(l: Layer) {
     const d = app.doc!;
     d.setActive(l);
+    if (l.text?.mixedStyles) { toast(t('text.mixed')); l.text.mixedStyles = false; }
     if (l.text?.psdPixels) { l.text.psdPixels = false; }
     this.isNew = false;
     this.startEditor(l);
@@ -120,7 +121,8 @@ export class TextTool extends Tool<TextOpts> {
     const w = tx.box ? f.w * z : f.w * z + extra;
     let left = v.toScreen(f.x, f.y).x;
     if (!tx.box) left = tx.align === 'left' ? left : tx.align === 'center' ? v.toScreen(tx.ax, 0).x - w / 2 : v.toScreen(tx.ax, 0).x - w;
-    const top = v.toScreen(f.x, f.y).y;
+    // a CSS line box puts half of the extra leading above the first baseline; compensate so glyphs match the canvas
+    const top = v.toScreen(f.x, f.y).y - cssHalfLeading(tx) * z;
     Object.assign(ta.style, {
       left: left + 'px', top: top + 'px', width: Math.max(w, 20) + 'px',
       height: Math.max(lay.lines.length * lay.lineH * z, lay.lineH * z) + (tx.box ? 0 : 2) + 'px',
@@ -129,6 +131,7 @@ export class TextTool extends Tool<TextOpts> {
       textDecoration: 'none',
     });
     if (tx.box) ta.style.height = f.h * z + 'px';
+    if ((tx.vScale ?? 1) !== 1) { ta.style.transformOrigin = '0 0'; ta.style.transform = 'none'; }
   }
 
   viewChanged() { this.position(); }
@@ -176,9 +179,9 @@ export class TextTool extends Tool<TextOpts> {
       const a = v.toScreen(this.dragStart.x, this.dragStart.y), b = v.toScreen(this.dragCur.x, this.dragCur.y);
       g.save(); g.setLineDash([4, 3]); g.strokeStyle = '#fff'; g.strokeRect(a.x + 0.5, a.y + 0.5, b.x - a.x, b.y - a.y); g.restore();
     }
-    // outline of the active text layer when not editing
-    const l = app.doc?.active;
-    if (!this.editing && l?.kind === 'text' && l.text) {
+    // outline of the text frame (active text layer, or the one being edited)
+    const l = this.editing || app.doc?.active;
+    if (l?.kind === 'text' && l.text) {
       const f = layoutText(l.text).frame;
       const a = v.toScreen(f.x, f.y), b = v.toScreen(f.x + f.w, f.y + f.h);
       g.save(); g.strokeStyle = 'rgba(10,132,255,0.6)'; g.strokeRect(a.x - 0.5, a.y - 0.5, b.x - a.x + 1, b.y - a.y + 1); g.restore();

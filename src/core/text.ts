@@ -20,7 +20,50 @@ function mctx(t: TextData) {
   return measureCtx;
 }
 
-export interface TextLayout { lines: { text: string; width: number }[]; frame: Rect; lineH: number }
+export interface TextLayout { lines: { text: string; width: number }[]; frame: Rect; lineH: number; baseline: number }
+
+const metricsCache = new Map<string, { asc: number; desc: number }>();
+/** Font ascent/descent in px (font box), used to place the baseline like a CSS line box. */
+export function fontMetrics(t: TextData): { asc: number; desc: number } {
+  const key = fontString(t);
+  let m = metricsCache.get(key);
+  if (!m) {
+    const g = mctx(t);
+    const tm = g.measureText('HgЙу');
+    const vs = t.vScale ?? 1;
+    const asc = (tm.fontBoundingBoxAscent ?? t.size * 0.8) * vs;
+    const desc = (tm.fontBoundingBoxDescent ?? t.size * 0.2) * vs;
+    m = { asc, desc };
+    if (metricsCache.size > 200) metricsCache.clear();
+    metricsCache.set(key, m);
+  }
+  return m;
+}
+
+/** Distance from the top of the text frame to the first baseline (Photoshop: the font ascent;
+ *  leading only spaces the following lines). */
+export function baselineOffset(t: TextData): number {
+  return fontMetrics(t).asc;
+}
+
+/** Extra space a CSS line box adds above the first baseline compared to the frame (for the editor overlay). */
+export function cssHalfLeading(t: TextData): number {
+  const { asc, desc } = fontMetrics(t);
+  return (t.size * t.leading - (asc + desc)) / 2;
+}
+
+/** Is a font family installed? (compares text widths against generic fallbacks) */
+export function fontAvailable(family: string): boolean {
+  const g = ctx2d(createCanvas(4, 4));
+  const sample = 'mmmmmmmmmmlliWW@#АБВЖЩабвжщ0123';
+  for (const base of ['monospace', 'serif', 'sans-serif']) {
+    g.font = `72px ${base}`;
+    const w0 = g.measureText(sample).width;
+    g.font = `72px "${family}", ${base}`;
+    if (Math.abs(g.measureText(sample).width - w0) > 0.5) return true;
+  }
+  return false;
+}
 
 /** Lay out text: wrap for box text, measure lines, compute the frame in document space. */
 export function layoutText(t: TextData): TextLayout {
@@ -53,38 +96,43 @@ export function layoutText(t: TextData): TextLayout {
   }
   const maxW = Math.max(1, ...lines.map(l => l.width));
   let frame: Rect;
-  if (t.box) frame = { x: t.ax, y: t.ay, w: t.box.w, h: t.box.h };
+  if (t.psdPixels && t.psdFrame) frame = { ...t.psdFrame };
+  else if (t.box) frame = { x: t.ax, y: t.ay, w: t.box.w, h: t.box.h };
   else {
     const x = t.align === 'left' ? t.ax : t.align === 'center' ? t.ax - maxW / 2 : t.ax - maxW;
-    frame = { x, y: t.ay, w: maxW, h: Math.max(lineH, lines.length * lineH) };
+    const { asc, desc } = fontMetrics(t);
+    frame = { x, y: t.ay, w: maxW, h: asc + desc + (lines.length - 1) * lineH };
   }
-  return { lines, frame, lineH };
+  return { lines, frame, lineH, baseline: baselineOffset(t) };
 }
 
 /** Render a text layer's pixels from its TextData. */
 export function renderTextLayer(l: Layer) {
   const t = l.text;
   if (!t) return;
+  t.psdPixels = false;
   const lay = layoutText(t);
   const pad = Math.ceil(t.size * 0.6);
   const f = lay.frame;
-  const contentH = t.box ? f.h : lay.lines.length * lay.lineH;
+  const contentH = f.h;
   const c = createCanvas(Math.ceil(f.w) + pad * 2, Math.ceil(contentH) + pad * 2);
   const g = ctx2d(c);
   g.font = fontString(t);
   (g as any).letterSpacing = `${(t.tracking / 1000) * t.size}px`;
   g.fillStyle = css(t.color);
-  g.textBaseline = 'middle';
+  g.textBaseline = 'alphabetic';
+  const vs = t.vScale ?? 1;
   if (t.box) { g.beginPath(); g.rect(pad, pad, f.w, f.h); g.clip(); }
   const ox = f.x - Math.floor(f.x), oy = f.y - Math.floor(f.y);
   if (ox || oy) g.translate(ox, oy);
   lay.lines.forEach((ln, i) => {
     const x = t.align === 'left' ? pad : t.align === 'center' ? pad + (f.w - ln.width) / 2 : pad + f.w - ln.width;
-    const y = pad + i * lay.lineH + lay.lineH / 2;
-    g.fillText(ln.text, x, y);
+    const y = pad + i * lay.lineH + lay.baseline;
+    if (vs !== 1) { g.save(); g.translate(x, y); g.scale(1, vs); g.fillText(ln.text, 0, 0); g.restore(); }
+    else g.fillText(ln.text, x, y);
     if (t.underline && ln.text) {
       const th = Math.max(1, t.size / 16);
-      g.fillRect(x, y + t.size * 0.42, ln.width, th);
+      g.fillRect(x, y + t.size * 0.1, ln.width, th);
     }
   });
   l.content.replace(c, Math.floor(f.x) - pad, Math.floor(f.y) - pad);

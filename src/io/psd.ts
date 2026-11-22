@@ -4,7 +4,7 @@ import { Doc } from '../core/document';
 import { Layer, Surface, BlendMode, LayerEffects, defaultEffects, TextData, defaultText } from '../core/layer';
 import { RGB } from '../core/color';
 import { createCanvas, ctx2d } from '../core/util';
-import { layoutText } from '../core/text';
+import { baselineOffset, fontAvailable } from '../core/text';
 
 /* ---------------- blend modes ---------------- */
 const FROM_PSD: Partial<Record<PsdBlend, BlendMode>> = {
@@ -70,7 +70,7 @@ function effectsFrom(e: LayerEffectsInfo | undefined): LayerEffects {
       : fx.gradientOverlay.stops;
     Object.assign(fx.gradientOverlay, {
       enabled: go.enabled !== false, stops, opacity: go.opacity ?? 1, angle: go.angle ?? 90,
-      type: go.type === 'radial' ? 'radial' : 'linear', reverse: !!go.reverse, scale: go.scale ?? 100, blend: blendFrom(go.blendMode),
+      type: go.type === 'radial' ? 'radial' : 'linear', reverse: !!go.reverse, scale: (go.scale ?? 1) * 100, blend: blendFrom(go.blendMode),
     });
   }
   return fx;
@@ -100,7 +100,7 @@ function effectsTo(fx: LayerEffects): LayerEffectsInfo | undefined {
   if (g.enabled) {
     any = true;
     e.gradientOverlay = [{
-      enabled: true, present: true, showInDialog: true, opacity: g.opacity, angle: g.angle, type: g.type, reverse: g.reverse, scale: g.scale,
+      enabled: true, present: true, showInDialog: true, opacity: g.opacity, angle: g.angle, type: g.type, reverse: g.reverse, scale: g.scale / 100,
       blendMode: TO_PSD[g.blend], align: true,
       gradient: {
         name: 'Custom', type: 'solid', smoothness: 1,
@@ -113,54 +113,76 @@ function effectsTo(fx: LayerEffects): LayerEffectsInfo | undefined {
 }
 
 /* ---------------- text ---------------- */
-function familyFromPostScript(name: string): { family: string; bold: boolean; italic: boolean } {
-  const bold = /bold|black|heavy|semibold|demi/i.test(name);
-  const italic = /italic|oblique/i.test(name);
-  let family = name.replace(/-.*$/, '').replace(/MT$|PSMT$|PS$/, '');
-  family = family.replace(/([a-z])([A-Z])/g, '$1 $2');
-  if (family === 'Times New Roman' || /^Times New Roman/.test(family)) family = 'Times New Roman';
-  return { family: family || 'Arial', bold, italic };
+const STYLE_WORDS = /(Bold|Black|Heavy|SemiBold|Semibold|DemiBold|Demi|Medium|Light|Thin|Regular|Book|Italic|Oblique|It)/g;
+
+/** Map a PostScript font name (e.g. "Ralenta-Bold", "LazurskiBoldCyrillic", "ArialMT") to an installed family. */
+export function resolveFont(psName: string): { family: string; bold: boolean; italic: boolean } {
+  const boldIn = (s: string) => /bold|black|heavy|semibold|demibold/i.test(s);
+  const italicIn = (s: string) => /italic|oblique/i.test(s);
+  const [base0, style = ''] = psName.split('-');
+  const base = base0.replace(/(PSMT|MT|PS)$/, '');
+  const spaced = (s: string) => s.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\s+/g, ' ').trim();
+  const stripped = base.replace(STYLE_WORDS, '');
+  const cands: { family: string; bold: boolean; italic: boolean }[] = [];
+  const add = (family: string, bold: boolean, italic: boolean) => { if (family && !cands.some(c => c.family === family)) cands.push({ family, bold, italic }); };
+  // family names that already contain the weight (e.g. "Lazurski Bold Cyrillic") need no faux bold
+  add(spaced(base), boldIn(style), italicIn(style));
+  add(base, boldIn(style), italicIn(style));
+  add(spaced(stripped), boldIn(psName), italicIn(psName));
+  add(stripped, boldIn(psName), italicIn(psName));
+  const firstWord = spaced(base).split(' ')[0];
+  add(firstWord, boldIn(psName), italicIn(psName));
+  for (const c of cands) if (fontAvailable(c.family)) return c;
+  return cands[0] || { family: 'Arial', bold: false, italic: false };
 }
 
 function textFrom(l: PsdLayer): TextData | null {
   const tx = l.text;
   if (!tx || !tx.text) return null;
-  const st = tx.style || tx.styleRuns?.[0]?.style || {};
-  const ps = tx.paragraphStyle || tx.paragraphStyleRuns?.[0]?.style || {};
+  const runs = tx.styleRuns || [];
+  // the first character style = base style + first run overrides (sizes are often stored only in runs)
+  const st = { ...(tx.style || {}), ...(runs[0]?.style || {}) };
+  const ps = { ...(tx.paragraphStyle || {}), ...(tx.paragraphStyleRuns?.[0]?.style || {}) };
   const tr = tx.transform || [1, 0, 0, 1, l.left || 0, l.top || 0];
   const scale = Math.sqrt(tr[2] * tr[2] + tr[3] * tr[3]) || 1;
-  const size = (st.fontSize ?? 24) * scale;
-  const f = familyFromPostScript(st.font?.name || 'Arial');
+  const fontSize = st.fontSize ?? 12;
+  const size = fontSize * scale;
+  const f = resolveFont(st.font?.name || 'Arial');
   const just = ps.justification || 'left';
   const align: TextData['align'] = just.includes('center') ? 'center' : just.includes('right') ? 'right' : 'left';
-  const leading = st.autoLeading === false && st.leading ? st.leading / (st.fontSize || 1) : 1.2;
+  const leading = st.autoLeading === false && st.leading ? st.leading / fontSize : (ps.autoLeading ?? 1.2);
+  const sizes = new Set(runs.map(r => r.style.fontSize ?? fontSize).filter(Boolean));
+  const colors = new Set(runs.map(r => JSON.stringify(r.style.fillColor ?? st.fillColor)));
   const td: TextData = {
-    ...defaultText(), text: tx.text.replace(/\r/g, '\n'), font: f.family, size, color: colorFrom(st.fillColor, { r: 0, g: 0, b: 0 }),
+    ...defaultText(), text: tx.text.replace(/\r/g, '\n').replace(/\n$/, ''), font: f.family, size,
+    color: colorFrom(st.fillColor, { r: 0, g: 0, b: 0 }),
     bold: !!st.fauxBold || f.bold, italic: !!st.fauxItalic || f.italic, underline: !!st.underline, align, leading,
-    tracking: st.tracking ?? 0, box: null, psdPixels: true,
+    tracking: st.tracking ?? 0, box: null, psdPixels: true, vScale: st.verticalScale ?? 1,
+    mixedStyles: sizes.size > 1 || colors.size > 1,
   };
   if (tx.shapeType === 'box' && tx.boxBounds) {
     const [bl, bt, br, bb] = tx.boxBounds;
     td.box = { w: (br - bl) * scale, h: (bb - bt) * scale };
     td.ax = tr[4] + bl * scale; td.ay = tr[5] + bt * scale;
   } else {
-    // point text: transform origin is the baseline of the first line at the alignment point
-    const lineH = size * leading;
+    // point text: the transform origin is the baseline of the first line at the alignment point
     td.ax = tr[4];
-    td.ay = tr[5] - (lineH / 2 + size * 0.35);
+    td.ay = tr[5] - baselineOffset(td);
   }
+  const bb = tx.bounds;
+  if (bb) td.psdFrame = { x: tr[4] + bb.left.value * scale, y: tr[5] + bb.top.value * scale, w: (bb.right.value - bb.left.value) * scale, h: (bb.bottom.value - bb.top.value) * scale };
+  else if (l.right !== undefined) td.psdFrame = { x: l.left || 0, y: l.top || 0, w: (l.right || 0) - (l.left || 0), h: (l.bottom || 0) - (l.top || 0) };
   return td;
 }
 
 function textTo(l: Layer): PsdLayer['text'] {
   const td = l.text!;
-  const lay = layoutText(td);
   const lineH = td.size * td.leading;
   const base: PsdLayer['text'] = {
     text: td.text.replace(/\n/g, '\r'),
     style: {
       font: { name: td.font.replace(/\s+/g, '') }, fontSize: td.size, fauxBold: td.bold, fauxItalic: td.italic, underline: td.underline,
-      tracking: td.tracking, autoLeading: false, leading: lineH, fillColor: colorTo(td.color),
+      tracking: td.tracking, autoLeading: false, leading: lineH, fillColor: colorTo(td.color), verticalScale: td.vScale ?? 1,
     },
     paragraphStyle: { justification: td.align },
     antiAlias: 'smooth',
@@ -171,9 +193,8 @@ function textTo(l: Layer): PsdLayer['text'] {
     base.transform = [1, 0, 0, 1, td.ax, td.ay];
   } else {
     base.shapeType = 'point';
-    base.transform = [1, 0, 0, 1, td.ax, td.ay + lineH / 2 + td.size * 0.35];
+    base.transform = [1, 0, 0, 1, td.ax, td.ay + baselineOffset(td)];
   }
-  void lay;
   return base;
 }
 

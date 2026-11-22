@@ -75,6 +75,12 @@ export interface TextData {
   ay: number;
   /** Original pixels from PSD are shown until the text is edited */
   psdPixels?: boolean;
+  /** Text frame reported by Photoshop (document coords), used while psdPixels is true */
+  psdFrame?: { x: number; y: number; w: number; h: number };
+  /** Several character styles in the PSD layer (only the first one is editable) */
+  mixedStyles?: boolean;
+  /** Vertical glyph scale (Photoshop "vertical scale"), 1 = 100% */
+  vScale?: number;
 }
 
 export function defaultText(): TextData {

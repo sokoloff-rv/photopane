@@ -320,7 +320,7 @@ export function registerCommands(app: App) {
   R('inverse', () => setSel(D().selection!.invert(), 'h.select'), ['Ctrl+Shift+I'], hasSel);
   const modify = (id: string, keys: string[], fn: (s: Selection, v: number) => Selection | null, max = 500) =>
     R(id, async () => {
-      const v = await promptNumber(t('cmd.' + id).replace('…', ''), t('dlg.radius'), app.settings['sel_' + id] ?? 2, 1, max, t('dlg.px'));
+      const v = await promptNumber(t('cmd.' + id), t('dlg.radius'), app.settings['sel_' + id] ?? 2, 1, max, t('dlg.px'));
       if (v == null) return;
       app.settings['sel_' + id] = v; app.saveSettings();
       setSel(fn(D().selection!, v), 'h.select');

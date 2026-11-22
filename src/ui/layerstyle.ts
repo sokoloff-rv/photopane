@@ -105,7 +105,7 @@ export function layerStyleDialog(start: Section = 'blending') {
   const reset = el('button', { class: 'btn sm' }, t('fx.clear'));
   reset.addEventListener('click', () => { Object.assign(fx, defaultEffects()); changed(); renderList(); renderPane(); });
   openDialog({
-    title: t('cmd.layerStyle').replace('…', '') + ' — ' + l.name, body: el('div', { class: 'ls' }, list, pane), width: 600, side: true,
+    title: t('cmd.layerStyle') + ' — ' + l.name, body: el('div', { class: 'ls' }, list, pane), width: 600, side: true,
     extraButtons: [reset],
     onOk: () => {
       if (JSON.stringify(l.effects) !== before.fx || l.blend !== before.blend || l.opacity !== before.opacity) app.commit('cmd.layerStyle');

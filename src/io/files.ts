@@ -234,7 +234,7 @@ function fileDialog(saveAs: boolean) {
   renderRows();
   updateSize();
   openDialog({
-    title: saveAs ? t('dlg.save.title') : t('cmd.export').replace('…', ''), body, width: 420, okLabel: t('cmd.save').replace('…', ''),
+    title: saveAs ? t('dlg.save.title') : t('cmd.export'), body, width: 420, okLabel: t('cmd.save'),
     onOk: async () => {
       if (!saveAs) app.settings.exportFmt = fmt;
       app.settings.jpegQuality = quality;

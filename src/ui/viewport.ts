@@ -81,8 +81,8 @@ export class Viewport {
     w.querySelector('h1')!.textContent = t('app.welcome.title');
     w.querySelector('p')!.textContent = t('app.welcome.sub');
     const spans = w.querySelectorAll('.welcome-actions span:not(.ico)');
-    spans[0].textContent = t('cmd.new').replace('…', '');
-    spans[1].textContent = t('cmd.open').replace('…', '');
+    spans[0].textContent = t('cmd.new');
+    spans[1].textContent = t('cmd.open');
   }
 
   resize() {

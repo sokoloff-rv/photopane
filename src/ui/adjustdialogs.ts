@@ -79,7 +79,7 @@ export function enhanceDialog(vignetteOnly = false) {
   });
   let cache: DetailCache;
   const res = adjustDialog({
-    title: vignetteOnly ? t('cmd.vignette').replace('…', '') : t('cmd.enhance').replace('…', ''), body, width: 320,
+    title: vignetteOnly ? t('cmd.vignette') : t('cmd.enhance'), body, width: 320,
     label: vignetteOnly ? 'cmd.vignette' : 'cmd.enhance',
     compute: s => (src, dst) => enhance(p, s, (cache ??= new DetailCache(s)), src, dst),
     extra: [el('div', { style: { flex: '1' } }), reset],
@@ -175,7 +175,7 @@ export function levelsDialog() {
   const body = el('div', { class: 'adj' }, el('div', { class: 'form-row' }, el('span', { class: 'muted' }, t('adj.channel')), chSel), hc, inTrack, info, el('div', { style: { height: '8px' } }), outTrack, outInfo);
   const lutFor = (l: LevelsCh) => levelsLUT(l.inB, l.inW, l.gamma, l.outB, l.outW);
   const res = adjustDialog({
-    title: t('cmd.levels').replace('…', ''), body, width: 320, label: 'cmd.levels',
+    title: t('cmd.levels'), body, width: 320, label: 'cmd.levels',
     compute: () => (src, dst) => {
       const m = lutFor(chs.rgb);
       applyLUTs(src, dst, composeLUT(m, lutFor(chs.r)), composeLUT(m, lutFor(chs.g)), composeLUT(m, lutFor(chs.b)));
@@ -279,7 +279,7 @@ export function curvesDialog() {
   reset.addEventListener('click', () => { curves.rgb = base(); curves.r = base(); curves.g = base(); curves.b = base(); sel = -1; redraw(); refresh(); });
   const body = el('div', { class: 'adj' }, el('div', { class: 'form-row' }, el('span', { class: 'muted' }, t('adj.channel')), chSel), cv, info);
   const res = adjustDialog({
-    title: t('cmd.curves').replace('…', ''), body, width: 320, label: 'cmd.curves',
+    title: t('cmd.curves'), body, width: 320, label: 'cmd.curves',
     compute: () => (src, dst) => {
       const m = curveLUT(curves.rgb);
       applyLUTs(src, dst, composeLUT(m, curveLUT(curves.r)), composeLUT(m, curveLUT(curves.g)), composeLUT(m, curveLUT(curves.b)));
@@ -306,7 +306,7 @@ export function hueSatDialog() {
       hueRow.set(p.hue); satRow.set(p.sat); refresh();
     }));
   const res = adjustDialog({
-    title: t('cmd.hueSat').replace('…', ''), body, label: 'cmd.hueSat',
+    title: t('cmd.hueSat'), body, label: 'cmd.hueSat',
     compute: () => (src, dst) => hueSat(src, dst, p.hue, p.sat, p.light, p.colorize),
   });
   if (res) refresh = res.refresh;
@@ -318,7 +318,7 @@ export function gaussianDialog() {
   let refresh = () => {};
   const body = el('div', { class: 'adj' }, sliderRow({ key: 'r', label: t('dlg.radius'), min: 0.1, max: 250, step: 0.1, def: 4, unit: ' px' }, radius, v => { radius = v; refresh(); }));
   const res = adjustDialog({
-    title: t('cmd.gaussian').replace('…', ''), body, label: 'cmd.gaussian',
+    title: t('cmd.gaussian'), body, label: 'cmd.gaussian',
     compute: s => (src, dst) => { dst.set(gaussianBlur(src, s.w, s.h, radius)); app.settings.gaussR = radius; },
   });
   if (res) { refresh = res.refresh; refresh(); }
@@ -333,7 +333,7 @@ export function unsharpDialog() {
     sliderRow({ key: 'r', label: t('dlg.radius'), min: 0.1, max: 100, step: 0.1, def: 1.5, unit: ' px' }, p.radius, v => { p.radius = v; refresh(); }),
     sliderRow({ key: 't', label: t('adj.threshold'), min: 0, max: 255, def: 0 }, p.threshold, v => { p.threshold = v; refresh(); }));
   const res = adjustDialog({
-    title: t('cmd.unsharp').replace('…', ''), body, label: 'cmd.unsharp',
+    title: t('cmd.unsharp'), body, label: 'cmd.unsharp',
     compute: s => (src, dst) => {
       if (!blurred || blurredR !== p.radius) { blurred = gaussianBlur(src, s.w, s.h, p.radius); blurredR = p.radius; }
       unsharp(src, dst, blurred, p.amount, p.threshold);
@@ -350,7 +350,7 @@ export function noiseDialog() {
     el('div', { class: 'form-row' }, select([{ value: 'g', label: t('adj.gaussian') }, { value: 'u', label: t('adj.uniform') }], 'g', v => { p.gaussian = v === 'g'; refresh(); })),
     checkbox(t('adj.mono'), false, v => { p.mono = v; refresh(); }));
   const res = adjustDialog({
-    title: t('cmd.noise').replace('…', ''), body, label: 'cmd.noise',
+    title: t('cmd.noise'), body, label: 'cmd.noise',
     compute: () => (src, dst) => addNoise(src, dst, p.amount, p.gaussian, p.mono),
   });
   if (res) { refresh = res.refresh; refresh(); }

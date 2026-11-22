@@ -86,7 +86,7 @@ export function imageSizeDialog() {
       select<Method>([{ value: 'auto', label: t('dlg.rs.auto') }, { value: 'bicubic', label: t('dlg.rs.bicubic') }, { value: 'bilinear', label: t('dlg.rs.bilinear') }, { value: 'nearest', label: t('dlg.rs.nearest') }], method, v => (method = v))),
     el('div', { class: 'form-row' }, el('label', {}, ''), pct));
   openDialog({
-    title: t('cmd.imageSize').replace('…', ''), body, width: 420,
+    title: t('cmd.imageSize'), body, width: 420,
     onOk: () => {
       if (w === d.width && h === d.height) return;
       app.settings.resample = method; app.saveSettings();
@@ -127,7 +127,7 @@ export function canvasSizeDialog() {
     el('div', { class: 'form-row' }, el('label', {}, t('dlg.extension')),
       select([{ value: 'transparent', label: t('dlg.bg.transparent') }, { value: 'bg', label: t('dlg.bg.bgColor') }, { value: 'white', label: t('dlg.bg.white') }, { value: 'black', label: t('dlg.bg.black') }], fill, v => (fill = v as any))));
   openDialog({
-    title: t('cmd.canvasSize').replace('…', ''), body, width: 420,
+    title: t('cmd.canvasSize'), body, width: 420,
     onOk: () => {
       const W = Math.max(1, relative ? d.width + w : w), H = Math.max(1, relative ? d.height + h : h);
       if (W === d.width && H === d.height) return;
@@ -159,7 +159,7 @@ export function rotateArbitraryDialog() {
     el('div', { class: 'form-row' }, el('label', {}, ''),
       select([{ value: 'cw', label: t('dlg.cw') }, { value: 'ccw', label: t('dlg.ccw') }], 'cw', v => (cw = v === 'cw'))));
   openDialog({
-    title: t('cmd.rotArbitrary').replace('…', ''), body, width: 360,
+    title: t('cmd.rotArbitrary'), body, width: 360,
     onOk: () => {
       if (!angle) return;
       app.settings.rotAngle = angle; app.saveSettings();

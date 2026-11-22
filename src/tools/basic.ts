@@ -212,7 +212,7 @@ export class MoveTool extends Tool<MoveOpts> {
 /** Icon button running a registered command; tooltip = command name. */
 function cmdBtn(cmd: string, ico: string) {
   const c = app.commands.get(cmd);
-  let title = t('cmd.' + cmd).replace('…', '');
+  let title = t('cmd.' + cmd);
   if (cmd.startsWith('rot') && !cmd.includes('Layer')) title = `${t('cmd.rotation')}: ${title}`;
   const b = iconButton(ico, title, () => app.run(cmd));
   if (c?.enabled && !c.enabled()) b.disabled = true;

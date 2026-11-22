@@ -410,6 +410,7 @@ const D: Record<string, [string, string]> = {
   'tool.perspCrop': ['Кадрирование перспективы', 'Perspective Crop'],
   'tool.eyedropper': ['Пипетка', 'Eyedropper'],
   'tool.heal': ['Точечная восстанавливающая кисть', 'Spot Healing Brush'],
+  'hint.heal': ['Закрасьте пятно или мелкий дефект — после отпускания он заполнится подходящей текстурой рядом', 'Paint over a spot or small blemish; on release it is filled with matching texture from nearby'],
   'tool.brush': ['Кисть', 'Brush'],
   'tool.replace': ['Замена цвета', 'Color Replacement'],
   'tool.stamp': ['Штамп', 'Clone Stamp'],

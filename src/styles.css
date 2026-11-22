@@ -28,6 +28,11 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--win); color: var(--text); font: 12.5px/1.35 var(--font); overflow: hidden; -webkit-font-smoothing: antialiased; }
 button, input, select { font: inherit; color: inherit; }
+/* Interface behaves like a desktop app: arrow cursor and no accidental text selection.
+   The text cursor appears only where text can actually be typed. */
+body { cursor: default; user-select: none; -webkit-user-select: none; }
+input:not([type=checkbox]):not([type=range]):not([type=radio]), textarea, [contenteditable] { cursor: text; user-select: text; -webkit-user-select: text; }
+select, input[type=range], input[type=checkbox] { cursor: default; }
 button { cursor: default; }
 ::selection { background: var(--accent-soft); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }

@@ -168,13 +168,13 @@ export function autoColor(src: Uint8ClampedArray, dst: Uint8ClampedArray, sel: U
 /* ---------------- Enhance (Google Photos-like) ---------------- */
 export interface EnhanceParams {
   brightness: number; contrast: number; highlights: number; shadows: number; whites: number; blacks: number;
-  saturation: number; vibrance: number; warmth: number; tint: number;
+  saturation: number; vibrance: number; warmth: number; tint: number; hue: number;
   sharpness: number; clarity: number;
   vignette: number; vigMidpoint: number; vigRoundness: number; vigFeather: number;
 }
 export const ENHANCE_DEFAULTS: EnhanceParams = {
   brightness: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
-  saturation: 0, vibrance: 0, warmth: 0, tint: 0, sharpness: 0, clarity: 0,
+  saturation: 0, vibrance: 0, warmth: 0, tint: 0, hue: 0, sharpness: 0, clarity: 0,
   vignette: 0, vigMidpoint: 50, vigRoundness: 0, vigFeather: 50,
 };
 
@@ -218,6 +218,8 @@ export function enhance(p: EnhanceParams, s: AdjustSession, cache: DetailCache, 
   const sat = 1 + p.saturation / 100, vib = p.vibrance / 100 * 1.3;
   const wr = 1 + p.warmth / 100 * 0.12, wb = 1 - p.warmth / 100 * 0.12, tg = 1 - p.tint / 100 * 0.1;
   const sharp = p.sharpness / 100 * 1.6, clar = p.clarity / 100 * 0.7;
+  // hue: shift around the colour wheel in HSL, as Photoshop's Hue (red +120° → pure green)
+  const hshift = ((p.hue % 360) + 360) % 360 / 360;
   const small = sharp ? cache.getSmall() : null;
   const large = clar ? cache.getLarge() : null;
   const doc = app.doc!;
@@ -233,6 +235,10 @@ export function enhance(p: EnhanceParams, s: AdjustSession, cache: DetailCache, 
       r += d; g += d; b += d;
     }
     if (wr !== 1 || tg !== 1) { r *= wr; b *= wb; g *= tg; }
+    if (hshift) {
+      const [h, sl, l] = rgbToHsl(Math.min(1, Math.max(0, r)), Math.min(1, Math.max(0, g)), Math.min(1, Math.max(0, b)));
+      [r, g, b] = hslToRgb((h + hshift) % 1, sl, l);
+    }
     if (sat !== 1 || vib) {
       const l = 0.299 * r + 0.587 * g + 0.114 * b;
       const cur = Math.max(r, g, b) - Math.min(r, g, b);
@@ -251,22 +257,6 @@ export function enhance(p: EnhanceParams, s: AdjustSession, cache: DetailCache, 
       if (vamt > 0) { const k = 1 - tt * 0.9; r *= k; g *= k; b *= k; }
       else { r += (1 - r) * tt * 0.9; g += (1 - g) * tt * 0.9; b += (1 - b) * tt * 0.9; }
     }
-    dst[i] = r * 255; dst[i + 1] = g * 255; dst[i + 2] = b * 255; dst[i + 3] = src[i + 3];
-  }
-}
-
-/* ---------------- Hue / Saturation ---------------- */
-export function hueSat(src: Uint8ClampedArray, dst: Uint8ClampedArray, hue: number, satv: number, light: number, colorize: boolean) {
-  for (let i = 0; i < src.length; i += 4) {
-    let [h, s, l] = rgbToHsl(src[i] / 255, src[i + 1] / 255, src[i + 2] / 255);
-    if (colorize) { h = ((hue % 360) + 360) % 360 / 360; s = satv / 100; }
-    else {
-      h = (h + hue / 360 + 1) % 1;
-      s = satv >= 0 ? s + (1 - s) * s * (satv / 100) * 1.5 : s * (1 + satv / 100);
-      s = Math.min(1, Math.max(0, s));
-    }
-    if (light > 0) l = l + (1 - l) * light / 100; else if (light < 0) l = l * (1 + light / 100);
-    const [r, g, b] = hslToRgb(h, s, l);
     dst[i] = r * 255; dst[i + 1] = g * 255; dst[i + 2] = b * 255; dst[i + 3] = src[i + 3];
   }
 }

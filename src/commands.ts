@@ -12,7 +12,7 @@ import { pickFiles, openFiles, saveDoc, exportDialog, readClipboardImage, writeC
 import { TransformTool } from './tools/transform';
 import { imageSizeDialog, canvasSizeDialog, rotateArbitraryDialog } from './ui/docdialogs';
 import { fillDialog, strokeDialog } from './ui/filldialogs';
-import { enhanceDialog, levelsDialog, curvesDialog, hueSatDialog, gaussianDialog, unsharpDialog, noiseDialog } from './ui/adjustdialogs';
+import { enhanceDialog, levelsDialog, curvesDialog, gaussianDialog, unsharpDialog, noiseDialog } from './ui/adjustdialogs';
 import { instantAdjust, invert, desaturate, autoTone, autoContrast, autoColor } from './core/adjust';
 import { blurGalleryTool } from './tools/blurgallery';
 import { layerStyleDialog, clearLayerStyle } from './ui/layerstyle';
@@ -146,10 +146,9 @@ export function registerCommands(app: App) {
   docXform('flipCanvasH', 'flipH');
   docXform('flipCanvasV', 'flipV');
   // adjustments & filters
-  R('enhance', () => enhanceDialog(false), [], hasPixelLayer);
+  R('enhance', () => enhanceDialog(false), ['Ctrl+U'], hasPixelLayer);
   R('levels', () => levelsDialog(), ['Ctrl+L'], hasPixelLayer);
   R('curves', () => curvesDialog(), ['Ctrl+M'], hasPixelLayer);
-  R('hueSat', () => hueSatDialog(), ['Ctrl+U'], hasPixelLayer);
   R('invert', () => instantAdjust('cmd.invert', invert), ['Ctrl+I'], hasPixelLayer);
   R('desaturate', () => instantAdjust('cmd.desaturate', desaturate), ['Ctrl+Shift+U'], hasPixelLayer);
   R('autoTone', () => instantAdjust('cmd.autoTone', (a, b, s) => autoTone(a, b, s.sel)), ['Ctrl+Shift+L'], hasPixelLayer);

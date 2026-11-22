@@ -4,7 +4,7 @@ import { t } from '../i18n';
 import { openDialog } from './dialog';
 import { checkbox, select } from './controls';
 import {
-  AdjustSession, DetailCache, enhance, EnhanceParams, ENHANCE_DEFAULTS, hueSat, applyLUTs, unsharp, addNoise,
+  AdjustSession, DetailCache, enhance, EnhanceParams, ENHANCE_DEFAULTS, applyLUTs, unsharp, addNoise,
 } from '../core/adjust';
 import { histogram, levelsLUT, curveLUT, composeLUT, gaussianBlur, clipPoints, Histogram } from '../core/filters';
 
@@ -66,7 +66,7 @@ export function enhanceDialog(vignetteOnly = false) {
   const S = (key: keyof EnhanceParams, min = -100, max = 100, def = 0): SliderSpec => ({ key, label: t('adj.' + key), min, max, def });
   if (!vignetteOnly) {
     section(t('adj.sec.light'), [S('brightness'), S('contrast'), S('highlights'), S('shadows'), S('whites'), S('blacks')]);
-    section(t('adj.sec.color'), [S('saturation'), S('vibrance'), S('warmth'), S('tint')]);
+    section(t('adj.sec.color'), [S('saturation'), S('vibrance'), S('warmth'), S('tint'), S('hue', -180, 180)]);
     section(t('adj.sec.detail'), [S('sharpness', 0, 100), S('clarity', -100, 100)]);
   }
   section(t('adj.sec.vignette'), [S('vignette'), S('vigMidpoint', 0, 100, 50), S('vigRoundness', -100, 100, 0), S('vigFeather', 0, 100, 50)]);
@@ -290,26 +290,6 @@ export function curvesDialog() {
   refresh = res.refresh;
   hist = histogram(res.s.orig.data, res.s.sel);
   redraw();
-}
-
-/* ---------------- Hue / Saturation ---------------- */
-export function hueSatDialog() {
-  const p = { hue: 0, sat: 0, light: 0, colorize: false };
-  let refresh = () => {};
-  const hueRow = sliderRow({ key: 'hue', label: t('adj.hue'), min: -180, max: 180, def: 0 }, 0, v => { p.hue = v; refresh(); });
-  const satRow = sliderRow({ key: 'sat', label: t('adj.saturation'), min: -100, max: 100, def: 0 }, 0, v => { p.sat = v; refresh(); });
-  const body = el('div', { class: 'adj' }, hueRow, satRow,
-    sliderRow({ key: 'light', label: t('adj.lightness'), min: -100, max: 100, def: 0 }, 0, v => { p.light = v; refresh(); }),
-    checkbox(t('adj.colorize'), false, v => {
-      p.colorize = v;
-      if (v) { p.hue = Math.max(0, p.hue) || 30; p.sat = 25; } else { p.hue = 0; p.sat = 0; }
-      hueRow.set(p.hue); satRow.set(p.sat); refresh();
-    }));
-  const res = adjustDialog({
-    title: t('cmd.hueSat'), body, label: 'cmd.hueSat',
-    compute: () => (src, dst) => hueSat(src, dst, p.hue, p.sat, p.light, p.colorize),
-  });
-  if (res) refresh = res.refresh;
 }
 
 /* ---------------- Filters ---------------- */

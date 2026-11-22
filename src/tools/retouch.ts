@@ -214,22 +214,40 @@ export class DodgeTool extends PixelBrush<DBOpts> {
   readonly key: string = 'O';
   readonly label: string = 'tool.dodge';
   protected dir = 1;
+  /** Stroke coverage per surface pixel (0..1, already scaled by exposure). */
+  private cov: Float32Array | null = null;
+  private covW = 0;
   constructor() { super({ size: 80, hardness: 0, strength: 50, range: 'midtones' }); }
-  protected op(img: ImageData, wt: Float32Array, w: number, h: number) {
+  protected start() {
+    const s = this.target!.surface;
+    this.covW = s.w;
+    this.cov = new Float32Array(s.w * s.h);
+  }
+  /**
+   * Like Photoshop, one stroke changes a pixel by at most the exposure: overlapping dabs only extend the
+   * stroke's coverage, and the result is always computed from the pixels as they were before the stroke
+   * (re-applying per dab used to run the pixels to pure white / black in a single pass).
+   */
+  protected op(img: ImageData, wt: Float32Array, w: number, h: number, x0: number, y0: number) {
     const d = img.data;
+    const orig = this.backup!.getContext('2d')!.getImageData(x0, y0, w, h).data;
+    const cov = this.cov!, CW = this.covW;
     const range = this.o.range;
-    for (let p = 0, i = 0; i < w * h; i++, p += 4) {
+    for (let p = 0, i = 0, j = 0; j < h; j++) for (let x = 0; x < w; x++, i++, p += 4) {
       const k0 = wt[i];
       if (!k0) continue;
-      const L = (0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2]) / 255;
+      const ci = (y0 + j) * CW + x0 + x;
+      if (k0 > cov[ci]) cov[ci] = k0;
+      const L = (0.299 * orig[p] + 0.587 * orig[p + 1] + 0.114 * orig[p + 2]) / 255;
       const rw = range === 'shadows' ? (1 - L) * (1 - L) : range === 'highlights' ? L * L : 4 * L * (1 - L);
-      const k = k0 * rw * 0.18;
+      const k = cov[ci] * rw * 0.6;
       for (let c = 0; c < 3; c++) {
-        const v = d[p + c];
+        const v = orig[p + c];
         d[p + c] = this.dir > 0 ? v + (255 - v) * k : v * (1 - k);
       }
     }
   }
+  up() { super.up(); this.cov = null; }
   options() {
     return [
       ...this.baseOptions(), sep(),

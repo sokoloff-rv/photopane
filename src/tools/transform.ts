@@ -292,7 +292,8 @@ export class TransformTool extends Tool {
       const p = hp[h.h];
       const ang = ((Math.atan2(p.y - center.y, p.x - center.x) * 180) / Math.PI + 360) % 180;
       c = ang < 22.5 || ang >= 157.5 ? 'ew-resize' : ang < 67.5 ? 'nwse-resize' : ang < 112.5 ? 'ns-resize' : 'nesw-resize';
-      if (e.ctrl) c = 'crosshair';
+      // type cannot be distorted (as in Photoshop): Ctrl on a corner keeps scaling
+      if (e.ctrl && !(this.textLayer && h.h % 2 === 0)) c = 'crosshair';
     }
     if (c !== this.cursor) { this.cursor = c; app.viewport.updateCursor(); }
   }
@@ -300,10 +301,12 @@ export class TransformTool extends Tool {
   down(e: PEvent) {
     if (!this.active) return;
     const h = this.hit(e);
+    // type layers: no distort / perspective on corners (Ctrl on a side handle still skews, which stays affine)
+    const noDistort = !!this.textLayer && h.kind === 'handle' && h.h % 2 === 0;
     this.drag = {
       kind: h.kind, h: h.kind === 'handle' ? h.h : undefined, start: { x: e.x, y: e.y },
       quad: this.quad.map(p => ({ ...p })) as Quad, aff: this.aff ? { ...this.aff } : null,
-      ctrl: e.ctrl, perspective: e.ctrl && e.alt && e.shift,
+      ctrl: e.ctrl && !noDistort, perspective: e.ctrl && e.alt && e.shift && !noDistort,
     };
   }
 
@@ -331,7 +334,22 @@ export class TransformTool extends Tool {
       const hi = dr.h!;
       const corner = hi % 2 === 0;
       const qi = [0, -1, 1, -1, 2, -1, 3, -1][hi];
-      if (dr.ctrl || !this.aff) {
+      if (!this.aff && corner && this.textLayer) {
+        // type after a skew: scale the parallelogram from the opposite corner (stays affine)
+        const q = dr.quad.map(p => ({ ...p })) as Quad;
+        const o = q[(qi + 2) % 4], n1 = q[(qi + 1) % 4], n2 = q[(qi + 3) % 4];
+        const ux = n1.x - o.x, uy = n1.y - o.y, vx = n2.x - o.x, vy = n2.y - o.y;
+        const px = q[qi].x + dx - o.x, py = q[qi].y + dy - o.y;
+        const det = ux * vy - uy * vx;
+        if (Math.abs(det) > 1e-6) {
+          let s = (px * vy - py * vx) / det, tt = (ux * py - uy * px) / det;
+          if (!e.shift) { const m = (s + tt) / 2; s = tt = m; }
+          q[(qi + 1) % 4] = { x: o.x + ux * s, y: o.y + uy * s };
+          q[(qi + 3) % 4] = { x: o.x + vx * tt, y: o.y + vy * tt };
+          q[qi] = { x: o.x + ux * s + vx * tt, y: o.y + uy * s + vy * tt };
+          this.quad = q;
+        }
+      } else if (dr.ctrl || !this.aff) {
         // distort / skew / perspective — free quad
         this.aff = null;
         const q = dr.quad.map(p => ({ ...p })) as Quad;

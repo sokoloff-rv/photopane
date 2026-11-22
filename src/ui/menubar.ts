@@ -10,7 +10,7 @@ const MENUS: { key: string; items: Item[] }[] = [
   { key: 'menu.edit', items: ['undo', 'redo', '-', 'cut', 'copy', 'copyMerged', 'paste', 'clear', '-', 'fillDialog', 'strokeSel', '-', 'freeTransform',
     { sub: 'cmd.transform', items: ['rotateLayer180', 'rotateLayerCW', 'rotateLayerCCW', '-', 'flipLayerH', 'flipLayerV'] }, '-', 'settings'] },
   { key: 'menu.image', items: [
-    'enhance', 'levels', 'curves', 'hueSat', '-',
+    'enhance', 'levels', 'curves', '-',
     'autoTone', 'autoContrast', 'autoColor', '-',
     'invert', 'desaturate', '-',
     'imageSize', 'canvasSize',

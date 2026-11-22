@@ -25,7 +25,7 @@ const D: Record<string, [string, string]> = {
   'opt.distortMode': ['Режим искажения', 'Distort mode'],
   'opt.angle': ['Угол', 'Angle'],
   'opt.apply': ['Применить', 'Apply'],
-  'hint.crop': ['Тяните за края рамки, Shift — сохранить пропорции. Рамку можно вывести за пределы холста. Enter — кадрировать', 'Drag the edges, Shift keeps proportions. The frame may extend beyond the canvas. Enter crops'],
+  'hint.crop': ['Тяните за края рамки, Shift — сохранить пропорции. Esc — убрать рамку и нарисовать свою. Рамку можно вывести за пределы холста. Enter — кадрировать', 'Drag the edges, Shift keeps proportions. Esc removes the frame so you can draw your own. The frame may extend beyond the canvas. Enter crops'],
   'hint.perspCrop': ['Перетащите углы на края объекта, затем нажмите Enter', 'Drag the corners onto the object edges, then press Enter'],
   'opt.ratioFree': ['Свободно', 'Free'],
   'opt.ratioOrig': ['Исходные пропорции', 'Original ratio'],

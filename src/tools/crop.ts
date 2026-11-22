@@ -41,7 +41,11 @@ export class CropTool extends Tool<CropOpts> {
     if (d && this.ratio()) this.fitRatio();
     app.update('overlay', 'options');
   }
-  private ensure() { if (!app.doc) return false; if (this.docId !== app.doc.id || !this.rect) this.reset(); return !!this.rect; }
+  /** Is there a document; resets the frame when the document changed. `rect` may be null after Esc. */
+  private ensure() { if (!app.doc) return false; if (this.docId !== app.doc.id) this.reset(); return true; }
+
+  /** Remove the crop frame (Esc / Cancel); a new one can be drawn by dragging. */
+  private clear() { this.rect = null; this.drag = null; app.update('overlay', 'options'); }
 
   private ratio(): number {
     const r = RATIOS.find(x => x.value === this.o.ratio)?.r ?? 0;
@@ -52,7 +56,8 @@ export class CropTool extends Tool<CropOpts> {
   }
 
   private handleAt(e: PEvent): [number, number] | null {
-    const r = this.rect!;
+    const r = this.rect;
+    if (!r) return null;
     const v = app.viewport;
     for (const hx of [-1, 0, 1]) for (const hy of [-1, 0, 1]) {
       if (!hx && !hy) continue;
@@ -65,8 +70,8 @@ export class CropTool extends Tool<CropOpts> {
   hover(e: PEvent) {
     if (!this.ensure()) return;
     const h = this.handleAt(e);
-    const r = this.rect!;
-    const inside = e.x > r.x && e.y > r.y && e.x < r.x + r.w && e.y < r.y + r.h;
+    const r = this.rect;
+    const inside = !!r && e.x > r.x && e.y > r.y && e.x < r.x + r.w && e.y < r.y + r.h;
     const c = h ? (h[0] && h[1] ? (h[0] === h[1] ? 'nwse-resize' : 'nesw-resize') : h[0] ? 'ew-resize' : 'ns-resize') : inside ? 'move' : 'crosshair';
     if (c !== this.cursor) { this.cursor = c; app.viewport.updateCursor(); }
   }
@@ -74,16 +79,17 @@ export class CropTool extends Tool<CropOpts> {
   down(e: PEvent) {
     if (!this.ensure()) return;
     const h = this.handleAt(e);
-    const r = this.rect!;
-    const inside = e.x > r.x && e.y > r.y && e.x < r.x + r.w && e.y < r.y + r.h;
-    this.drag = { mode: h ? 'handle' : inside ? 'move' : 'new', h: h || undefined, start: { x: e.x, y: e.y }, r: { ...r } };
+    const r = this.rect;
+    const inside = !!r && e.x > r.x && e.y > r.y && e.x < r.x + r.w && e.y < r.y + r.h;
+    const start = h || inside ? { x: e.x, y: e.y } : snapPoint(e.x, e.y);
+    this.drag = { mode: h ? 'handle' : inside ? 'move' : 'new', h: h || undefined, start, r: r ? { ...r } : { x: start.x, y: start.y, w: 0, h: 0 } };
   }
 
   move(e: PEvent) {
     const dr = this.drag;
     if (!dr) return;
     const p = snapPoint(e.x, e.y);
-    const ratio = this.ratio() || (e.shift ? dr.r.w / dr.r.h : 0);
+    const ratio = this.ratio() || (e.shift ? (dr.mode === 'new' ? 1 : dr.r.w / dr.r.h) : 0);
     if (dr.mode === 'move') {
       this.rect = { ...dr.r, x: Math.round(dr.r.x + e.x - dr.start.x), y: Math.round(dr.r.y + e.y - dr.start.y) };
     } else if (dr.mode === 'new') {
@@ -107,21 +113,25 @@ export class CropTool extends Tool<CropOpts> {
     app.update('overlay', 'options');
   }
 
-  up() { this.drag = null; clearSmart(); app.update('overlay'); }
+  up() {
+    // a click without dragging on empty space leaves no frame
+    if (this.drag?.mode === 'new' && this.rect && (this.rect.w < 2 || this.rect.h < 2)) this.rect = null;
+    this.drag = null; clearSmart(); app.update('overlay', 'options');
+  }
 
   dblclick() { this.apply(); }
 
   keydown(e: KeyboardEvent) {
     if (e.key === 'Enter') { this.apply(); return true; }
-    if (e.key === 'Escape') { this.reset(); return true; }
+    if (e.key === 'Escape') { if (this.rect) { this.clear(); return true; } return false; }
     return false;
   }
 
   apply() {
     if (!this.ensure()) return;
     const d = app.doc!;
-    const r = this.rect!;
-    if (r.w < 1 || r.h < 1) return;
+    const r = this.rect;
+    if (!r || r.w < 1 || r.h < 1) return;
     if (r.x === 0 && r.y === 0 && r.w === d.width && r.h === d.height) return;
     const extends_ = r.x < 0 || r.y < 0 || r.x + r.w > d.width || r.y + r.h > d.height;
     cropDocument(d, r, this.o.deletePixels);
@@ -137,9 +147,9 @@ export class CropTool extends Tool<CropOpts> {
   }
 
   overlay(g: CanvasRenderingContext2D) {
-    if (!this.ensure()) return;
+    if (!this.ensure() || !this.rect) return;
     const v = app.viewport;
-    const r = this.rect!;
+    const r = this.rect;
     const a = v.toScreen(r.x, r.y), b = v.toScreen(r.x + r.w, r.y + r.h);
     g.save();
     g.beginPath(); g.rect(0, 0, v.w, v.h); g.rect(a.x, a.y, b.x - a.x, b.y - a.y);
@@ -177,7 +187,7 @@ export class CropTool extends Tool<CropOpts> {
       checkbox(t('opt.deleteCropped'), this.o.deletePixels, v => this.set('deletePixels', v)),
       select([{ value: 'transparent', label: t('opt.extendTransparent') }, { value: 'bg', label: t('opt.extendBg') }], this.o.fill, v => this.set('fill', v)),
       spacer(),
-      textButton(t('dlg.cancel'), () => this.reset()),
+      textButton(t('dlg.cancel'), () => this.clear()),
       textButton(t('opt.apply'), () => this.apply(), true),
     ];
   }

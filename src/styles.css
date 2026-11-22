@@ -304,3 +304,22 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .ctx-row { display: flex; flex-direction: column; gap: 7px; }
 .ctx-row-head { display: flex; justify-content: space-between; color: var(--text2); }
 .ctx-val { color: var(--text); }
+
+/* ---------- stage 3: adjustments ---------- */
+.dlg-overlay.side { background: transparent; justify-content: flex-end; align-items: flex-start; padding: 90px calc(var(--panels-w, 280px) + 16px) 0 0; pointer-events: none; animation: none; }
+.dlg-overlay.side .dlg { pointer-events: auto; max-height: calc(100vh - 120px); }
+.adj { display: flex; flex-direction: column; gap: 4px; }
+.adj-section { color: var(--text2); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; margin: 10px 0 2px; }
+.adj-section:first-child { margin-top: 0; }
+.slider-row { display: grid; grid-template-columns: 1fr 52px; grid-template-rows: auto auto; gap: 3px 8px; padding: 3px 0; }
+.slider-row label { color: var(--text); user-select: none; }
+.slider-row label:hover { color: #fff; }
+.slider-row .range { grid-column: 1 / -1; }
+.slider-val { text-align: right; background: transparent; border: 0; color: var(--text2); font-variant-numeric: tabular-nums; outline: none; width: 52px; padding: 0; }
+.slider-val:focus { color: var(--text); }
+.range.bipolar { background: linear-gradient(to right, rgba(255,255,255,.16) 0, rgba(255,255,255,.16) 100%); }
+.adj-foot { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.hist-canvas { width: 100%; height: 110px; display: block; border-radius: 4px; background: rgba(0, 0, 0, 0.25); }
+.lv-track { width: 100%; height: 16px; display: block; cursor: ew-resize; touch-action: none; }
+.curves-canvas { width: 280px; height: 280px; display: block; border-radius: 4px; background: rgba(0, 0, 0, 0.25); touch-action: none; cursor: crosshair; }
+.curve-info { display: flex; gap: 14px; color: var(--text2); font-variant-numeric: tabular-nums; }

@@ -5,6 +5,7 @@ import { MoveTool, HandTool, EyedropperTool, BucketTool, GradientTool, SoonTool 
 import { CropTool, PerspCropTool } from './crop';
 import { TextTool } from './text';
 import { ShapeTool } from './shape';
+import { BlurTool, SharpenTool, SmudgeTool, DodgeTool, BurnTool, ReplaceTool, StampTool } from './retouch';
 
 /** All tools in toolbar order. */
 export function createTools(): Tool[] {
@@ -19,16 +20,16 @@ export function createTools(): Tool[] {
     new EyedropperTool(),
     new SoonTool('heal', 'heal', 'J'),
     new BrushTool(),
-    new SoonTool('replace', 'replace', 'B'),
-    new SoonTool('stamp', 'stamp', 'S'),
+    new ReplaceTool(),
+    new StampTool(),
     new EraserTool(),
     new GradientTool(),
     new BucketTool(),
-    new SoonTool('blur', 'blur', 'R'),
-    new SoonTool('sharpen', 'sharpen', 'R'),
-    new SoonTool('smudge', 'smudge', 'R'),
-    new SoonTool('dodge', 'dodge', 'O'),
-    new SoonTool('burn', 'burn', 'O'),
+    new BlurTool(),
+    new SharpenTool(),
+    new SmudgeTool(),
+    new DodgeTool(),
+    new BurnTool(),
     new TextTool(),
     new ShapeTool(),
     new HandTool(),

@@ -12,6 +12,9 @@ import { pickFiles, openFiles, saveDoc, exportDialog, readClipboardImage, writeC
 import { TransformTool } from './tools/transform';
 import { imageSizeDialog, canvasSizeDialog, rotateArbitraryDialog } from './ui/docdialogs';
 import { fillDialog, strokeDialog } from './ui/filldialogs';
+import { enhanceDialog, levelsDialog, curvesDialog, hueSatDialog, gaussianDialog, unsharpDialog, noiseDialog } from './ui/adjustdialogs';
+import { instantAdjust, invert, desaturate, autoTone, autoContrast, autoColor } from './core/adjust';
+import { blurGalleryTool } from './tools/blurgallery';
 
 export const transformTool = new TransformTool();
 
@@ -140,6 +143,25 @@ export function registerCommands(app: App) {
   docXform('rotCCW', 'ccw');
   docXform('flipCanvasH', 'flipH');
   docXform('flipCanvasV', 'flipV');
+  // adjustments & filters
+  R('enhance', () => enhanceDialog(false), [], hasPixelLayer);
+  R('levels', () => levelsDialog(), ['Ctrl+L'], hasPixelLayer);
+  R('curves', () => curvesDialog(), ['Ctrl+M'], hasPixelLayer);
+  R('hueSat', () => hueSatDialog(), ['Ctrl+U'], hasPixelLayer);
+  R('invert', () => instantAdjust('cmd.invert', invert), ['Ctrl+I'], hasPixelLayer);
+  R('desaturate', () => instantAdjust('cmd.desaturate', desaturate), ['Ctrl+Shift+U'], hasPixelLayer);
+  R('autoTone', () => instantAdjust('cmd.autoTone', (a, b, s) => autoTone(a, b, s.sel)), ['Ctrl+Shift+L'], hasPixelLayer);
+  R('autoContrast', () => instantAdjust('cmd.autoContrast', (a, b, s) => autoContrast(a, b, s.sel)), ['Ctrl+Alt+Shift+L'], hasPixelLayer);
+  R('autoColor', () => instantAdjust('cmd.autoColor', (a, b, s) => autoColor(a, b, s.sel)), ['Ctrl+Shift+B'], hasPixelLayer);
+  R('gaussian', () => gaussianDialog(), [], hasPixelLayer);
+  R('unsharp', () => unsharpDialog(), [], hasPixelLayer);
+  R('noise', () => noiseDialog(), [], hasPixelLayer);
+  R('vignette', () => enhanceDialog(true), [], hasPixelLayer);
+  const gallery = (id: string, mode: 'field' | 'iris' | 'tilt') => R(id, () => { if (blurGalleryTool.begin(mode)) app.pushTool(blurGalleryTool); }, [], hasPixelLayer);
+  gallery('fieldBlur', 'field');
+  gallery('irisBlur', 'iris');
+  gallery('tiltShift', 'tilt');
+
   R('imageSize', () => imageSizeDialog(), ['Ctrl+Alt+I'], hasDoc);
   R('canvasSize', () => canvasSizeDialog(), ['Ctrl+Alt+C'], hasDoc);
   R('rotArbitrary', () => rotateArbitraryDialog(), [], hasDoc);

@@ -238,13 +238,23 @@ export class DodgeTool extends PixelBrush<DBOpts> {
       if (!k0) continue;
       const ci = (y0 + j) * CW + x0 + x;
       if (k0 > cov[ci]) cov[ci] = k0;
-      const L = (0.299 * orig[p] + 0.587 * orig[p + 1] + 0.114 * orig[p + 2]) / 255;
-      const rw = range === 'shadows' ? (1 - L) * (1 - L) : range === 'highlights' ? L * L : 4 * L * (1 - L);
-      const k = cov[ci] * rw * 0.6;
-      for (let c = 0; c < 3; c++) {
-        const v = orig[p + c];
-        d[p + c] = this.dir > 0 ? v + (255 - v) * k : v * (1 - k);
+      const r = orig[p] / 255, g = orig[p + 1] / 255, b = orig[p + 2] / 255;
+      const L = 0.299 * r + 0.587 * g + 0.114 * b;
+      // tone curve on luminance (Photoshop-like strength: one stroke at 50% exposure lifts mid-grey 128 to ~146)
+      const a = cov[ci] * 0.5;
+      let L2: number;
+      if (range === 'midtones') L2 = this.dir > 0 ? Math.pow(L, 1 / (1 + a)) : Math.pow(L, 1 + a);
+      else {
+        const tw = range === 'shadows' ? (1 - L) * (1 - L) : L * L;
+        L2 = this.dir > 0 ? L + (1 - L) * a * tw * 0.8 : L - L * a * tw * 0.8;
       }
+      // protect tones: scale the colour with the luminance so hue and saturation stay
+      let R: number, G: number, B: number;
+      if (L > 1e-4) { const k = L2 / L; R = r * k; G = g * k; B = b * k; }
+      else R = G = B = L2;
+      const mx = Math.max(R, G, B);
+      if (mx > 1) { const t = (mx - 1) / (mx - L2 || 1); R += (L2 - R) * t; G += (L2 - G) * t; B += (L2 - B) * t; }
+      d[p] = R * 255; d[p + 1] = G * 255; d[p + 2] = B * 255;
     }
   }
   up() { super.up(); this.cov = null; }

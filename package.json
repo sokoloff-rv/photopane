@@ -8,13 +8,20 @@
     "start": "vite --open",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri",
+    "desktop": "tauri dev",
+    "desktop:build": "tauri build"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "@tauri-apps/plugin-fs": "^2.7.1",
     "ag-psd": "^34.2.2",
     "lucide": "^1.77.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
   }

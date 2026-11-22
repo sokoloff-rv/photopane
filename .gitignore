@@ -25,3 +25,4 @@ notes/
 .DS_Store
 Thumbs.db
 desktop.ini
+src-tauri/gen/

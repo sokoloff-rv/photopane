@@ -152,8 +152,24 @@ export async function encode(d: Doc, fmt: Fmt, quality: number, keepExif: boolea
   return blob;
 }
 
+/** Desktop app (Tauri) without the File System Access API (macOS WebView): system save dialog + file write. */
+const inTauri = () => !!(window as any).__TAURI_INTERNALS__;
+async function writeTauri(blob: Blob, suggested: string, fmt: Fmt, handle?: { tauriPath: string; name: string }) {
+  const { writeFile } = await import('@tauri-apps/plugin-fs');
+  let path = handle?.tauriPath;
+  if (!path) {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const picked = await save({ defaultPath: suggested, filters: [{ name: fmt.toUpperCase(), extensions: [EXT[fmt].slice(1)] }] });
+    if (!picked) return null;
+    path = picked;
+  }
+  await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
+  return { tauriPath: path, name: path.split(/[\\/]/).pop() || suggested };
+}
+
 async function writeBlob(blob: Blob, suggested: string, fmt: Fmt, handle?: any): Promise<any> {
   const w = window as any;
+  if (handle?.tauriPath || (!handle && !w.showSaveFilePicker && inTauri())) return writeTauri(blob, suggested, fmt, handle);
   if (!handle && w.showSaveFilePicker) {
     try {
       handle = await w.showSaveFilePicker({

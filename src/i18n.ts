@@ -345,8 +345,10 @@ const D: Record<string, [string, string]> = {
   // tools
   'tool.move': ['Перемещение', 'Move'],
   'tool.marquee': ['Выделение', 'Marquee'],
-  'tool.freeLasso': ['Лассо', 'Lasso'],
-  'tool.lasso': ['Прямолинейное лассо', 'Polygonal Lasso'],
+  'tool.lasso': ['Лассо', 'Lasso'],
+  'opt.lassoFree': ['Обычное лассо', 'Freehand lasso'],
+  'opt.lassoPoly': ['Прямолинейное лассо', 'Polygonal lasso'],
+  'opt.lassoMag': ['Магнитное лассо', 'Magnetic lasso'],
   'tool.wand': ['Волшебная палочка', 'Magic Wand'],
   'tool.crop': ['Кадрирование', 'Crop'],
   'tool.perspCrop': ['Кадрирование перспективы', 'Perspective Crop'],
@@ -369,8 +371,7 @@ const D: Record<string, [string, string]> = {
 
   'hint.move': ['Перетаскивайте слой. Ctrl — автовыбор слоя, стрелки — сдвиг на 1 px (Shift — 10 px)', 'Drag to move the layer. Ctrl auto-selects, arrows nudge 1 px (Shift: 10 px)'],
   'hint.marquee': ['Shift — добавить, Alt — вычесть, Shift+Alt — пересечь. Во время рисования Shift — квадрат, Alt — от центра', 'Shift adds, Alt subtracts, Shift+Alt intersects. While dragging: Shift constrains, Alt draws from center'],
-  'hint.freeLasso': ['Обведите область, удерживая кнопку мыши. Shift — добавить, Alt — вычесть', 'Drag around an area. Shift adds, Alt subtracts'],
-  'hint.lasso': ['Щёлкайте, чтобы ставить точки. Enter или двойной щелчок — замкнуть, Backspace — убрать точку, Esc — отмена', 'Click to add points. Enter or double-click closes, Backspace removes a point, Esc cancels'],
+  'hint.lasso': ['Обычное — обведите с зажатой кнопкой; прямолинейное — щёлкайте по точкам; магнитное — щёлкните и ведите вдоль края. Enter или двойной щелчок — замкнуть, Backspace — убрать точку, Esc — отмена', 'Freehand: drag around; polygonal: click points; magnetic: click and move along an edge. Enter or double-click closes, Backspace removes a point, Esc cancels'],
   'hint.wand': ['Щёлкните по области похожего цвета. Shift — добавить, Alt — вычесть', 'Click an area of similar color. Shift adds, Alt subtracts'],
   'hint.eyedropper': ['Щелчок — основной цвет, Alt+щелчок — фоновый', 'Click picks foreground, Alt+click picks background'],
   'hint.brush': ['[ ] — размер, Shift+[ ] — жёсткость, Shift+щелчок — прямая линия, Alt — пипетка', '[ ] size, Shift+[ ] hardness, Shift+click straight line, Alt eyedropper'],

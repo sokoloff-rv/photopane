@@ -122,7 +122,7 @@ function layersAt(px: number, py: number) {
   });
 }
 
-const SELECT_TOOLS = ['marquee', 'lasso', 'freeLasso', 'wand'];
+const SELECT_TOOLS = ['marquee', 'lasso', 'wand'];
 
 export function selectionMenu(): CtxItem[] {
   return [

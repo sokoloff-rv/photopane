@@ -130,24 +130,84 @@ export class MarqueeTool extends Tool<MarqueeOpts> {
   }
 }
 
-/* ---------------- Freehand lasso ---------------- */
-export class FreeLassoTool extends Tool<{ mode: SelMode; feather: number }> {
-  readonly id = 'freeLasso';
-  readonly iconName = 'freeLasso';
-  readonly key = 'L';
-  cursor = arrowBadgeCursor('freeLasso');
-  private pts: { x: number; y: number }[] = [];
-  private mode: SelMode = 'new';
+/* ---------------- Lasso: freehand, polygonal, magnetic ---------------- */
+type LassoType = 'free' | 'poly' | 'magnetic';
+interface LassoOpts { type: LassoType; mode: SelMode; feather: number; antialias: boolean }
+type P = { x: number; y: number };
+const LASSO_ICONS: Record<LassoType, string> = { free: 'freeLasso', poly: 'polyLasso', magnetic: 'magLasso' };
 
-  constructor() { super({ mode: 'new', feather: 0 }); }
+/**
+ * One lasso tool; the type is chosen in the options bar (like the marquee's rectangle/ellipse):
+ * freehand (drag), polygonal (click points) and magnetic (move along an edge: the path follows the
+ * strongest contrast between the last anchor and the cursor, anchors are added automatically).
+ */
+export class LassoTool extends Tool<LassoOpts> {
+  readonly id = 'lasso';
+  readonly key = 'L';
+  get iconName() { return LASSO_ICONS[this.o.type] ?? 'freeLasso'; }
+  cursor = arrowBadgeCursor('freeLasso');
+  private pts: P[] = [];
+  private hoverPt: P | null = null;
+  private mode: SelMode = 'new';
+  private lastClick = 0;
+  private dragging = false;
+  // magnetic
+  private anchors: number[] = [];      // indices in pts
+  private wire: P[] = [];              // live path from the last anchor to the cursor
+  private grad: Uint8Array | null = null;
+  private gw = 0;
+  private gh = 0;
+
+  constructor() { super({ type: 'free', mode: 'new', feather: 0, antialias: true }); }
+
+  busy() { return this.pts.length > 0; }
+  cancel() { this.pts = []; this.anchors = []; this.wire = []; this.hoverPt = null; this.dragging = false; app.update('overlay'); }
+  activate() { this.cursor = arrowBadgeCursor(this.iconName); }
+  deactivate() { this.cancel(); this.grad = null; }
 
   down(e: PEvent) {
-    this.mode = modeFromEvent(e, this.o.mode);
-    this.pts = [{ x: e.x, y: e.y }];
+    const type = this.o.type;
+    if (type === 'free') {
+      this.mode = modeFromEvent(e, this.o.mode);
+      this.pts = [{ x: e.x, y: e.y }];
+      this.dragging = true;
+      return;
+    }
+    const now = performance.now();
+    if (!this.pts.length) {
+      this.mode = modeFromEvent(e, this.o.mode);
+      this.lastClick = now;
+      const p = { x: e.x, y: e.y };
+      this.pts = [p];
+      if (type === 'magnetic') { this.prepareEdges(); this.anchors = [0]; this.wire = []; }
+      app.update('overlay');
+      return;
+    }
+    // close on the first point or on a double click
+    const f = app.viewport.toScreen(this.pts[0].x, this.pts[0].y);
+    const nearStart = this.pts.length > 2 && Math.hypot(f.x - e.sx, f.y - e.sy) < 8;
+    if (nearStart || (now - this.lastClick < 300 && this.pts.length > 2)) { this.close(); return; }
+    this.lastClick = now;
+    if (type === 'poly') {
+      let p = { x: e.x, y: e.y };
+      if (e.shift) p = snap45(this.pts[this.pts.length - 1], p);
+      this.pts.push(p);
+    } else {
+      this.updateWire({ x: e.x, y: e.y });
+      this.commitWire();
+    }
+    app.update('overlay');
+  }
+
+  hover(e: PEvent) {
+    if (!this.pts.length) return;
+    if (this.o.type === 'poly') this.hoverPt = e.shift ? snap45(this.pts[this.pts.length - 1], { x: e.x, y: e.y }) : { x: e.x, y: e.y };
+    else if (this.o.type === 'magnetic') { this.updateWire({ x: e.x, y: e.y }); app.update('overlay'); }
   }
 
   move(e: PEvent) {
-    if (!this.pts.length) return;
+    if (this.o.type !== 'free') { this.hover(e); return; }
+    if (!this.dragging || !this.pts.length) return;
     const last = this.pts[this.pts.length - 1];
     const minDist = 1 / (app.doc?.zoom || 1);
     if (Math.hypot(e.x - last.x, e.y - last.y) >= minDist) this.pts.push({ x: e.x, y: e.y });
@@ -155,101 +215,44 @@ export class FreeLassoTool extends Tool<{ mode: SelMode; feather: number }> {
   }
 
   up() {
-    const pts = this.pts;
-    this.pts = [];
+    if (this.o.type !== 'free' || !this.dragging) return;
+    this.dragging = false;
     const d = app.doc!;
-    if (pts.length < 3) {
+    if (this.pts.length < 3) {
+      this.pts = [];
       if (this.mode === 'new' && d.selection) applySelection(null, 'new');
       app.update('overlay');
       return;
     }
-    const shape = Selection.fromDraw(d.width, d.height, g => {
-      g.beginPath();
-      g.moveTo(pts[0].x, pts[0].y);
-      for (const p of pts.slice(1)) g.lineTo(p.x, p.y);
-      g.closePath();
-      g.fill();
-    });
-    applySelection(shape, this.mode, this.o.feather);
+    this.close();
   }
 
-  cancel() { this.pts = []; app.update('overlay'); }
-  busy() { return this.pts.length > 0; }
-
-  overlay(g: CanvasRenderingContext2D) {
-    if (this.pts.length < 2) return;
-    const v = app.viewport;
-    g.save();
-    g.beginPath();
-    this.pts.forEach((p, i) => { const s = v.toScreen(p.x, p.y); if (i) g.lineTo(s.x, s.y); else g.moveTo(s.x, s.y); });
-    g.lineWidth = 1;
-    g.strokeStyle = '#fff'; g.stroke();
-    g.setLineDash([4, 4]); g.strokeStyle = '#000'; g.stroke();
-    g.restore();
-  }
-
-  options() {
-    return [
-      modeButtons(this.o.mode, m => this.set('mode', m)),
-      sep(),
-      numberField({ label: t('opt.feather'), value: this.o.feather, min: 0, max: 250, unit: 'px', onChange: v => this.set('feather', v) }),
-    ];
-  }
-}
-
-/* ---------------- Polygonal lasso ---------------- */
-interface LassoOpts { mode: SelMode; feather: number; antialias: boolean }
-
-export class LassoTool extends Tool<LassoOpts> {
-  readonly id = 'lasso';
-  readonly iconName = 'polyLasso';
-  readonly key = 'L';
-  cursor = arrowBadgeCursor('polyLasso');
-  private pts: { x: number; y: number }[] = [];
-  private hoverPt: { x: number; y: number } | null = null;
-  private mode: SelMode = 'new';
-  private lastClick = 0;
-
-  constructor() { super({ mode: 'new', feather: 0, antialias: true }); }
-
-  down(e: PEvent) {
-    const now = performance.now();
-    if (!this.pts.length) this.mode = modeFromEvent(e, this.o.mode);
-    // close if clicking near the first point
-    if (this.pts.length > 2) {
-      const f = app.viewport.toScreen(this.pts[0].x, this.pts[0].y);
-      if (Math.hypot(f.x - e.sx, f.y - e.sy) < 8) { this.close(); return; }
-    }
-    if (now - this.lastClick < 300 && this.pts.length > 2) { this.close(); return; }
-    this.lastClick = now;
-    let p = { x: e.x, y: e.y };
-    if (e.shift && this.pts.length) p = snap45(this.pts[this.pts.length - 1], p);
-    this.pts.push(p);
-    app.update('overlay');
-  }
-
-  hover(e: PEvent) {
-    if (!this.pts.length) return;
-    this.hoverPt = e.shift ? snap45(this.pts[this.pts.length - 1], { x: e.x, y: e.y }) : { x: e.x, y: e.y };
-  }
-  move(e: PEvent) { this.hover(e); }
-
-  dblclick() { if (this.pts.length > 2) this.close(); }
+  dblclick() { if (this.o.type !== 'free' && this.pts.length > 2) this.close(); }
 
   keydown(e: KeyboardEvent) {
-    if (!this.pts.length) return false;
+    if (!this.pts.length || this.o.type === 'free') return false;
     if (e.key === 'Enter') { this.close(); return true; }
     if (e.key === 'Escape') { this.cancel(); return true; }
-    if (e.key === 'Backspace' || e.key === 'Delete') { this.pts.pop(); app.update('overlay'); return true; }
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      if (this.o.type === 'poly') this.pts.pop();
+      else if (this.anchors.length > 1) { this.anchors.pop(); this.pts.length = this.anchors[this.anchors.length - 1] + 1; this.wire = []; }
+      else this.cancel();
+      app.update('overlay');
+      return true;
+    }
     return false;
   }
 
-  busy() { return this.pts.length > 0; }
-
   private close() {
+    if (this.o.type === 'magnetic' && this.pts.length > 1) {
+      // follow the edge back to the start
+      this.commitWire();
+      const first = this.pts[0];
+      this.updateWire(first, false);
+      this.commitWire();
+    }
     const pts = this.pts;
-    this.pts = [];
-    this.hoverPt = null;
+    this.pts = []; this.anchors = []; this.wire = []; this.hoverPt = null;
     if (pts.length < 3) { app.update('overlay'); return; }
     const d = app.doc!;
     const shape = Selection.fromDraw(d.width, d.height, g => {
@@ -262,13 +265,109 @@ export class LassoTool extends Tool<LassoOpts> {
     applySelection(shape, this.mode, this.o.feather);
   }
 
-  cancel() { this.pts = []; this.hoverPt = null; app.update('overlay'); }
+  /* ---------- magnetic lasso ---------- */
+  /** Edge strength of the visible image (Sobel on luminance), 0..255. */
+  private prepareEdges() {
+    const d = app.doc!;
+    const W = d.width, H = d.height;
+    const src = d.composite().getContext('2d')!.getImageData(0, 0, W, H).data;
+    const L = new Float32Array(W * H);
+    for (let i = 0, p = 0; p < L.length; i += 4, p++) L[p] = (0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2]) * src[i + 3] / 255;
+    const mag = new Float32Array(W * H);
+    let max = 1;
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x;
+      const gx = L[i - W + 1] + 2 * L[i + 1] + L[i + W + 1] - L[i - W - 1] - 2 * L[i - 1] - L[i + W - 1];
+      const gy = L[i + W - 1] + 2 * L[i + W] + L[i + W + 1] - L[i - W - 1] - 2 * L[i - W] - L[i - W + 1];
+      const m = Math.sqrt(gx * gx + gy * gy);
+      mag[i] = m; if (m > max) max = m;
+    }
+    const g = new Uint8Array(W * H);
+    const k = 255 / (max * 0.5);
+    for (let i = 0; i < g.length; i++) g[i] = Math.min(255, mag[i] * k);
+    this.grad = g; this.gw = W; this.gh = H;
+  }
+
+  /** Cheapest path along edges between two points (Dijkstra in a window around them). */
+  private liveWire(a: P, b: P): P[] {
+    const G = this.grad;
+    if (!G) return [a, b];
+    const M = 16;
+    const x0 = Math.max(0, Math.floor(Math.min(a.x, b.x)) - M), y0 = Math.max(0, Math.floor(Math.min(a.y, b.y)) - M);
+    const x1 = Math.min(this.gw - 1, Math.ceil(Math.max(a.x, b.x)) + M), y1 = Math.min(this.gh - 1, Math.ceil(Math.max(a.y, b.y)) + M);
+    const W = x1 - x0 + 1, H = y1 - y0 + 1;
+    if (W < 2 || H < 2 || W * H > 200000) return [a, b];
+    const idx = (p: P) => (Math.min(H - 1, Math.max(0, Math.round(p.y - 0.5) - y0))) * W + Math.min(W - 1, Math.max(0, Math.round(p.x - 0.5) - x0));
+    const s = idx(a), t = idx(b);
+    const dist = new Float32Array(W * H).fill(Infinity);
+    const prev = new Int32Array(W * H).fill(-1);
+    const done = new Uint8Array(W * H);
+    // binary heap with lazy deletion
+    let hk = new Float32Array(1024), hv = new Int32Array(1024), hn = 0;
+    const push = (k: number, v: number) => {
+      if (hn === hk.length) { const nk = new Float32Array(hn * 2); nk.set(hk); hk = nk; const nv = new Int32Array(hn * 2); nv.set(hv); hv = nv; }
+      let i = hn++;
+      while (i > 0) { const p = (i - 1) >> 1; if (hk[p] <= k) break; hk[i] = hk[p]; hv[i] = hv[p]; i = p; }
+      hk[i] = k; hv[i] = v;
+    };
+    const pop = () => {
+      const v = hv[0], lk = hk[--hn], lv = hv[hn];
+      let i = 0;
+      for (;;) { let c = 2 * i + 1; if (c >= hn) break; if (c + 1 < hn && hk[c + 1] < hk[c]) c++; if (hk[c] >= lk) break; hk[i] = hk[c]; hv[i] = hv[c]; i = c; }
+      hk[i] = lk; hv[i] = lv;
+      return v;
+    };
+    dist[s] = 0; push(0, s);
+    const DX = [1, -1, 0, 0, 1, 1, -1, -1], DY = [0, 0, 1, -1, 1, -1, 1, -1], DL = [1, 1, 1, 1, Math.SQRT2, Math.SQRT2, Math.SQRT2, Math.SQRT2];
+    while (hn) {
+      const u = pop();
+      if (done[u]) continue;
+      done[u] = 1;
+      if (u === t) break;
+      const ux = u % W, uy = (u - ux) / W;
+      for (let k = 0; k < 8; k++) {
+        const vx = ux + DX[k], vy = uy + DY[k];
+        if (vx < 0 || vy < 0 || vx >= W || vy >= H) continue;
+        const v = vy * W + vx;
+        if (done[v]) continue;
+        const e = 1 - G[(vy + y0) * this.gw + vx + x0] / 255;
+        const nd = dist[u] + DL[k] * (e * e + 0.03);
+        if (nd < dist[v]) { dist[v] = nd; prev[v] = u; push(nd, v); }
+      }
+    }
+    if (prev[t] < 0 && s !== t) return [a, b];
+    const path: P[] = [];
+    for (let v = t; v >= 0; v = prev[v]) { const vx = v % W; path.push({ x: vx + x0 + 0.5, y: (v - vx) / W + y0 + 0.5 }); if (v === s) break; }
+    path.reverse();
+    return path;
+  }
+
+  /** Recompute the live path to `c`; long paths get anchors automatically. */
+  private updateWire(c: P, auto = true) {
+    const zoom = app.doc?.zoom || 1;
+    const freq = Math.max(12, 45 / zoom);
+    for (let guard = 0; guard < 8; guard++) {
+      const a = this.pts[this.pts.length - 1];
+      this.wire = this.liveWire(a, c);
+      if (!auto || this.wire.length <= freq) return;
+      const k = Math.floor(freq * 0.7);
+      this.pts.push(...this.wire.slice(1, k + 1));
+      this.anchors.push(this.pts.length - 1);
+    }
+  }
+
+  private commitWire() {
+    if (this.wire.length > 1) { this.pts.push(...this.wire.slice(1)); this.anchors.push(this.pts.length - 1); }
+    this.wire = [];
+  }
 
   overlay(g: CanvasRenderingContext2D) {
     if (!this.pts.length) return;
     const v = app.viewport;
     const sp = this.pts.map(p => v.toScreen(p.x, p.y));
-    if (this.hoverPt) sp.push(v.toScreen(this.hoverPt.x, this.hoverPt.y));
+    if (this.o.type === 'poly' && this.hoverPt) sp.push(v.toScreen(this.hoverPt.x, this.hoverPt.y));
+    if (this.o.type === 'magnetic') for (const p of this.wire.slice(1)) sp.push(v.toScreen(p.x, p.y));
+    if (sp.length < 2 && this.o.type === 'free') return;
     g.save();
     g.beginPath();
     g.moveTo(sp[0].x, sp[0].y);
@@ -277,17 +376,24 @@ export class LassoTool extends Tool<LassoOpts> {
     g.strokeStyle = '#fff'; g.stroke();
     g.setLineDash([4, 4]); g.strokeStyle = '#000'; g.stroke();
     g.setLineDash([]);
-    for (const p of sp.slice(0, this.pts.length)) { g.fillStyle = '#fff'; g.fillRect(p.x - 2, p.y - 2, 4, 4); g.strokeStyle = '#000'; g.strokeRect(p.x - 2.5, p.y - 2.5, 5, 5); }
-    // highlight first point when closable
-    if (this.hoverPt && this.pts.length > 2) {
-      const f = sp[0], h = sp[sp.length - 1];
-      if (Math.hypot(f.x - h.x, f.y - h.y) < 8) { g.beginPath(); g.arc(f.x, f.y, 6, 0, Math.PI * 2); g.strokeStyle = '#5b8cff'; g.lineWidth = 2; g.stroke(); }
+    const marks = this.o.type === 'poly' ? this.pts : this.o.type === 'magnetic' ? this.anchors.map(i => this.pts[i]) : [];
+    for (const m of marks) { const p = v.toScreen(m.x, m.y); g.fillStyle = '#fff'; g.fillRect(p.x - 2, p.y - 2, 4, 4); g.strokeStyle = '#000'; g.strokeRect(p.x - 2.5, p.y - 2.5, 5, 5); }
+    // highlight the first point when the path can be closed there
+    const tip = sp[sp.length - 1];
+    if (this.o.type !== 'free' && this.pts.length > 2 && Math.hypot(sp[0].x - tip.x, sp[0].y - tip.y) < 8) {
+      g.beginPath(); g.arc(sp[0].x, sp[0].y, 6, 0, Math.PI * 2); g.strokeStyle = '#5b8cff'; g.lineWidth = 2; g.stroke();
     }
     g.restore();
   }
 
   options() {
     return [
+      segmented<LassoType>([
+        { value: 'free', icon: 'freeLasso', title: t('opt.lassoFree') },
+        { value: 'poly', icon: 'polyLasso', title: t('opt.lassoPoly') },
+        { value: 'magnetic', icon: 'magLasso', title: t('opt.lassoMag') },
+      ], this.o.type, v => { this.cancel(); this.set('type', v); this.cursor = arrowBadgeCursor(this.iconName); app.viewport.updateCursor(); app.update('options'); }),
+      sep(),
       modeButtons(this.o.mode, m => this.set('mode', m)),
       sep(),
       numberField({ label: t('opt.feather'), value: this.o.feather, min: 0, max: 250, unit: 'px', onChange: v => this.set('feather', v) }),

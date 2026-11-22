@@ -1,6 +1,6 @@
 import { Tool } from './tool';
 import { BrushTool, EraserTool } from './brush';
-import { MarqueeTool, LassoTool, FreeLassoTool, WandTool } from './select';
+import { MarqueeTool, LassoTool, WandTool } from './select';
 import { MoveTool, HandTool, EyedropperTool, BucketTool, GradientTool, SoonTool } from './basic';
 import { CropTool, PerspCropTool } from './crop';
 import { TextTool } from './text';
@@ -12,7 +12,6 @@ export function createTools(): Tool[] {
   return [
     new MoveTool(),
     new MarqueeTool(),
-    new FreeLassoTool(),
     new LassoTool(),
     new WandTool(),
     new CropTool(),

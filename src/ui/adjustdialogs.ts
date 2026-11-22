@@ -4,7 +4,7 @@ import { t } from '../i18n';
 import { openDialog } from './dialog';
 import { checkbox, select } from './controls';
 import {
-  AdjustSession, DetailCache, enhance, EnhanceParams, ENHANCE_DEFAULTS, applyLUTs, unsharp, addNoise,
+  AdjustSession, DetailCache, enhance, EnhanceParams, ENHANCE_DEFAULTS, autoEnhanceParams, applyLUTs, unsharp, addNoise,
 } from '../core/adjust';
 import { histogram, levelsLUT, curveLUT, composeLUT, gaussianBlur, clipPoints, Histogram } from '../core/filters';
 
@@ -77,14 +77,23 @@ export function enhanceDialog(vignetteOnly = false) {
     rows.forEach(r => r.row.set((p as any)[r.spec.key]));
     refresh();
   });
+  // Auto: moves the light and colour sliders at once, like Camera Raw (detail and vignette stay as they are)
+  const auto = el('button', { class: 'btn sm' }, t('adj.auto'));
+  let session: AdjustSession | null = null;
+  auto.addEventListener('click', () => {
+    if (!session) return;
+    Object.assign(p, autoEnhanceParams(session.orig.data, session.sel));
+    rows.forEach(r => r.row.set((p as any)[r.spec.key]));
+    refresh();
+  });
   let cache: DetailCache;
   const res = adjustDialog({
     title: vignetteOnly ? t('cmd.vignette') : t('cmd.enhance'), body, width: 320,
     label: vignetteOnly ? 'cmd.vignette' : 'cmd.enhance',
     compute: s => (src, dst) => enhance(p, s, (cache ??= new DetailCache(s)), src, dst),
-    extra: [el('div', { style: { flex: '1' } }), reset],
+    extra: vignetteOnly ? [el('div', { style: { flex: '1' } }), reset] : [el('div', { style: { flex: '1' } }), auto, reset],
   });
-  if (res) { refresh = res.refresh; if (vignetteOnly) refresh(); }
+  if (res) { refresh = res.refresh; session = res.s; if (vignetteOnly) refresh(); }
 }
 
 /* ---------------- histogram drawing ---------------- */

@@ -198,6 +198,60 @@ export const ENHANCE_DEFAULTS: EnhanceParams = {
   vignette: 0, vigMidpoint: 50, vigRoundness: 0, vigFeather: 50,
 };
 
+/**
+ * Automatic settings for the Adjust sliders (like Camera Raw's Auto): exposure from the median,
+ * white/black points from the histogram tails, contrast from the spread, highlight/shadow recovery
+ * when the ends are crowded, a gentle grey-world white balance and some vibrance for flat colours.
+ */
+export function autoEnhanceParams(src: Uint8ClampedArray, sel: Uint8Array | null): Partial<EnhanceParams> {
+  const hist = new Float64Array(256);
+  let n = 0, sr = 0, sg = 0, sb = 0, mw = 0, satSum = 0;
+  const step = Math.max(1, Math.floor(src.length / 4 / 400000)) * 4;   // sample up to ~400k pixels
+  for (let i = 0, px = 0; i < src.length; i += step, px += step / 4) {
+    if (src[i + 3] < 128 || (sel && sel[px] < 128)) continue;
+    const r = src[i], g = src[i + 1], b = src[i + 2];
+    const L = 0.299 * r + 0.587 * g + 0.114 * b;
+    hist[Math.round(L)]++; n++;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    satSum += mx ? (mx - mn) / mx : 0;
+    // white balance from midtones that are not strongly coloured
+    if (L > 40 && L < 220 && mx - mn < 90) { sr += r; sg += g; sb += b; mw++; }
+  }
+  if (!n) return {};
+  const pct = (q: number) => { let acc = 0; const lim = q * n; for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc >= lim) return i / 255; } return 1; };
+  const lo = pct(0.005), hi = pct(0.995), med = pct(0.5);
+  let mean = 0, sq = 0;
+  for (let i = 0; i < 256; i++) { const v = i / 255; mean += v * hist[i]; sq += v * v * hist[i]; }
+  mean /= n; const sd = Math.sqrt(Math.max(0, sq / n - mean * mean));
+  const clamp = (v: number, a: number, b: number) => Math.round(Math.max(a, Math.min(b, v)));
+  const p: Partial<EnhanceParams> = {};
+  // white / black points (see enhance(): wp = 1 − whites·0.15, bp = −blacks·0.15)
+  p.whites = clamp((1 - Math.max(hi, 0.6)) / 0.15 * 100 * 0.8, 0, 60);
+  p.blacks = clamp(-Math.min(lo, 0.25) / 0.15 * 100 * 0.8, -60, 0);
+  // exposure: bring the median towards the middle (gamma = 2^(−brightness/100))
+  const m = Math.min(0.95, Math.max(0.05, med));
+  const gamma = Math.log(0.46) / Math.log(m);
+  p.brightness = clamp(-100 * Math.log2(gamma) * 0.7, -50, 50);
+  // contrast from the spread
+  p.contrast = clamp((0.2 / Math.max(0.05, sd) - 1) / 1.2 * 100 * 0.5, -25, 30);
+  // recover crowded ends
+  const fracHi = hist.slice(235).reduce((a, b) => a + b, 0) / n, fracLo = hist.slice(0, 25).reduce((a, b) => a + b, 0) / n;
+  p.highlights = clamp(-fracHi * 300, -45, 0);
+  p.shadows = clamp(fracLo * 250, 0, 40);
+  // gentle grey-world white balance (half strength)
+  if (mw > n * 0.05) {
+    const ar = sr / mw, ag = sg / mw, ab = sb / mw;
+    const qrb = ab / Math.max(1, ar), k = (qrb - 1) / (qrb + 1);
+    p.warmth = clamp(k / 0.12 * 100 * 0.5, -30, 30);
+    const tg = ((ar + ab) / 2) / Math.max(1, ag);
+    p.tint = clamp((1 - tg) / 0.1 * 100 * 0.5, -25, 25);
+  }
+  // flat colours get some vibrance
+  const sat = satSum / n;
+  p.vibrance = clamp((0.35 - sat) * 80, 0, 25);
+  return p;
+}
+
 /** Cache of blurred copies used by sharpness/clarity. */
 export class DetailCache {
   small: Uint8ClampedArray | null = null;

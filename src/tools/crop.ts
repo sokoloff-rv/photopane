@@ -9,6 +9,7 @@ import { snapPoint, clearSmart } from '../core/snap';
 import { select, checkbox, iconButton, sep } from '../ui/controls';
 import { span, spacer, textButton } from './transform';
 import { css } from '../core/color';
+import { arrowBadgeCursor } from '../ui/icons';
 
 const RATIOS: { value: string; label: string; r: number }[] = [
   { value: 'free', label: '', r: 0 },
@@ -26,6 +27,7 @@ export class CropTool extends Tool<CropOpts> {
   readonly id = 'crop';
   readonly iconName = 'crop';
   readonly key = 'C';
+  cursor = arrowBadgeCursor('crop');
   private rect: Rect | null = null;
   private docId = -1;
   private drag: { mode: 'new' | 'move' | 'handle'; h?: [number, number]; start: P; r: Rect } | null = null;
@@ -72,7 +74,7 @@ export class CropTool extends Tool<CropOpts> {
     const h = this.handleAt(e);
     const r = this.rect;
     const inside = !!r && e.x > r.x && e.y > r.y && e.x < r.x + r.w && e.y < r.y + r.h;
-    const c = h ? (h[0] && h[1] ? (h[0] === h[1] ? 'nwse-resize' : 'nesw-resize') : h[0] ? 'ew-resize' : 'ns-resize') : inside ? 'move' : 'crosshair';
+    const c = h ? (h[0] && h[1] ? (h[0] === h[1] ? 'nwse-resize' : 'nesw-resize') : h[0] ? 'ew-resize' : 'ns-resize') : inside ? 'move' : arrowBadgeCursor('crop');
     if (c !== this.cursor) { this.cursor = c; app.viewport.updateCursor(); }
   }
 
@@ -259,7 +261,7 @@ export class PerspCropTool extends Tool {
     if (!this.ensure()) return;
     const v = app.viewport;
     const onCorner = this.quad!.some(p => { const s = v.toScreen(p.x, p.y); return Math.hypot(s.x - e.sx, s.y - e.sy) < 10; });
-    const c = onCorner ? 'pointer' : pointInPoly({ x: e.x, y: e.y }, this.quad!) ? 'move' : 'default';
+    const c = onCorner ? 'pointer' : pointInPoly({ x: e.x, y: e.y }, this.quad!) ? 'move' : arrowBadgeCursor('perspCrop');
     if (c !== this.cursor) { this.cursor = c; app.viewport.updateCursor(); }
   }
 

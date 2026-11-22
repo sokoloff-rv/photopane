@@ -344,3 +344,5 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .ls-spacer { width: 14px; }
 .ls-pane { display: flex; flex-direction: column; gap: 6px; }
 .ls-pane .form-row > label:first-child { width: 120px; }
+/* hidden input for the type tool: receives keyboard/IME, caret and selection are drawn on the canvas */
+.text-input-proxy { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; margin: 0; opacity: 0; resize: none; overflow: hidden; pointer-events: none; white-space: pre; z-index: 1; }

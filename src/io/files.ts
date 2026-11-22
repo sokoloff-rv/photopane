@@ -7,6 +7,7 @@ import { openDialog, toast } from '../ui/dialog';
 import { numberField, select, checkbox } from '../ui/controls';
 import { psdToDoc, psdComposite, docToPsd } from './psd';
 import { extractExif, insertExif } from './exif';
+import { ensureDocFonts } from '../ui/fontprompt';
 
 const IMAGE_ACCEPT = '.png,.jpg,.jpeg,.webp,.gif,.bmp,.avif,.psd';
 
@@ -49,6 +50,7 @@ export async function openFiles(files: (File | PickedFile)[], mode: 'open' | 'pl
         d.fileName = f.name;
         d.fileHandle = handle || null;
         app.addDoc(d);
+        ensureDocFonts(d);
         continue;
       }
       const bmp = await decodeImage(f);

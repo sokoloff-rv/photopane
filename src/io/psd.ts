@@ -1,10 +1,11 @@
 import { readPsd, writePsd } from 'ag-psd';
 import type { Psd, Layer as PsdLayer, LayerEffectsInfo, BlendMode as PsdBlend, Color as PsdColor } from 'ag-psd';
 import { Doc } from '../core/document';
-import { Layer, Surface, BlendMode, LayerEffects, defaultEffects, TextData, defaultText } from '../core/layer';
+import { Layer, Surface, BlendMode, LayerEffects, defaultEffects, TextData, defaultText, CharStyle } from '../core/layer';
 import { RGB } from '../core/color';
 import { createCanvas, ctx2d } from '../core/util';
-import { baselineOffset, fontAvailable } from '../core/text';
+import type { FontNeed } from '../core/fonts';
+import { baselineOffset, fontAvailable, getRuns, setRuns, baseStyle } from '../core/text';
 
 /* ---------------- blend modes ---------------- */
 const FROM_PSD: Partial<Record<PsdBlend, BlendMode>> = {
@@ -116,7 +117,18 @@ function effectsTo(fx: LayerEffects): LayerEffectsInfo | undefined {
 const STYLE_WORDS = /(Bold|Black|Heavy|SemiBold|Semibold|DemiBold|Demi|Medium|Light|Thin|Regular|Book|Italic|Oblique|It)/g;
 
 /** Map a PostScript font name (e.g. "Ralenta-Bold", "LazurskiBoldCyrillic", "ArialMT") to an installed family. */
-export function resolveFont(psName: string): { family: string; bold: boolean; italic: boolean } {
+type Resolved = { family: string; bold: boolean; italic: boolean; available: boolean };
+const fontCache = new Map<string, Resolved>();
+/** Fonts of the document being imported that the browser cannot see by name. */
+let importNeeds: FontNeed[] = [];
+export function resolveFont(psName: string): Resolved {
+  let res = fontCache.get(psName);
+  if (!res || !res.available) { res = resolveFontUncached(psName); fontCache.set(psName, res); }
+  if (!res.available && !importNeeds.some(n => n.psName === psName)) importNeeds.push({ psName, family: res.family, bold: res.bold, italic: res.italic });
+  return res;
+}
+
+function resolveFontUncached(psName: string): Resolved {
   const boldIn = (s: string) => /bold|black|heavy|semibold|demibold/i.test(s);
   const italicIn = (s: string) => /italic|oblique/i.test(s);
   const [base0, style = ''] = psName.split('-');
@@ -132,34 +144,41 @@ export function resolveFont(psName: string): { family: string; bold: boolean; it
   add(stripped, boldIn(psName), italicIn(psName));
   const firstWord = spaced(base).split(' ')[0];
   add(firstWord, boldIn(psName), italicIn(psName));
-  for (const c of cands) if (fontAvailable(c.family)) return c;
-  return cands[0] || { family: 'Arial', bold: false, italic: false };
+  for (const c of cands) if (fontAvailable(c.family)) return { ...c, available: true };
+  // not visible to the browser: keep the family name (it may be registered later from the font file)
+  const first = cands[0] || { family: 'Arial', bold: false, italic: false };
+  return { ...first, bold: boldIn(psName), italic: italicIn(psName), available: false };
 }
 
 function textFrom(l: PsdLayer): TextData | null {
   const tx = l.text;
   if (!tx || !tx.text) return null;
-  const runs = tx.styleRuns || [];
-  // the first character style = base style + first run overrides (sizes are often stored only in runs)
-  const st = { ...(tx.style || {}), ...(runs[0]?.style || {}) };
+  const psRuns = tx.styleRuns || [];
   const ps = { ...(tx.paragraphStyle || {}), ...(tx.paragraphStyleRuns?.[0]?.style || {}) };
   const tr = tx.transform || [1, 0, 0, 1, l.left || 0, l.top || 0];
   const scale = Math.sqrt(tr[2] * tr[2] + tr[3] * tr[3]) || 1;
-  const fontSize = st.fontSize ?? 12;
-  const size = fontSize * scale;
-  const f = resolveFont(st.font?.name || 'Arial');
+  const baseFontSize = (tx.style?.fontSize ?? psRuns.find(r => r.style.fontSize)?.style.fontSize) ?? 12;
+  /** Photoshop character style (base style + run overrides) → our style. */
+  const charStyle = (over: any): CharStyle => {
+    const st = { ...(tx.style || {}), ...(over || {}) };
+    const fs = st.fontSize ?? baseFontSize;
+    const f = resolveFont(st.font?.name || 'Arial');
+    return {
+      font: f.family, size: fs * scale, color: colorFrom(st.fillColor, { r: 0, g: 0, b: 0 }),
+      bold: !!st.fauxBold || f.bold, italic: !!st.fauxItalic || f.italic, underline: !!st.underline,
+      tracking: st.tracking ?? 0, vScale: st.verticalScale ?? 1,
+      leading: st.autoLeading === false && st.leading ? st.leading / fs : (ps.autoLeading ?? 1.2),
+    };
+  };
   const just = ps.justification || 'left';
   const align: TextData['align'] = just.includes('center') ? 'center' : just.includes('right') ? 'right' : 'left';
-  const leading = st.autoLeading === false && st.leading ? st.leading / fontSize : (ps.autoLeading ?? 1.2);
-  const sizes = new Set(runs.map(r => r.style.fontSize ?? fontSize).filter(Boolean));
-  const colors = new Set(runs.map(r => JSON.stringify(r.style.fillColor ?? st.fillColor)));
+  const first = charStyle(psRuns[0]?.style);
   const td: TextData = {
-    ...defaultText(), text: tx.text.replace(/\r/g, '\n').replace(/\n$/, ''), font: f.family, size,
-    color: colorFrom(st.fillColor, { r: 0, g: 0, b: 0 }),
-    bold: !!st.fauxBold || f.bold, italic: !!st.fauxItalic || f.italic, underline: !!st.underline, align, leading,
-    tracking: st.tracking ?? 0, box: null, psdPixels: true, vScale: st.verticalScale ?? 1,
-    mixedStyles: sizes.size > 1 || colors.size > 1,
+    ...defaultText(), text: tx.text.replace(/\r/g, '\n').replace(/\n$/, ''),
+    font: first.font, size: first.size, color: first.color, bold: first.bold, italic: first.italic, underline: first.underline,
+    align, leading: first.leading, tracking: first.tracking, vScale: first.vScale, box: null, psdPixels: true,
   };
+  if (psRuns.length > 1) setRuns(td, psRuns.map(r => ({ len: r.length, s: charStyle(r.style) })));
   if (tx.shapeType === 'box' && tx.boxBounds) {
     const [bl, bt, br, bb] = tx.boxBounds;
     td.box = { w: (br - bl) * scale, h: (bb - bt) * scale };
@@ -175,15 +194,20 @@ function textFrom(l: PsdLayer): TextData | null {
   return td;
 }
 
+function psStyle(s: CharStyle) {
+  return {
+    font: { name: s.font.replace(/\s+/g, '') }, fontSize: s.size, fauxBold: s.bold, fauxItalic: s.italic, underline: s.underline,
+    tracking: s.tracking, autoLeading: false, leading: s.size * s.leading, fillColor: colorTo(s.color), verticalScale: s.vScale,
+  };
+}
+
 function textTo(l: Layer): PsdLayer['text'] {
   const td = l.text!;
-  const lineH = td.size * td.leading;
+  const runs = getRuns(td);
   const base: PsdLayer['text'] = {
     text: td.text.replace(/\n/g, '\r'),
-    style: {
-      font: { name: td.font.replace(/\s+/g, '') }, fontSize: td.size, fauxBold: td.bold, fauxItalic: td.italic, underline: td.underline,
-      tracking: td.tracking, autoLeading: false, leading: lineH, fillColor: colorTo(td.color), verticalScale: td.vScale ?? 1,
-    },
+    style: psStyle(runs[0]?.s ?? baseStyle(td)),
+    styleRuns: runs.length > 1 ? runs.map(r => ({ length: r.len, style: psStyle(r.s) })) : undefined,
     paragraphStyle: { justification: td.align },
     antiAlias: 'smooth',
   };
@@ -250,6 +274,7 @@ function layerFrom(p: PsdLayer): Layer {
 }
 
 export function psdToDoc(buffer: ArrayBuffer, name: string): Doc {
+  importNeeds = [];
   const psd = readPsd(buffer, { skipThumbnail: true });
   const d = new Doc(name, psd.width, psd.height);
   if (psd.children && psd.children.length) {
@@ -262,6 +287,8 @@ export function psdToDoc(buffer: ArrayBuffer, name: string): Doc {
   }
   const top = d.root.children[d.root.children.length - 1];
   d.setActive(top || null);
+  d.missingFonts = importNeeds;
+  importNeeds = [];
   return d;
 }
 

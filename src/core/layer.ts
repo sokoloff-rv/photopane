@@ -58,6 +58,13 @@ export function hasEffects(e: LayerEffects): boolean {
 }
 
 /* ---------------- Text ---------------- */
+/** Style of a run of characters. Leading is a multiplier of the run's own size. */
+export interface CharStyle {
+  font: string; size: number; color: RGB; bold: boolean; italic: boolean; underline: boolean;
+  tracking: number; vScale: number; leading: number;
+}
+export interface StyleRun { len: number; s: CharStyle }
+
 export interface TextData {
   text: string;
   font: string;
@@ -77,10 +84,12 @@ export interface TextData {
   psdPixels?: boolean;
   /** Text frame reported by Photoshop (document coords), used while psdPixels is true */
   psdFrame?: { x: number; y: number; w: number; h: number };
-  /** Several character styles in the PSD layer (only the first one is editable) */
+  /** @deprecated kept for old documents */
   mixedStyles?: boolean;
   /** Vertical glyph scale (Photoshop "vertical scale"), 1 = 100% */
   vScale?: number;
+  /** Per-character styles (absent = the whole layer uses the base fields above) */
+  runs?: StyleRun[];
 }
 
 export function defaultText(): TextData {

@@ -204,6 +204,14 @@ const D: Record<string, [string, string]> = {
 
   'text.mixed': ['В этом слое из PSD несколько стилей текста — при правке будет использован первый', 'This PSD text layer has several styles — editing uses the first one'],
 
+  'fonts.title': ['Шрифты документа', 'Document fonts'],
+  'fonts.text': ['В документе есть текст шрифтами, которые браузер не видит по имени (так бывает со шрифтами, установленными только для текущего пользователя Windows). Разрешите доступ к шрифтам системы — PhotoPane загрузит их, и текст можно будет редактировать. Разрешение запоминается.', 'The document uses fonts the browser cannot see by name (common for fonts installed for the current Windows user only). Allow access to local fonts so PhotoPane can load them for editing. The permission is remembered.'],
+  'fonts.allow': ['Разрешить доступ к шрифтам', 'Allow font access'],
+  'fonts.later': ['Позже', 'Later'],
+  'fonts.loaded': ['Шрифты документа загружены', 'Document fonts loaded'],
+  'fonts.notInstalled': ['Шрифты не найдены в системе: {0}', 'Fonts not found on this computer: {0}'],
+  'fonts.unavailable': ['Браузер не даёт доступа к шрифтам: {0}. Текст показан как в PSD, при правке будет заменён похожим шрифтом', 'The browser does not allow access to fonts: {0}. Text is shown as in the PSD; editing will use a similar font'],
+
   // menus
   'menu.file': ['Файл', 'File'],
   'menu.edit': ['Редактирование', 'Edit'],

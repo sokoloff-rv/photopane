@@ -25,6 +25,8 @@ export class Doc {
   fileName: string | null = null;
   /** EXIF segment of the original JPEG (orientation reset), kept for export. */
   exif: Uint8Array | null = null;
+  /** Fonts used by imported text that the browser cannot see by name (see core/fonts). */
+  missingFonts: { psName: string; family: string; bold: boolean; italic: boolean }[] = [];
   dirty = false;
   guides: { h: number[]; v: number[] } = { h: [], v: [] };
 

@@ -1,19 +1,29 @@
 import { app } from '../app';
 import { t } from '../i18n';
 import { Tool, PEvent } from './tool';
-import { Layer, TextData, defaultText } from '../core/layer';
-import { layoutText, renderTextLayer, COMMON_FONTS, fontString, baselineOffset, cssHalfLeading } from '../core/text';
+import { Layer, TextData, defaultText, CharStyle } from '../core/layer';
+import {
+  layoutText, renderTextLayer, COMMON_FONTS, baselineOffset, styleAt, applyStyle, applyStyleAll, textEdited,
+  caretPos, hitIndex, selectionRects, baseStyle,
+} from '../core/text';
 import { css, RGB } from '../core/color';
 import { el, normRect } from '../core/util';
 import { numberField, select, segmented, colorSwatch, sep } from '../ui/controls';
 import { spacer, textButton } from './transform';
 import { toast } from '../ui/dialog';
+import { loadLocalFontList, localFamilies, registerFamily } from '../core/fonts';
+import { clearFontCaches } from '../core/text';
 
 interface TextOpts { font: string; size: number; bold: boolean; italic: boolean; underline: boolean; align: 'left' | 'center' | 'right'; leading: number; tracking: number }
 
 let systemFonts: string[] | null = null;
 let textCounter = 1;
 
+/**
+ * Type tool. Text input goes through a hidden textarea (keyboard, IME, clipboard, selection offsets);
+ * the caret and the selection are drawn on the canvas from our own layout, so they match characters of
+ * different sizes exactly. Option changes apply to the selected characters, or to the whole layer.
+ */
 export class TextTool extends Tool<TextOpts> {
   readonly id = 'text';
   readonly iconName = 'text';
@@ -23,8 +33,13 @@ export class TextTool extends Tool<TextOpts> {
   private isNew = false;
   private before = '';
   private ta: HTMLTextAreaElement | null = null;
+  private lastText = '';
   private dragStart: { x: number; y: number } | null = null;
   private dragCur: { x: number; y: number } | null = null;
+  private selecting: number | null = null;
+  private blinkOn = true;
+  private blinkTimer = 0;
+  private lastClick = { time: 0, idx: -1, count: 0 };
 
   constructor() { super({ font: 'Arial', size: 48, bold: false, italic: false, underline: false, align: 'left', leading: 1.2, tracking: 0 }); }
 
@@ -39,17 +54,78 @@ export class TextTool extends Tool<TextOpts> {
     return null;
   }
 
+  private insideEditing(x: number, y: number) {
+    const tx = this.editing?.text;
+    if (!tx) return false;
+    const f = layoutText(tx).frame;
+    const m = 6 / (app.doc?.zoom || 1);
+    return x >= f.x - m && y >= f.y - m && x <= f.x + f.w + m && y <= f.y + f.h + m;
+  }
+
   down(e: PEvent) {
-    if (this.editing) { this.commit(); return; }
+    if (this.editing) {
+      if (this.insideEditing(e.x, e.y)) { this.pointerSelect(e); return; }
+      this.commit();
+      return;
+    }
     const hit = this.hitText(e.x, e.y);
-    if (hit) { this.edit(hit); return; }
+    if (hit) { this.edit(hit); this.pointerSelect(e); return; }
     this.dragStart = { x: e.x, y: e.y };
     this.dragCur = { x: e.x, y: e.y };
   }
 
-  move(e: PEvent) { if (this.dragStart) { this.dragCur = { x: e.x, y: e.y }; app.update('overlay'); } }
+  /** Click / double click / triple click inside the edited text. */
+  private pointerSelect(e: PEvent) {
+    const tx = this.editing?.text, ta = this.ta;
+    if (!tx || !ta) return;
+    const i = hitIndex(tx, e.x, e.y);
+    const now = performance.now();
+    const same = Math.abs(i - this.lastClick.idx) <= 1 && now - this.lastClick.time < 400;
+    this.lastClick = { time: now, idx: i, count: same ? this.lastClick.count + 1 : 1 };
+    if (this.lastClick.count === 2) {
+      // select word
+      const s = tx.text;
+      let a = i, b = i;
+      while (a > 0 && /[\p{L}\p{N}_]/u.test(s[a - 1])) a--;
+      while (b < s.length && /[\p{L}\p{N}_]/u.test(s[b])) b++;
+      ta.setSelectionRange(a, b);
+      this.selecting = null;
+    } else if (this.lastClick.count >= 3) {
+      // select line (paragraph)
+      const s = tx.text;
+      const a = s.lastIndexOf('\n', i - 1) + 1, bb = s.indexOf('\n', i);
+      ta.setSelectionRange(a, bb < 0 ? s.length : bb);
+      this.selecting = null;
+    } else if (e.shift) {
+      const anchor = ta.selectionDirection === 'backward' ? ta.selectionEnd : ta.selectionStart;
+      this.setSel(anchor, i);
+      this.selecting = anchor;
+    } else {
+      ta.setSelectionRange(i, i);
+      this.selecting = i;
+    }
+    this.focusSoon();
+    this.restartBlink();
+    app.update('overlay', 'options');
+  }
+
+  private setSel(anchor: number, focus: number) {
+    const ta = this.ta!;
+    if (focus >= anchor) ta.setSelectionRange(anchor, focus, 'forward'); else ta.setSelectionRange(focus, anchor, 'backward');
+  }
+
+  move(e: PEvent) {
+    if (this.selecting !== null && this.editing?.text) {
+      this.setSel(this.selecting, hitIndex(this.editing.text, e.x, e.y));
+      this.restartBlink();
+      app.update('overlay');
+      return;
+    }
+    if (this.dragStart) { this.dragCur = { x: e.x, y: e.y }; app.update('overlay'); }
+  }
 
   up() {
+    if (this.selecting !== null) { this.selecting = null; app.update('options'); return; }
     if (!this.dragStart) return;
     const s = this.dragStart, c = this.dragCur!;
     this.dragStart = null;
@@ -77,64 +153,70 @@ export class TextTool extends Tool<TextOpts> {
   edit(l: Layer) {
     const d = app.doc!;
     d.setActive(l);
-    if (l.text?.mixedStyles) { toast(t('text.mixed')); l.text.mixedStyles = false; }
-    if (l.text?.psdPixels) { l.text.psdPixels = false; }
+    if (l.text) { l.text.psdPixels = false; l.text.mixedStyles = false; }
     this.isNew = false;
     this.startEditor(l);
-    app.update('layers', 'options');
+    if (l.text) renderTextLayer(l);
+    app.update('layers', 'options', 'canvas');
   }
 
   private startEditor(l: Layer) {
     this.editing = l;
     this.before = JSON.stringify(l.text);
-    const ta = el('textarea', { class: 'text-editor', spellcheck: false }) as HTMLTextAreaElement;
+    this.lastText = l.text!.text;
+    const ta = el('textarea', { class: 'text-input-proxy', spellcheck: false, autocomplete: 'off' }) as HTMLTextAreaElement;
     ta.value = l.text!.text;
-    ta.addEventListener('input', () => {
-      if (!this.editing?.text) return;
-      this.editing.text.text = ta.value;
-      renderTextLayer(this.editing);
-      this.position();
-      app.update('canvas');
-    });
+    ta.addEventListener('input', () => this.onInput());
     ta.addEventListener('keydown', e => {
       e.stopPropagation();
-      if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); this.commit(); }
+      if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); this.commit(); return; }
+      requestAnimationFrame(() => { this.restartBlink(); app.update('overlay', 'options'); });
     });
+    ta.addEventListener('keyup', () => app.update('overlay'));
     ta.addEventListener('paste', e => e.stopPropagation());
+    ta.addEventListener('blur', () => app.update('overlay'));
+    document.addEventListener('selectionchange', this.onSelChange);
     app.viewport.el.append(ta);
     this.ta = ta;
-    this.position();
-    setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 0);
-    app.update('options');
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    this.focusSoon();
+    this.restartBlink();
+    app.update('options', 'overlay');
   }
 
-  /** Place the textarea over the text frame. */
-  private position() {
-    const l = this.editing, ta = this.ta, d = app.doc;
-    if (!l?.text || !ta || !d) return;
-    const tx = l.text;
-    const lay = layoutText(tx);
-    const z = d.zoom;
-    const v = app.viewport;
-    const f = lay.frame;
-    const extra = tx.size * z;
-    const w = tx.box ? f.w * z : f.w * z + extra;
-    let left = v.toScreen(f.x, f.y).x;
-    if (!tx.box) left = tx.align === 'left' ? left : tx.align === 'center' ? v.toScreen(tx.ax, 0).x - w / 2 : v.toScreen(tx.ax, 0).x - w;
-    // a CSS line box puts half of the extra leading above the first baseline; compensate so glyphs match the canvas
-    const top = v.toScreen(f.x, f.y).y - cssHalfLeading(tx) * z;
-    Object.assign(ta.style, {
-      left: left + 'px', top: top + 'px', width: Math.max(w, 20) + 'px',
-      height: Math.max(lay.lines.length * lay.lineH * z, lay.lineH * z) + (tx.box ? 0 : 2) + 'px',
-      font: fontString(tx, z), lineHeight: lay.lineH * z + 'px', letterSpacing: (tx.tracking / 1000) * tx.size * z + 'px',
-      textAlign: tx.align, whiteSpace: tx.box ? 'pre-wrap' : 'pre', caretColor: css(tx.color),
-      textDecoration: 'none',
-    });
-    if (tx.box) ta.style.height = f.h * z + 'px';
-    if ((tx.vScale ?? 1) !== 1) { ta.style.transformOrigin = '0 0'; ta.style.transform = 'none'; }
+  private onSelChange = () => { if (this.ta && document.activeElement === this.ta) { this.restartBlink(); app.update('overlay'); } };
+
+  private focusSoon() { setTimeout(() => this.ta?.focus({ preventScroll: true }), 0); }
+
+  private restartBlink() {
+    this.blinkOn = true;
+    clearInterval(this.blinkTimer);
+    this.blinkTimer = window.setInterval(() => { this.blinkOn = !this.blinkOn; app.update('overlay'); }, 530);
+    this.placeProxy();
   }
 
-  viewChanged() { this.position(); }
+  /** Keep the hidden textarea at the caret so IME candidate windows appear in the right place. */
+  private placeProxy() {
+    const tx = this.editing?.text, ta = this.ta;
+    if (!tx || !ta) return;
+    const c = caretPos(tx, ta.selectionEnd);
+    const p = app.viewport.toScreen(c.x, c.bottom);
+    ta.style.left = p.x + 'px';
+    ta.style.top = p.y + 'px';
+  }
+
+  private onInput() {
+    const l = this.editing, ta = this.ta;
+    if (!l?.text || !ta) return;
+    l.text.text = ta.value;
+    textEdited(l.text, this.lastText);
+    this.lastText = ta.value;
+    renderTextLayer(l);
+    this.restartBlink();
+    app.update('canvas', 'overlay');
+  }
+
+  viewChanged() { this.placeProxy(); }
 
   commit() {
     const l = this.editing;
@@ -155,9 +237,12 @@ export class TextTool extends Tool<TextOpts> {
   }
 
   private closeEditor() {
+    clearInterval(this.blinkTimer);
+    document.removeEventListener('selectionchange', this.onSelChange);
     this.ta?.remove();
     this.ta = null;
     this.editing = null;
+    this.selecting = null;
     app.update('options', 'overlay');
   }
 
@@ -179,13 +264,33 @@ export class TextTool extends Tool<TextOpts> {
       const a = v.toScreen(this.dragStart.x, this.dragStart.y), b = v.toScreen(this.dragCur.x, this.dragCur.y);
       g.save(); g.setLineDash([4, 3]); g.strokeStyle = '#fff'; g.strokeRect(a.x + 0.5, a.y + 0.5, b.x - a.x, b.y - a.y); g.restore();
     }
-    // outline of the text frame (active text layer, or the one being edited)
     const l = this.editing || app.doc?.active;
-    if (l?.kind === 'text' && l.text) {
-      const f = layoutText(l.text).frame;
-      const a = v.toScreen(f.x, f.y), b = v.toScreen(f.x + f.w, f.y + f.h);
-      g.save(); g.strokeStyle = 'rgba(10,132,255,0.6)'; g.strokeRect(a.x - 0.5, a.y - 0.5, b.x - a.x + 1, b.y - a.y + 1); g.restore();
+    if (!(l?.kind === 'text' && l.text)) return;
+    const tx = l.text;
+    const lay = layoutText(tx);
+    const f = lay.frame;
+    const a = v.toScreen(f.x, f.y), b = v.toScreen(f.x + f.w, f.y + f.h);
+    g.save();
+    g.strokeStyle = 'rgba(10,132,255,0.6)'; g.lineWidth = 1;
+    g.strokeRect(Math.round(a.x) - 0.5, Math.round(a.y) - 0.5, Math.round(b.x - a.x) + 1, Math.round(b.y - a.y) + 1);
+    if (this.editing && this.ta) {
+      const s0 = this.ta.selectionStart, s1 = this.ta.selectionEnd;
+      if (s1 > s0) {
+        g.fillStyle = 'rgba(10,132,255,0.32)';
+        for (const r of selectionRects(tx, s0, s1, lay)) {
+          const p = v.toScreen(r.x, r.y), q = v.toScreen(r.x + r.w, r.y + r.h);
+          g.fillRect(p.x, p.y, q.x - p.x, q.y - p.y);
+        }
+      } else if (this.blinkOn && document.activeElement === this.ta) {
+        const c = caretPos(tx, s1, lay);
+        const p = v.toScreen(c.x, c.top), q = v.toScreen(c.x, c.bottom);
+        const x = Math.round(p.x) + 0.5;
+        g.strokeStyle = 'rgba(0,0,0,0.65)'; g.lineWidth = 3;
+        g.beginPath(); g.moveTo(x, p.y); g.lineTo(x, q.y); g.stroke();
+        g.strokeStyle = '#fff'; g.lineWidth = 1.2; g.stroke();
+      }
     }
+    g.restore();
   }
 
   /* ---------- options ---------- */
@@ -196,69 +301,88 @@ export class TextTool extends Tool<TextOpts> {
     return l?.kind === 'text' ? l : null;
   }
 
-  private setProp<K extends keyof TextOpts>(k: K, v: TextOpts[K]) {
-    this.set(k, v);
+  /** Selected character range while editing (null = whole layer). */
+  private range(): [number, number] | null {
+    if (!this.editing || !this.ta) return null;
+    const a = this.ta.selectionStart, b = this.ta.selectionEnd;
+    return b > a ? [a, b] : null;
+  }
+
+  /** Style shown in the options bar: selection start / caret, or the layer's base style. */
+  private shownStyle(): CharStyle | null {
     const l = this.targetLayer();
-    if (l?.text) {
-      (l.text as any)[k] = v;
-      renderTextLayer(l);
-      this.position();
-      if (!this.editing) app.commit('h.text'); else app.update('canvas');
-      this.ta?.focus();
+    if (!l?.text) return null;
+    if (this.editing && this.ta) {
+      const a = this.ta.selectionStart, b = this.ta.selectionEnd;
+      return styleAt(l.text, b > a ? a : Math.max(0, a - 1));
     }
+    return baseStyle(l.text);
+  }
+
+  private setStyle(patch: Partial<CharStyle>) {
+    for (const [k, v] of Object.entries(patch)) if (k in this.o) this.set(k as keyof TextOpts, v as never);
+    const l = this.targetLayer();
+    if (!l?.text) return;
+    const r = this.range();
+    if (r) applyStyle(l.text, r[0], r[1], patch);
+    else applyStyleAll(l.text, patch);
+    renderTextLayer(l);
+    if (!this.editing) app.commit('h.text'); else app.update('canvas', 'overlay');
+    if (this.ta) { const ta = this.ta; const a = ta.selectionStart, b = ta.selectionEnd; this.focusSoon(); setTimeout(() => ta.setSelectionRange(a, b), 0); }
+    app.update('options');
   }
 
   options() {
     const l = this.targetLayer();
-    const td: TextOpts & { color: RGB } = l?.text ? { ...this.o, ...l.text } : { ...this.o, color: app.fg };
+    const st = this.shownStyle();
+    const td = st ? { ...st, align: l!.text!.align } : { ...this.o, color: app.fg, vScale: 1 };
     const fonts = [...new Set([td.font, ...COMMON_FONTS, ...(systemFonts || [])])].sort((a, b) => a.localeCompare(b));
     const fontOpts = fonts.map(f => ({ value: f, label: f }));
     fontOpts.push({ value: '__more', label: systemFonts ? '' : t('opt.moreFonts') });
     const fontSel = select(fontOpts.filter(o => o.label), td.font, async v => {
       if (v === '__more') {
         fontSel.value = td.font;
-        try {
-          const list = await (window as any).queryLocalFonts();
-          systemFonts = [...new Set<string>(list.map((f: any) => f.family))];
-          app.update('options');
-        } catch { toast(t('opt.fontsDenied')); }
+        const list = await loadLocalFontList();
+        if (list) { systemFonts = localFamilies(); app.update('options'); } else toast(t('opt.fontsDenied'));
         return;
       }
-      this.setProp('font', v);
+      if (systemFonts?.includes(v)) { await registerFamily(v); clearFontCaches(); }
+      this.setStyle({ font: v });
     }, 'font-select');
     const toggle = (k: 'bold' | 'italic' | 'underline', label: string, style: Partial<CSSStyleDeclaration>) => {
       const b = el('button', { class: 'seg-btn' + (td[k] ? ' on' : ''), title: t('opt.' + k) }, el('span', { style }, label));
-      b.addEventListener('click', () => { this.setProp(k, !td[k]); app.update('options'); });
+      b.addEventListener('mousedown', e => e.preventDefault()); // keep text selection
+      b.addEventListener('click', () => this.setStyle({ [k]: !td[k] } as Partial<CharStyle>));
       return b;
     };
     return [
       fontSel,
       el('div', { class: 'seg' }, toggle('bold', 'B', { fontWeight: '700' }), toggle('italic', 'I', { fontStyle: 'italic', fontFamily: 'Georgia, serif' }), toggle('underline', 'U', { textDecoration: 'underline' })),
-      numberField({ label: t('opt.size'), value: td.size, min: 1, max: 2000, step: 0.5, unit: 'px', onChange: (v, fin) => { if (fin) this.setProp('size', v); } }),
-      colorSwatch(td.color, t('opt.textColor'), c => {
-        const tl = this.targetLayer();
-        if (tl?.text) { tl.text.color = c; renderTextLayer(tl); if (!this.editing) app.commit('h.text'); else app.update('canvas'); this.ta?.focus(); }
-        else app.setColor('fg', c);
-      }),
+      numberField({ label: t('opt.size'), value: Math.round(td.size * 10) / 10, min: 1, max: 2000, step: 0.5, unit: 'px', onChange: (v, fin) => { if (fin) this.setStyle({ size: v }); } }),
+      colorSwatch(td.color as RGB, t('opt.textColor'), c => { if (this.targetLayer()) this.setStyle({ color: c }); else app.setColor('fg', c); }),
       sep(),
       segmented<'left' | 'center' | 'right'>([
         { value: 'left', icon: 'alignL', title: t('opt.alignLeft') },
         { value: 'center', icon: 'alignC', title: t('opt.alignCenter') },
         { value: 'right', icon: 'alignR', title: t('opt.alignRight') },
       ], td.align, v => this.setAlign(v)),
-      numberField({ label: t('opt.leading'), value: Math.round(td.leading * 100), min: 50, max: 400, unit: '%', onChange: (v, fin) => { if (fin) this.setProp('leading', v / 100); } }),
-      numberField({ label: t('opt.tracking'), value: td.tracking, min: -200, max: 1000, onChange: (v, fin) => { if (fin) this.setProp('tracking', v); } }),
+      numberField({ label: t('opt.leading'), value: Math.round(td.leading * 100), min: 50, max: 2000, unit: '%', onChange: (v, fin) => { if (fin) this.setStyle({ leading: v / 100 }); } }),
+      numberField({ label: t('opt.tracking'), value: td.tracking, min: -200, max: 1000, onChange: (v, fin) => { if (fin) this.setStyle({ tracking: v }); } }),
       ...(this.editing ? [spacer(), textButton(t('opt.apply'), () => this.commit(), true)] : []),
     ];
   }
 
-  /** Change alignment keeping point text visually in place. */
+  /** Change alignment (whole layer) keeping point text visually in place. */
   private setAlign(v: 'left' | 'center' | 'right') {
+    this.set('align', v);
     const l = this.targetLayer();
-    if (l?.text && !l.text.box) {
+    if (!l?.text) return;
+    if (!l.text.box) {
       const f = layoutText(l.text).frame;
       l.text.ax = v === 'left' ? f.x : v === 'center' ? f.x + f.w / 2 : f.x + f.w;
     }
-    this.setProp('align', v);
+    l.text.align = v;
+    renderTextLayer(l);
+    if (!this.editing) app.commit('h.text'); else { app.update('canvas', 'overlay'); this.focusSoon(); }
   }
 }

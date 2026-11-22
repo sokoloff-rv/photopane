@@ -44,6 +44,7 @@ export function resizeDocument(d: Doc, W: number, H: number, method: Method) {
     if (l.kind === 'text' && l.text) {
       const tx = l.text;
       tx.size *= sy; tx.ax *= sx; tx.ay *= sy;
+      if (tx.runs) tx.runs.forEach(r => { r.s.size *= sy; });
       if (tx.box) tx.box = { w: tx.box.w * sx, h: tx.box.h * sy };
       renderTextLayer(l);
     } else if (!l.isGroup) scaleSurface(l.content);

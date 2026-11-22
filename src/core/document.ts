@@ -3,6 +3,7 @@ import { Selection } from './selection';
 import { History } from './history';
 import { createCanvas, ctx2d, uid } from './util';
 import { compositeDocument } from './render';
+import { RgbProfile, parseIcc, drawForDisplay } from './colormgmt';
 
 export class Doc {
   id = uid();
@@ -32,6 +33,12 @@ export class Doc {
 
   private _composite: HTMLCanvasElement | null = null;
   private _compositeValid = false;
+  private _display: HTMLCanvasElement | null = null;
+  private _displayValid = false;
+  /** Embedded ICC profile of the document (kept and written back to PSD) */
+  iccProfile: Uint8Array | null = null;
+  /** Parsed profile when it differs from sRGB; pixels stay in this space, the screen converts */
+  colorProfile: RgbProfile | null = null;
 
   constructor(name: string, width: number, height: number) {
     this.name = name;
@@ -129,7 +136,28 @@ export class Doc {
   }
 
   /* ---------- composite ---------- */
-  invalidate() { this._compositeValid = false; }
+  invalidate() { this._compositeValid = false; this._displayValid = false; }
+
+  setIccProfile(bytes: Uint8Array | null | undefined) {
+    this.iccProfile = bytes ? new Uint8Array(bytes) : null;
+    this.colorProfile = parseIcc(this.iccProfile);
+    this._displayValid = false;
+  }
+
+  /** Composite converted to sRGB for the screen (same canvas as composite() when the document is sRGB). */
+  displayComposite(): HTMLCanvasElement {
+    const comp = this.composite();
+    if (!this.colorProfile) return comp;
+    if (!this._display || this._display.width !== comp.width || this._display.height !== comp.height) {
+      this._display = createCanvas(comp.width, comp.height);
+      this._displayValid = false;
+    }
+    if (!this._displayValid) {
+      drawForDisplay(comp, this._display, this.colorProfile);
+      this._displayValid = true;
+    }
+    return this._display;
+  }
 
   composite(): HTMLCanvasElement {
     if (!this._composite || this._composite.width !== this.width || this._composite.height !== this.height) {

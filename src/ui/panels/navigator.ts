@@ -23,11 +23,11 @@ export class NavigatorPanel extends Panel {
     });
     this.pct.addEventListener('change', () => {
       const v = parseFloat(this.pct.value.replace(',', '.'));
-      if (!isNaN(v) && v > 0 && app.doc) app.viewport.setZoom(v / 100);
+      if (!isNaN(v) && v > 0 && app.doc) app.viewport.setDeviceZoom(v / 100);
       this.render();
     });
     this.pct.addEventListener('blur', () => setTimeout(() => this.render(), 0));
-    this.slider.addEventListener('input', () => app.viewport.setZoom(Math.pow(2, +this.slider.value / 100)));
+    this.slider.addEventListener('input', () => app.viewport.setDeviceZoom(Math.pow(2, +this.slider.value / 100)));
     const out = iconButton('zoomOut', t('cmd.zoomOut'), () => app.viewport.zoomStep(-1));
     const inn = iconButton('zoomIn', t('cmd.zoomIn'), () => app.viewport.zoomStep(1));
     this.body.append(el('div', { class: 'nav-view' }, this.canvas), el('div', { class: 'nav-zoom' }, out, this.slider, inn, this.pct));
@@ -51,6 +51,7 @@ export class NavigatorPanel extends Panel {
     d.autoFit = false;
     d.panX = app.viewport.w / 2 - x * d.zoom;
     d.panY = app.viewport.h / 2 - y * d.zoom;
+    app.viewport.snapPan();
     app.update('view');
   }
 
@@ -73,7 +74,7 @@ export class NavigatorPanel extends Panel {
     this.box = { x, y, w, h, scale };
     g.fillStyle = '#fff'; g.fillRect(x, y, w, h);
     g.imageSmoothingQuality = 'high';
-    g.drawImage(d.composite(), x, y, w, h);
+    g.drawImage(d.displayComposite(), x, y, w, h);
     // viewport rectangle
     const vp = app.viewport;
     const vx = x + (-d.panX / d.zoom) * scale, vy = y + (-d.panY / d.zoom) * scale;
@@ -84,7 +85,8 @@ export class NavigatorPanel extends Panel {
     g.strokeStyle = 'rgba(255,255,255,0.9)'; g.lineWidth = 1;
     g.strokeRect(vx, vy, vw, vh);
     g.restore();
-    if (document.activeElement !== this.slider) this.slider.value = String(Math.round(Math.log2(d.zoom) * 100));
-    if (document.activeElement !== this.pct) this.pct.value = Math.round(d.zoom * 1000) / 10 + '%';
+    const dz = app.viewport.deviceZoom();
+    if (document.activeElement !== this.slider) this.slider.value = String(Math.round(Math.log2(dz) * 100));
+    if (document.activeElement !== this.pct) this.pct.value = Math.round(dz * 1000) / 10 + '%';
   }
 }

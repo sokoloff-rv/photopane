@@ -106,13 +106,27 @@ export class Viewport {
     if (!d || this.w < 10) return;
     const pad = 48;
     let z = Math.min((this.w - pad) / d.width, (this.h - pad) / d.height);
-    if (onlyShrink) z = Math.min(z, 1);
+    // 100% = one image pixel per physical screen pixel (like Photoshop), regardless of Windows scaling
+    if (onlyShrink) z = Math.min(z, 1 / this.dpr);
     d.zoom = clamp(z, 0.01, 64);
     d.panX = Math.round((this.w - d.width * d.zoom) / 2);
     d.panY = Math.round((this.h - d.height * d.zoom) / 2);
     d.fitted = true;
     d.autoFit = onlyShrink;
+    this.snapPan();
     app.update('view');
+  }
+
+  /** Zoom as Photoshop shows it: image pixels per physical screen pixel. */
+  deviceZoom(): number { return (app.doc?.zoom ?? 1) * this.dpr; }
+  setDeviceZoom(z: number, sx?: number, sy?: number) { this.setZoom(z / this.dpr, sx, sy); }
+
+  /** Align the image to physical pixels so 100% is perfectly sharp. */
+  snapPan() {
+    const d = app.doc;
+    if (!d) return;
+    d.panX = Math.round(d.panX * this.dpr) / this.dpr;
+    d.panY = Math.round(d.panY * this.dpr) / this.dpr;
   }
 
   setZoom(z: number, sx = this.w / 2, sy = this.h / 2) {
@@ -124,6 +138,7 @@ export class Viewport {
     d.zoom = z;
     d.panX = sx - p.x * z;
     d.panY = sy - p.y * z;
+    this.snapPan();
     app.update('view');
   }
 
@@ -131,9 +146,10 @@ export class Viewport {
     const d = app.doc;
     if (!d) return;
     const z = d.zoom;
-    let next = dir > 0 ? ZOOM_STEPS.find(s => s > z * 1.001) : [...ZOOM_STEPS].reverse().find(s => s < z / 1.001);
-    if (next == null) next = z;
-    this.setZoom(next, sx, sy);
+    const dz = z * this.dpr;
+    let next = dir > 0 ? ZOOM_STEPS.find(s => s > dz * 1.001) : [...ZOOM_STEPS].reverse().find(s => s < dz / 1.001);
+    if (next == null) next = dz;
+    this.setZoom(next / this.dpr, sx, sy);
   }
 
   /* ---------- rendering ---------- */
@@ -145,7 +161,7 @@ export class Viewport {
     g.clearRect(0, 0, this.w, this.h);
     const d = app.doc;
     if (!d) return;
-    const comp = d.composite();
+    const comp = d.displayComposite();
     const x = d.panX, y = d.panY, w = d.width * d.zoom, h = d.height * d.zoom;
     // shadow
     g.save();
@@ -168,11 +184,11 @@ export class Viewport {
     g.beginPath(); g.rect(x, y, w, h); g.clip();
     g.fillStyle = this.checker!;
     g.fillRect(x, y, w, h);
-    g.imageSmoothingEnabled = d.zoom < 2;
+    g.imageSmoothingEnabled = d.zoom * this.dpr < 2;
     g.imageSmoothingQuality = 'high';
     g.drawImage(comp, x, y, w, h);
     // pixel grid at high zoom
-    if (d.zoom >= 12) {
+    if (d.zoom * this.dpr >= 12) {
       g.strokeStyle = 'rgba(128,128,128,0.25)';
       g.lineWidth = 1 / this.dpr;
       g.beginPath();
@@ -386,6 +402,7 @@ export class Viewport {
       d.autoFit = false;
       d.panX = this.panStart.px + (e.clientX - this.panStart.x);
       d.panY = this.panStart.py + (e.clientY - this.panStart.y);
+      this.snapPan();
       app.update('view');
       return;
     }
@@ -441,6 +458,7 @@ export class Viewport {
       d.autoFit = false;
       if (e.shiftKey) d.panX -= (e.deltaY || e.deltaX) * k;
       else { d.panX -= e.deltaX * k; d.panY -= e.deltaY * k; }
+      this.snapPan();
       app.update('view');
     }
   }

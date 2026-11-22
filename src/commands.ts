@@ -343,7 +343,7 @@ export function registerCommands(app: App) {
   R('zoomIn', () => app.viewport.zoomStep(1), ['Ctrl+=', 'Ctrl+Shift+='], hasDoc);
   R('zoomOut', () => app.viewport.zoomStep(-1), ['Ctrl+-'], hasDoc);
   R('fit', () => app.viewport.fit(false), ['Ctrl+0'], hasDoc);
-  R('actual', () => app.viewport.setZoom(1), ['Ctrl+1'], hasDoc);
+  R('actual', () => app.viewport.setDeviceZoom(1), ['Ctrl+1'], hasDoc);
   const toggleSetting = (id: string, key: string, def: boolean, keys: string[]) =>
     R(id, () => { app.settings[key] = !(app.settings[key] ?? def); app.saveSettings(); app.update('overlay'); }, keys, undefined, { checked: () => app.settings[key] ?? def });
   toggleSetting('rulers', 'rulers', false, ['Ctrl+R']);

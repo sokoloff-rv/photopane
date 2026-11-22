@@ -318,6 +318,7 @@ export function psdToDoc(buffer: ArrayBuffer, name: string): Doc {
   }
   const top = d.root.children[d.root.children.length - 1];
   d.setActive(top || null);
+  d.setIccProfile(psd.imageResources?.iccProfile);
   d.missingFonts = importNeeds;
   importNeeds = [];
   return d;
@@ -355,6 +356,7 @@ export function docToPsd(d: Doc): ArrayBuffer {
     width: d.width, height: d.height,
     children: d.root.children.map(layerTo),
     canvas: d.composite(),
+    ...(d.iccProfile ? { imageResources: { iccProfile: d.iccProfile } } : {}),
   };
   return writePsd(psd, { generateThumbnail: true, noBackground: true, invalidateTextLayers: true });
 }

@@ -13,7 +13,7 @@ export class Tabs {
       const x = el('button', { class: 'tab-x', title: t('cmd.close') }, icon('x', 12));
       const tab = el('div', { class: 'tab' + (d === app.doc ? ' on' : '') },
         el('span', { class: 'tab-name' }, d.name + (d.dirty ? ' •' : '')),
-        el('span', { class: 'tab-zoom' }, Math.round(d.zoom * 100) + '%'), x);
+        el('span', { class: 'tab-zoom' }, Math.round(d.zoom * app.viewport.dpr * 100) + '%'), x);
       tab.title = `${d.name} — ${d.width}×${d.height}`;
       tab.addEventListener('pointerdown', e => { if (e.button === 1) { e.preventDefault(); app.closeDoc(d); } else app.setDoc(d); });
       x.addEventListener('pointerdown', e => { e.stopPropagation(); });

@@ -8,6 +8,7 @@ import { numberField, select, checkbox } from '../ui/controls';
 import { psdToDoc, psdComposite, docToPsd } from './psd';
 import { extractExif, insertExif } from './exif';
 import { ensureDocFonts } from '../ui/fontprompt';
+import { convertToSRGB } from '../core/colormgmt';
 
 const IMAGE_ACCEPT = '.png,.jpg,.jpeg,.webp,.gif,.bmp,.avif,.psd';
 
@@ -135,6 +136,12 @@ function flattenedFor(d: Doc, fmt: Fmt): HTMLCanvasElement {
   const g = ctx2d(c);
   if (fmt === 'jpeg') { g.fillStyle = '#fff'; g.fillRect(0, 0, d.width, d.height); }
   g.drawImage(d.composite(), 0, 0);
+  if (d.colorProfile) {
+    // flattened formats are written as sRGB: convert from the document's colour space
+    const img = g.getImageData(0, 0, c.width, c.height);
+    convertToSRGB(img.data, d.colorProfile);
+    g.putImageData(img, 0, 0);
+  }
   return c;
 }
 

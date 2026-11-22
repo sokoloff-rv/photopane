@@ -16,6 +16,7 @@ import { NavigatorPanel } from './ui/panels/navigator';
 import { HistoryPanel } from './ui/panels/history';
 import { LayersPanel } from './ui/panels/layers';
 import { installPanelResizers } from './ui/panels/panel';
+import { installEffects } from './core/effects';
 import { registerCommands } from './commands';
 import { dialogOpen, toast, confirmDialog } from './ui/dialog';
 import { handlePaste, openFiles } from './io/files';
@@ -76,6 +77,7 @@ export class App {
 
   init() {
     setLang(getLang());
+    installEffects();
     this.tools = createTools();
     for (const tl of this.tools) tl.loadOptions(this.settings.tools?.[tl.id]);
     this.tool = this.tools.find(x => x.id === (this.settings.tool || 'brush')) || this.tools[0];

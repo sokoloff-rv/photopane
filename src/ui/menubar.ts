@@ -14,7 +14,7 @@ const MENUS: { key: string; items: Item[] }[] = [
     'autoTone', 'autoContrast', 'autoColor', '-', 'imageSize', 'canvasSize',
     { sub: 'cmd.rotation', items: ['rot180', 'rotCW', 'rotCCW', 'rotArbitrary', '-', 'flipCanvasH', 'flipCanvasV'] }, 'cropToSel', '-',
     'upscale', 'removeBg', 'removeObject'] },
-  { key: 'menu.layer', items: ['newLayer', 'newGroup', 'duplicate', 'deleteLayer', '-', 'layerViaCopy', 'layerViaCut', '-', 'layerStyle',
+  { key: 'menu.layer', items: ['newLayer', 'newGroup', 'duplicate', 'deleteLayer', '-', 'layerViaCopy', 'layerViaCut', '-', 'layerStyle', 'clearStyle',
     { sub: 'cmd.layerMask', items: ['maskReveal', 'maskHide', 'maskFromSel', 'maskHideSel', '-', 'maskToggle', 'maskApply', 'maskDelete'] },
     'clipMask', '-', 'groupLayers', 'ungroup', '-',
     { sub: 'cmd.arrange', items: ['bringFront', 'bringForward', 'sendBackward', 'sendBack'] }, 'lockAlpha', '-',

@@ -333,3 +333,14 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .dlg-overlay.pass { background: transparent; pointer-events: none; animation: none; }
 .dlg-overlay.pass .dlg { pointer-events: auto; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(255, 255, 255, 0.14); }
 .icon-btn:disabled { opacity: 0.35; pointer-events: none; }
+
+/* ---------- stage 4: layer style ---------- */
+.ls { display: grid; grid-template-columns: 190px 1fr; gap: 16px; min-height: 380px; }
+.ls-list { display: flex; flex-direction: column; gap: 1px; border-right: 1px solid var(--sep); padding-right: 10px; }
+.ls-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; }
+.ls-item:hover { background: var(--fill); }
+.ls-item.on { background: var(--fill-active); }
+.ls-item .check { gap: 0; }
+.ls-spacer { width: 14px; }
+.ls-pane { display: flex; flex-direction: column; gap: 6px; }
+.ls-pane .form-row > label:first-child { width: 120px; }

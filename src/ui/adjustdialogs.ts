@@ -9,9 +9,9 @@ import {
 import { histogram, levelsLUT, curveLUT, composeLUT, gaussianBlur, clipPoints, Histogram } from '../core/filters';
 
 /* ---------------- controls ---------------- */
-interface SliderSpec { key: string; label: string; min: number; max: number; def: number; step?: number; unit?: string }
+export interface SliderSpec { key: string; label: string; min: number; max: number; def: number; step?: number; unit?: string }
 
-function sliderRow(spec: SliderSpec, value: number, onInput: (v: number) => void) {
+export function sliderRow(spec: SliderSpec, value: number, onInput: (v: number) => void) {
   const range = el('input', { type: 'range', class: 'range' + (spec.min < 0 ? ' bipolar' : ''), min: spec.min, max: spec.max, step: spec.step ?? 1, value }) as HTMLInputElement;
   const val = el('input', { class: 'slider-val', value: String(value) + (spec.unit || '') }) as HTMLInputElement;
   const label = el('label', { title: t('adj.resetHint') }, spec.label);

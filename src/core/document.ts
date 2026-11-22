@@ -23,6 +23,8 @@ export class Doc {
   autoFit = false;
   fileHandle: any = null;
   fileName: string | null = null;
+  /** EXIF segment of the original JPEG (orientation reset), kept for export. */
+  exif: Uint8Array | null = null;
   dirty = false;
   guides: { h: number[]; v: number[] } = { h: [], v: [] };
 

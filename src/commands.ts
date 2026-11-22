@@ -15,6 +15,8 @@ import { fillDialog, strokeDialog } from './ui/filldialogs';
 import { enhanceDialog, levelsDialog, curvesDialog, hueSatDialog, gaussianDialog, unsharpDialog, noiseDialog } from './ui/adjustdialogs';
 import { instantAdjust, invert, desaturate, autoTone, autoContrast, autoColor } from './core/adjust';
 import { blurGalleryTool } from './tools/blurgallery';
+import { layerStyleDialog, clearLayerStyle } from './ui/layerstyle';
+import { hasEffects } from './core/layer';
 
 export const transformTool = new TransformTool();
 
@@ -245,6 +247,8 @@ export function registerCommands(app: App) {
     app.layersPanel.clearMulti();
     done('cmd.deleteLayer');
   }, [], hasLayer);
+  R('layerStyle', () => layerStyleDialog(), [], hasLayer);
+  R('clearStyle', () => { clearLayerStyle(A()); done('cmd.clearStyle'); }, [], () => !!app.doc?.active && hasEffects(app.doc.active.effects));
   R('rasterize', () => { const l = A(); if (l.kind === 'text') { l.kind = 'raster'; l.text = null; } done('cmd.rasterize'); }, [], () => app.doc?.active?.kind === 'text');
 
   // masks

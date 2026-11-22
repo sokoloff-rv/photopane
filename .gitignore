@@ -1,0 +1,27 @@
+# dependencies & builds
+node_modules/
+dist/
+src-tauri/target/
+*.log
+.vite/
+
+# AI agent instructions, settings and internal notes (never published)
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+.cursor/
+.cursorrules
+.windsurfrules
+.github/copilot-instructions.md
+.aider*
+docs/internal/
+*.internal.md
+notes/
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

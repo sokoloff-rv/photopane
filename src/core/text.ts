@@ -239,7 +239,42 @@ export function baselineOffset(t: TextData): number {
   return lay.baseline;
 }
 
-/* ---------------- caret geometry (document coordinates) ---------------- */
+/* ---------------- text transform ---------------- */
+/** Pivot of the text transform in document coordinates. */
+export function textPivot(t: TextData, lay?: TextLayout): { x: number; y: number } {
+  if (t.box) return { x: t.ax + (t.tf?.dx ?? 0), y: t.ay + (t.tf?.dy ?? 0) };
+  const base = (lay && !t.psdPixels) ? lay.baseline : baselineOffset(t);
+  return { x: t.ax, y: t.ay + base };
+}
+
+/** Matrix mapping layout (untransformed) coordinates to the document; null when the text is not transformed. */
+export function textMatrix(t: TextData, lay?: TextLayout): DOMMatrix | null {
+  if (!t.tf) return null;
+  const p = textPivot(t, lay);
+  const [a, b, c, d] = t.tf.m;
+  return new DOMMatrix([a, b, c, d, p.x - (a * p.x + c * p.y), p.y - (b * p.x + d * p.y)]);
+}
+
+export function toDocPoint(t: TextData, x: number, y: number, m = textMatrix(t)): { x: number; y: number } {
+  if (!m) return { x, y };
+  const p = new DOMPoint(x, y).matrixTransform(m);
+  return { x: p.x, y: p.y };
+}
+
+export function toLocalPoint(t: TextData, x: number, y: number, m = textMatrix(t)): { x: number; y: number } {
+  if (!m) return { x, y };
+  const p = new DOMPoint(x, y).matrixTransform(m.inverse());
+  return { x: p.x, y: p.y };
+}
+
+/** Corners of the text frame in document coordinates (TL, TR, BR, BL). */
+export function textQuad(t: TextData, lay = layoutText(t)): { x: number; y: number }[] {
+  const f = lay.frame;
+  const m = textMatrix(t, lay);
+  return [[f.x, f.y], [f.x + f.w, f.y], [f.x + f.w, f.y + f.h], [f.x, f.y + f.h]].map(([x, y]) => toDocPoint(t, x, y, m));
+}
+
+/* ---------------- caret geometry (layout coordinates; use toDocPoint for the document) ---------------- */
 function frameOrigin(t: TextData, lay: TextLayout) {
   // while editing psdPixels is false, so the frame is our own layout frame
   return { x: lay.frame.x, y: lay.frame.y };
@@ -322,6 +357,18 @@ export function renderTextLayer(l: Layer) {
       x += sg.w;
     }
   }
-  l.content.replace(c, Math.floor(f.x) - pad, Math.floor(f.y) - pad);
+  const lx = Math.floor(f.x) - pad, ly = Math.floor(f.y) - pad;
+  const m = textMatrix(t, lay);
+  if (!m) { l.content.replace(c, lx, ly); l.touch(); return; }
+  // transformed text: draw the upright rendering through the text matrix
+  const pts = [[lx, ly], [lx + c.width, ly], [lx + c.width, ly + c.height], [lx, ly + c.height]].map(([x, y]) => new DOMPoint(x, y).matrixTransform(m));
+  const x0 = Math.floor(Math.min(...pts.map(p => p.x))), y0 = Math.floor(Math.min(...pts.map(p => p.y)));
+  const x1 = Math.ceil(Math.max(...pts.map(p => p.x))), y1 = Math.ceil(Math.max(...pts.map(p => p.y)));
+  const out = createCanvas(x1 - x0, y1 - y0);
+  const og = ctx2d(out);
+  og.imageSmoothingQuality = 'high';
+  og.setTransform(new DOMMatrix().translate(-x0, -y0).multiply(m).translate(lx, ly));
+  og.drawImage(c, 0, 0);
+  l.content.replace(out, x0, y0);
   l.touch();
 }

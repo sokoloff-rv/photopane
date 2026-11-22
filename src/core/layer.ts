@@ -57,6 +57,11 @@ export function hasEffects(e: LayerEffects): boolean {
   return e.dropShadow.enabled || e.stroke.enabled || e.bevel.enabled || e.colorOverlay.enabled || e.gradientOverlay.enabled;
 }
 
+/** Has effects to list in the Layers panel (enabled or temporarily hidden with the eye). */
+export function listedEffects(e: LayerEffects): boolean {
+  return (['dropShadow', 'stroke', 'bevel', 'colorOverlay', 'gradientOverlay'] as const).some(k => e[k].enabled || (e[k] as any)._hidden);
+}
+
 /* ---------------- Text ---------------- */
 /** Style of a run of characters. Leading is a multiplier of the run's own size. */
 export interface CharStyle {
@@ -90,6 +95,9 @@ export interface TextData {
   vScale?: number;
   /** Per-character styles (absent = the whole layer uses the base fields above) */
   runs?: StyleRun[];
+  /** Linear transform of the text (rotation / skew / non-uniform scale, as in Photoshop) applied around a pivot:
+   *  point text — the first baseline at the anchor; box text — (ax + dx, ay + dy). */
+  tf?: { m: [number, number, number, number]; dx: number; dy: number } | null;
 }
 
 export function defaultText(): TextData {

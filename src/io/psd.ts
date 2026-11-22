@@ -5,7 +5,7 @@ import { Layer, Surface, BlendMode, LayerEffects, defaultEffects, TextData, defa
 import { RGB } from '../core/color';
 import { createCanvas, ctx2d } from '../core/util';
 import type { FontNeed } from '../core/fonts';
-import { baselineOffset, fontAvailable, getRuns, setRuns, baseStyle } from '../core/text';
+import { baselineOffset, fontAvailable, getRuns, setRuns, baseStyle, textPivot } from '../core/text';
 
 /* ---------------- blend modes ---------------- */
 const FROM_PSD: Partial<Record<PsdBlend, BlendMode>> = {
@@ -39,12 +39,15 @@ const px = (value: number) => ({ units: 'Pixels' as const, value });
 const first = <T,>(v: T | T[] | undefined): T | undefined => (Array.isArray(v) ? v[0] : v);
 
 /* ---------------- effects ---------------- */
+/** Document-wide light used by effects with 'Use Global Light'. */
+let globalLight = { angle: 120, altitude: 30 };
+
 function effectsFrom(e: LayerEffectsInfo | undefined): LayerEffects {
   const fx = defaultEffects();
   if (!e || e.disabled) return fx;
   const ds = first(e.dropShadow);
   if (ds) Object.assign(fx.dropShadow, {
-    enabled: ds.enabled !== false, color: colorFrom(ds.color, fx.dropShadow.color), opacity: ds.opacity ?? 0.75, angle: ds.angle ?? 120,
+    enabled: ds.enabled !== false, color: colorFrom(ds.color, fx.dropShadow.color), opacity: ds.opacity ?? 0.75, angle: ds.useGlobalLight ? globalLight.angle : (ds.angle ?? 120),
     distance: units(ds.distance, 5), size: units(ds.size, 5), spread: units(ds.choke, 0), blend: blendFrom(ds.blendMode),
   });
   const st = first(e.stroke);
@@ -52,12 +55,12 @@ function effectsFrom(e: LayerEffectsInfo | undefined): LayerEffects {
     enabled: st.enabled !== false, color: colorFrom(st.color, fx.stroke.color), size: units(st.size, 3),
     position: st.position || 'outside', opacity: st.opacity ?? 1, blend: blendFrom(st.blendMode),
   });
-  const bv = e.bevel;
-  if (bv) Object.assign(fx.bevel, {
+  const bv = first(e.bevel as any) as typeof e.bevel;
+  if (bv && typeof bv === 'object') Object.assign(fx.bevel, {
     enabled: bv.enabled !== false,
     style: bv.style === 'outer bevel' ? 'outer' : bv.style === 'emboss' ? 'emboss' : bv.style === 'pillow emboss' ? 'pillow' : 'inner',
-    depth: bv.strength ?? 100, direction: bv.direction || 'up', size: units(bv.size, 5), soften: units(bv.soften, 0),
-    angle: bv.angle ?? 120, altitude: bv.altitude ?? 30,
+    depth: (bv.strength ?? 1) * 100, direction: bv.direction || 'up', size: units(bv.size, 5), soften: units(bv.soften, 0),
+    angle: bv.useGlobalLight ? globalLight.angle : (bv.angle ?? 120), altitude: bv.useGlobalLight ? globalLight.altitude : (bv.altitude ?? 30),
     highlightColor: colorFrom(bv.highlightColor, fx.bevel.highlightColor), highlightOpacity: bv.highlightOpacity ?? 0.75,
     shadowColor: colorFrom(bv.shadowColor, fx.bevel.shadowColor), shadowOpacity: bv.shadowOpacity ?? 0.75,
   });
@@ -88,7 +91,7 @@ function effectsTo(fx: LayerEffects): LayerEffectsInfo | undefined {
   if (b.enabled) {
     any = true;
     e.bevel = {
-      enabled: true, present: true, showInDialog: true, size: px(b.size), soften: px(b.soften), angle: b.angle, altitude: b.altitude, strength: b.depth,
+      enabled: true, present: true, showInDialog: true, size: px(b.size), soften: px(b.soften), angle: b.angle, altitude: b.altitude, strength: b.depth / 100,
       style: b.style === 'outer' ? 'outer bevel' : b.style === 'emboss' ? 'emboss' : b.style === 'pillow' ? 'pillow emboss' : 'inner bevel',
       technique: 'smooth', direction: b.direction, useGlobalLight: false,
       highlightColor: colorTo(b.highlightColor), highlightOpacity: b.highlightOpacity, highlightBlendMode: 'screen',
@@ -156,7 +159,9 @@ function textFrom(l: PsdLayer): TextData | null {
   const psRuns = tx.styleRuns || [];
   const ps = { ...(tx.paragraphStyle || {}), ...(tx.paragraphStyleRuns?.[0]?.style || {}) };
   const tr = tx.transform || [1, 0, 0, 1, l.left || 0, l.top || 0];
-  const scale = Math.sqrt(tr[2] * tr[2] + tr[3] * tr[3]) || 1;
+  // a plain uniform scale is folded into the font size; rotation / skew / non-uniform scale is kept as a matrix
+  const uniform = Math.abs(tr[1]) < 1e-4 && Math.abs(tr[2]) < 1e-4 && Math.abs(tr[0] - tr[3]) < 1e-4;
+  const scale = uniform ? (Math.abs(tr[3]) || 1) : 1;
   const baseFontSize = (tx.style?.fontSize ?? psRuns.find(r => r.style.fontSize)?.style.fontSize) ?? 12;
   /** Photoshop character style (base style + run overrides) → our style. */
   const charStyle = (over: any): CharStyle => {
@@ -183,10 +188,12 @@ function textFrom(l: PsdLayer): TextData | null {
     const [bl, bt, br, bb] = tx.boxBounds;
     td.box = { w: (br - bl) * scale, h: (bb - bt) * scale };
     td.ax = tr[4] + bl * scale; td.ay = tr[5] + bt * scale;
+    if (!uniform) td.tf = { m: [tr[0], tr[1], tr[2], tr[3]], dx: -bl, dy: -bt };
   } else {
     // point text: the transform origin is the baseline of the first line at the alignment point
     td.ax = tr[4];
     td.ay = tr[5] - baselineOffset(td);
+    if (!uniform) td.tf = { m: [tr[0], tr[1], tr[2], tr[3]], dx: 0, dy: 0 };
   }
   const bb = tx.bounds;
   if (bb) td.psdFrame = { x: tr[4] + bb.left.value * scale, y: tr[5] + bb.top.value * scale, w: (bb.right.value - bb.left.value) * scale, h: (bb.bottom.value - bb.top.value) * scale };
@@ -213,11 +220,17 @@ function textTo(l: Layer): PsdLayer['text'] {
   };
   if (td.box) {
     base.shapeType = 'box';
-    base.boxBounds = [0, 0, td.box.w, td.box.h];
-    base.transform = [1, 0, 0, 1, td.ax, td.ay];
+    if (td.tf) {
+      const p = textPivot(td);
+      base.boxBounds = [td.ax - p.x, td.ay - p.y, td.ax - p.x + td.box.w, td.ay - p.y + td.box.h];
+      base.transform = [...td.tf.m, p.x, p.y];
+    } else {
+      base.boxBounds = [0, 0, td.box.w, td.box.h];
+      base.transform = [1, 0, 0, 1, td.ax, td.ay];
+    }
   } else {
     base.shapeType = 'point';
-    base.transform = [1, 0, 0, 1, td.ax, td.ay + baselineOffset(td)];
+    base.transform = td.tf ? [...td.tf.m, td.ax, td.ay + baselineOffset(td)] : [1, 0, 0, 1, td.ax, td.ay + baselineOffset(td)];
   }
   return base;
 }
@@ -276,6 +289,7 @@ function layerFrom(p: PsdLayer): Layer {
 export function psdToDoc(buffer: ArrayBuffer, name: string): Doc {
   importNeeds = [];
   const psd = readPsd(buffer, { skipThumbnail: true });
+  globalLight = { angle: psd.imageResources?.globalAngle ?? 120, altitude: psd.imageResources?.globalAltitude ?? 30 };
   const d = new Doc(name, psd.width, psd.height);
   if (psd.children && psd.children.length) {
     d.root.children = psd.children.map(c => { const l = layerFrom(c); l.parent = d.root; return l; });

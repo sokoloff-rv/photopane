@@ -4,8 +4,9 @@ import { Tool, PEvent } from './tool';
 import { Layer, TextData, defaultText, CharStyle } from '../core/layer';
 import {
   layoutText, renderTextLayer, COMMON_FONTS, baselineOffset, styleAt, applyStyle, applyStyleAll, textEdited,
-  caretPos, hitIndex, selectionRects, baseStyle,
+  caretPos, hitIndex, selectionRects, baseStyle, toLocalPoint, toDocPoint, textQuad, textMatrix,
 } from '../core/text';
+import { pointInPoly } from '../core/geom';
 import { css, RGB } from '../core/color';
 import { el, normRect } from '../core/util';
 import { numberField, select, segmented, colorSwatch, sep } from '../ui/controls';
@@ -49,7 +50,8 @@ export class TextTool extends Tool<TextOpts> {
     for (const l of [...d.layers].reverse()) {
       if (l.kind !== 'text' || !l.text || !l.effectiveVisible) continue;
       const f = layoutText(l.text).frame;
-      if (x >= f.x - 4 && y >= f.y - 4 && x <= f.x + f.w + 4 && y <= f.y + f.h + 4) return l;
+      const p = toLocalPoint(l.text, x, y);
+      if (p.x >= f.x - 4 && p.y >= f.y - 4 && p.x <= f.x + f.w + 4 && p.y <= f.y + f.h + 4) return l;
     }
     return null;
   }
@@ -59,7 +61,8 @@ export class TextTool extends Tool<TextOpts> {
     if (!tx) return false;
     const f = layoutText(tx).frame;
     const m = 6 / (app.doc?.zoom || 1);
-    return x >= f.x - m && y >= f.y - m && x <= f.x + f.w + m && y <= f.y + f.h + m;
+    const p = toLocalPoint(tx, x, y);
+    return p.x >= f.x - m && p.y >= f.y - m && p.x <= f.x + f.w + m && p.y <= f.y + f.h + m;
   }
 
   down(e: PEvent) {
@@ -78,7 +81,8 @@ export class TextTool extends Tool<TextOpts> {
   private pointerSelect(e: PEvent) {
     const tx = this.editing?.text, ta = this.ta;
     if (!tx || !ta) return;
-    const i = hitIndex(tx, e.x, e.y);
+    const lp = toLocalPoint(tx, e.x, e.y);
+    const i = hitIndex(tx, lp.x, lp.y);
     const now = performance.now();
     const same = Math.abs(i - this.lastClick.idx) <= 1 && now - this.lastClick.time < 400;
     this.lastClick = { time: now, idx: i, count: same ? this.lastClick.count + 1 : 1 };
@@ -116,7 +120,8 @@ export class TextTool extends Tool<TextOpts> {
 
   move(e: PEvent) {
     if (this.selecting !== null && this.editing?.text) {
-      this.setSel(this.selecting, hitIndex(this.editing.text, e.x, e.y));
+      const lp = toLocalPoint(this.editing.text, e.x, e.y);
+      this.setSel(this.selecting, hitIndex(this.editing.text, lp.x, lp.y));
       this.restartBlink();
       app.update('overlay');
       return;
@@ -200,7 +205,8 @@ export class TextTool extends Tool<TextOpts> {
     const tx = this.editing?.text, ta = this.ta;
     if (!tx || !ta) return;
     const c = caretPos(tx, ta.selectionEnd);
-    const p = app.viewport.toScreen(c.x, c.bottom);
+    const d = toDocPoint(tx, c.x, c.bottom);
+    const p = app.viewport.toScreen(d.x, d.y);
     ta.style.left = p.x + 'px';
     ta.style.top = p.y + 'px';
   }
@@ -268,29 +274,31 @@ export class TextTool extends Tool<TextOpts> {
     if (!(l?.kind === 'text' && l.text)) return;
     const tx = l.text;
     const lay = layoutText(tx);
-    const f = lay.frame;
-    const a = v.toScreen(f.x, f.y), b = v.toScreen(f.x + f.w, f.y + f.h);
+    const m = textMatrix(tx, lay);
+    const scr = (x: number, y: number) => { const d = toDocPoint(tx, x, y, m); return v.toScreen(d.x, d.y); };
+    const poly = (pts: { x: number; y: number }[]) => { g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y))); g.closePath(); };
     g.save();
     g.strokeStyle = 'rgba(10,132,255,0.6)'; g.lineWidth = 1;
-    g.strokeRect(Math.round(a.x) - 0.5, Math.round(a.y) - 0.5, Math.round(b.x - a.x) + 1, Math.round(b.y - a.y) + 1);
+    poly(textQuad(tx, lay).map(p => v.toScreen(p.x, p.y)));
+    g.stroke();
     if (this.editing && this.ta) {
       const s0 = this.ta.selectionStart, s1 = this.ta.selectionEnd;
       if (s1 > s0) {
         g.fillStyle = 'rgba(10,132,255,0.32)';
         for (const r of selectionRects(tx, s0, s1, lay)) {
-          const p = v.toScreen(r.x, r.y), q = v.toScreen(r.x + r.w, r.y + r.h);
-          g.fillRect(p.x, p.y, q.x - p.x, q.y - p.y);
+          poly([scr(r.x, r.y), scr(r.x + r.w, r.y), scr(r.x + r.w, r.y + r.h), scr(r.x, r.y + r.h)]);
+          g.fill();
         }
       } else if (this.blinkOn && document.activeElement === this.ta) {
         const c = caretPos(tx, s1, lay);
-        const p = v.toScreen(c.x, c.top), q = v.toScreen(c.x, c.bottom);
-        const x = Math.round(p.x) + 0.5;
+        const p = scr(c.x, c.top), q = scr(c.x, c.bottom);
         g.strokeStyle = 'rgba(0,0,0,0.65)'; g.lineWidth = 3;
-        g.beginPath(); g.moveTo(x, p.y); g.lineTo(x, q.y); g.stroke();
+        g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); g.stroke();
         g.strokeStyle = '#fff'; g.lineWidth = 1.2; g.stroke();
       }
     }
     g.restore();
+    void pointInPoly;
   }
 
   /* ---------- options ---------- */

@@ -1,12 +1,16 @@
 import { app } from '../../app';
 import { el } from '../../core/util';
 import { t } from '../../i18n';
-import { Layer, BLEND_MODES, BlendMode, hasEffects } from '../../core/layer';
+import { Layer, BLEND_MODES, BlendMode, listedEffects } from '../../core/layer';
 import { Doc } from '../../core/document';
 import { Panel } from './panel';
 import { icon } from '../icons';
 import { numberField, select, iconButton } from '../controls';
 import { toast } from '../dialog';
+import { layerStyleDialog } from '../layerstyle';
+import { showContextMenu, CtxItem } from '../contextmenu';
+
+const FX_KEYS = ['bevel', 'stroke', 'colorOverlay', 'gradientOverlay', 'dropShadow'] as const;
 
 const TW = 40, TH = 30;
 
@@ -16,6 +20,9 @@ export class LayersPanel extends Panel {
   private bottom: HTMLElement;
   private multi = new WeakMap<Doc, Set<number>>();
   private thumbTimer = 0;
+  /** Layers whose effects list is expanded (Photoshop shows it under the layer). */
+  private fxOpen = new Set<number>();
+  private fxSeen = new Set<number>();
   private dragId = -1;
 
   constructor() {
@@ -54,6 +61,7 @@ export class LayersPanel extends Panel {
       for (let i = children.length - 1; i >= 0; i--) {
         const l = children[i];
         this.list.append(this.row(d, l, depth, ids));
+        if (listedEffects(l.effects) && this.fxOpen.has(l.id)) this.fxRows(d, l, depth);
         if (l.isGroup && l.expanded) addRows(l.children, depth + 1);
       }
     };
@@ -134,7 +142,20 @@ export class LayersPanel extends Panel {
     const name = el('span', { class: 'lrow-name' }, l.kind === 'text' ? icon('text', 12) : null, el('span', {}, l.name));
     name.addEventListener('dblclick', e => { e.stopPropagation(); this.rename(l, name); });
     r.append(name);
-    if (hasEffects(l.effects)) r.append(el('span', { class: 'lrow-fx' }, 'fx'));
+    if (listedEffects(l.effects)) {
+      // expanded by default the first time a layer with effects is shown
+      if (!this.fxSeen.has(l.id)) { this.fxSeen.add(l.id); this.fxOpen.add(l.id); }
+      const open = this.fxOpen.has(l.id);
+      const fx = el('button', { class: 'lrow-fx', title: t('layers.fxHint') }, el('span', {}, 'fx'), icon(open ? 'chevronDown' : 'chevronRight', 11));
+      fx.addEventListener('click', e => {
+        e.stopPropagation();
+        if (open) this.fxOpen.delete(l.id); else this.fxOpen.add(l.id);
+        app.update('layers');
+      });
+      fx.addEventListener('dblclick', e => { e.stopPropagation(); d.setActive(l); layerStyleDialog(); });
+      r.append(fx);
+    }
+    r.addEventListener('contextmenu', e => { e.preventDefault(); this.layerMenu(d, l, e); });
     if (l.lockAlpha) r.append(el('span', { class: 'lrow-lock' }, icon('lock', 12)));
     r.addEventListener('click', e => {
       if (e.altKey) {
@@ -158,6 +179,50 @@ export class LayersPanel extends Panel {
     r.addEventListener('dragstart', e => { this.dragId = l.id; e.dataTransfer!.effectAllowed = 'move'; e.dataTransfer!.setData('text/x-layer', String(l.id)); });
     r.addEventListener('dragend', () => { this.dragId = -1; this.clearDrop(); });
     return r;
+  }
+
+  /** Effects listed under a layer: eye toggles an effect, double click opens Layer Style on it. */
+  private fxRows(d: Doc, l: Layer, depth: number) {
+    const indent = depth * 14 + 34;
+    const head = el('div', { class: 'lfx-row head' }, el('span', { style: { width: indent + 'px' } }), el('span', { class: 'lfx-label' }, t('layers.effects')));
+    head.addEventListener('dblclick', () => { d.setActive(l); layerStyleDialog(); });
+    this.list.append(head);
+    for (const k of FX_KEYS) {
+      const fxo = l.effects[k] as { enabled: boolean };
+      if (!fxo.enabled && !(fxo as any)._hidden) continue;
+      const hidden = !fxo.enabled;
+      const eye = el('button', { class: 'lrow-eye sm' }, icon(hidden ? 'eyeOff' : 'eye', 13));
+      eye.addEventListener('click', e => {
+        e.stopPropagation();
+        // hidden effects keep their settings (like Photoshop's per-effect eye)
+        if (hidden) { fxo.enabled = true; delete (fxo as any)._hidden; } else { fxo.enabled = false; (fxo as any)._hidden = true; }
+        l.touch();
+        app.commit('h.layerProps');
+      });
+      const row = el('div', { class: 'lfx-row' + (hidden ? ' off' : '') }, el('span', { style: { width: indent - 26 + 'px' } }), eye, el('span', { class: 'lfx-label' }, t('fx.' + k)));
+      row.addEventListener('dblclick', () => { d.setActive(l); layerStyleDialog(k); });
+      this.list.append(row);
+    }
+  }
+
+  /** Right-click menu on a layer row. */
+  private layerMenu(d: Doc, l: Layer, e: MouseEvent) {
+    if (d.activeId !== l.id) { d.setActive(l); this.clearMulti(); app.update('layers', 'options'); }
+    const items: CtxItem[] = [
+      { label: t('ctx.blending'), run: () => layerStyleDialog('blending') },
+      { cmd: 'layerStyle' },
+      { cmd: 'clearStyle' },
+      '-',
+      { cmd: 'duplicate' }, { cmd: 'deleteLayer' }, { cmd: 'groupLayers' },
+      '-',
+      { cmd: 'rasterize' },
+      '-',
+      { cmd: l.mask ? 'maskDelete' : 'maskReveal', label: l.mask ? 'cmd.maskDelete' : 'layers.mask' },
+      { cmd: 'clipMask' },
+      '-',
+      { cmd: 'mergeDown' }, { cmd: 'mergeVisible' }, { cmd: 'flatten' },
+    ];
+    showContextMenu(e.clientX, e.clientY, items);
   }
 
   private activate(d: Doc, l: Layer, e: MouseEvent, mask: boolean) {

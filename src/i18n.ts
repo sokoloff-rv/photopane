@@ -212,6 +212,10 @@ const D: Record<string, [string, string]> = {
   'fonts.notInstalled': ['Шрифты не найдены в системе: {0}', 'Fonts not found on this computer: {0}'],
   'fonts.unavailable': ['Браузер не даёт доступа к шрифтам: {0}. Текст показан как в PSD, при правке будет заменён похожим шрифтом', 'The browser does not allow access to fonts: {0}. Text is shown as in the PSD; editing will use a similar font'],
 
+  'layers.effects': ['Эффекты', 'Effects'],
+  'layers.fxHint': ['Показать/скрыть эффекты, двойной щелчок — стиль слоя', 'Show/hide effects, double-click for Layer Style'],
+  'ctx.blending': ['Параметры наложения…', 'Blending Options…'],
+
   // menus
   'menu.file': ['Файл', 'File'],
   'menu.edit': ['Редактирование', 'Edit'],

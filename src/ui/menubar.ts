@@ -10,8 +10,10 @@ const MENUS: { key: string; items: Item[] }[] = [
   { key: 'menu.edit', items: ['undo', 'redo', '-', 'cut', 'copy', 'copyMerged', 'paste', 'clear', '-', 'fillDialog', 'strokeSel', '-', 'freeTransform',
     { sub: 'cmd.transform', items: ['rotateLayer180', 'rotateLayerCW', 'rotateLayerCCW', '-', 'flipLayerH', 'flipLayerV'] }, '-', 'settings'] },
   { key: 'menu.image', items: [
-    { sub: 'cmd.adjustments', items: ['enhance', 'levels', 'curves', 'hueSat', '-', 'invert', 'desaturate'] }, '-',
-    'autoTone', 'autoContrast', 'autoColor', '-', 'imageSize', 'canvasSize',
+    'enhance', 'levels', 'curves', 'hueSat', '-',
+    'autoTone', 'autoContrast', 'autoColor', '-',
+    'invert', 'desaturate', '-',
+    'imageSize', 'canvasSize',
     { sub: 'cmd.rotation', items: ['rot180', 'rotCW', 'rotCCW', 'rotArbitrary', '-', 'flipCanvasH', 'flipCanvasV'] }, 'cropToSel', '-',
     'upscale', 'removeBg', 'removeObject'] },
   { key: 'menu.layer', items: ['newLayer', 'newGroup', 'duplicate', 'deleteLayer', '-', 'layerViaCopy', 'layerViaCut', '-', 'layerStyle', 'clearStyle',

@@ -48,7 +48,7 @@ export class TransformTool extends Tool {
       this.B = { ...d.selection.bounds };
       app.hideSelection = true;
     } else if (!l) return false;
-    else if (l.kind === 'text') { l.kind = 'raster'; l.text = null; toast(t('app.rasterized')); }
+    else if (l.kind === 'text') { app.askRasterize(); return false; }
     if (selOnly) { /* set up above */ }
     else if (d.selection && !l!.isGroup && !(d.editMask && l!.mask)) {
       const sel = d.selection;

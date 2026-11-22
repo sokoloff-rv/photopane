@@ -262,12 +262,31 @@ export class App {
     if (!d || !l) return null;
     if (d.editMask && l.mask) return { layer: l, surface: l.mask, isMask: true };
     if (l.isGroup) { toast(t('app.groupSelected')); return null; }
-    if (l.kind === 'text') {
-      l.kind = 'raster'; l.text = null;
-      toast(t('app.rasterized'));
-      this.update('layers');
-    }
+    if (l.kind === 'text') { this.askRasterize(); return null; }
     return { layer: l, surface: l.content, isMask: false };
+  }
+
+  /** Command currently starting (lets an action resume after a confirmation such as rasterizing). */
+  private startingCmd: string | null = null;
+  private rasterAsking = false;
+
+  /**
+   * A pixel operation hit a type layer. Like Photoshop, ask before rasterizing: it is usually a mistake
+   * (the wrong layer is selected). After confirmation the layer is rasterized as its own history step and
+   * the command that asked is run again; a tool action (brush stroke…) is simply repeated by the user.
+   */
+  askRasterize() {
+    const d = this.doc, l = d?.active;
+    if (!d || !l || l.kind !== 'text' || this.rasterAsking) return;
+    const retry = this.startingCmd;
+    this.rasterAsking = true;
+    confirmDialog(t('app.rasterizeAsk'), t('cmd.rasterize')).then(ok => {
+      this.rasterAsking = false;
+      if (!ok || this.doc !== d || d.active !== l || l.kind !== 'text') return;
+      l.kind = 'raster'; l.text = null; l.touch();
+      this.commit('cmd.rasterize');
+      if (retry) this.run(retry);
+    });
   }
 
   /* ---------------- commands & keys ---------------- */
@@ -278,7 +297,12 @@ export class App {
     if (!c) { toast(t('app.soon')); return; }
     if (c.enabled && !c.enabled()) return;
     if (this.tool.busy() && !['undo', 'redo', 'zoomIn', 'zoomOut', 'fit', 'actual'].includes(id)) this.tool.cancel();
-    Promise.resolve(c.run()).catch(err => { console.error(err); toast(`${t('app.error')}: ${err?.message || err}`, 'error', 5000); });
+    this.startingCmd = id;
+    let res: unknown;
+    try { res = c.run(); }
+    catch (err: any) { console.error(err); toast(`${t('app.error')}: ${err?.message || err}`, 'error', 5000); }
+    finally { this.startingCmd = null; }
+    Promise.resolve(res).catch(err => { console.error(err); toast(`${t('app.error')}: ${err?.message || err}`, 'error', 5000); });
   }
 
   static comboFromEvent(e: KeyboardEvent): string {

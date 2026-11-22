@@ -16,7 +16,7 @@ const D: Record<string, [string, string]> = {
   'app.layerLocked': ['Сначала выберите обычный слой', 'Select a pixel layer first'],
   'app.groupSelected': ['Действие недоступно для группы', 'Not available for a group'],
   'app.emptyArea': ['Выделенная область пуста', 'Selected area is empty'],
-  'app.rasterized': ['Текстовый слой растрирован', 'Type layer rasterized'],
+  'app.rasterizeAsk': ['Чтобы продолжить, текстовый слой нужно растрировать. После этого текст нельзя будет редактировать. Растрировать слой?', 'This type layer must be rasterized before proceeding. Its text will no longer be editable. Rasterize the type?'],
 
   // stage 2
   'tool.transform': ['Свободное трансформирование', 'Free Transform'],

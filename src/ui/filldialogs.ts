@@ -23,6 +23,7 @@ function applyDocBuffer(buf: HTMLCanvasElement, opacity: number, color: RGB) {
 
 /** Edit → Fill… (Shift+F5) */
 export function fillDialog() {
+  if (!app.paintTarget()) return;
   const d = app.doc;
   if (!d) return;
   let src: FillSource = app.settings.fillSrc || 'fg';
@@ -54,6 +55,7 @@ export function fillDialog() {
 
 /** Edit → Stroke… : outline the selection. */
 export function strokeDialog() {
+  if (!app.paintTarget()) return;
   const d = app.doc;
   if (!d?.selection) return;
   let width = app.settings.strokeW ?? 3;

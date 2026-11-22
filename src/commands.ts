@@ -124,6 +124,7 @@ export function registerCommands(app: App) {
   const layerXform = (id: string, mk: (b: { x: number; y: number; w: number; h: number }) => DOMMatrix) => {
     R(id, () => {
       const l = A();
+      if (l.kind === 'text') { app.askRasterize(); return; }
       const b = layerBounds(l);
       if (!b) return;
       transformLayer(l, mk(b));

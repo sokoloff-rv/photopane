@@ -2,7 +2,7 @@ import { Layer, LayerEffects, compositeOp, hasEffects } from './layer';
 import { createCanvas, ctx2d, Rect, rectIntersect, alphaBounds } from './util';
 import { css } from './color';
 import { distanceTransform } from './selection';
-import { hooks } from './render';
+import { hooks, previews } from './render';
 
 /* Layer style rendering: drop shadow, stroke, bevel & emboss, color overlay, gradient overlay. */
 
@@ -20,10 +20,18 @@ export function renderEffects(l: Layer, g: CanvasRenderingContext2D, W: number, 
   const fx = l.effects;
   if (!hasEffects(fx)) return;
   const ext = extent(fx);
-  const base: Rect = l.isGroup ? { x: 0, y: 0, w: W, h: H } : { x: l.x - ext, y: l.y - ext, w: l.canvas.width + ext * 2, h: l.canvas.height + ext * 2 };
+  // while a preview (free transform…) replaces the layer, its pixels are elsewhere than the layer canvas
+  // and change every frame: use the whole document and skip the cache
+  const live = previews.has(l.id);
+  let base: Rect = l.isGroup ? { x: 0, y: 0, w: W, h: H } : { x: l.x - ext, y: l.y - ext, w: l.canvas.width + ext * 2, h: l.canvas.height + ext * 2 };
+  if (live && !l.isGroup) {
+    const ab = alphaBounds(g.canvas);
+    if (!ab) return;
+    base = { x: ab.x - ext, y: ab.y - ext, w: ab.w + ext * 2, h: ab.h + ext * 2 };
+  }
   const R = rectIntersect(base, { x: 0, y: 0, w: W, h: H });
   if (!R) return;
-  const key = l.isGroup ? '' : `${l.version}|${JSON.stringify(fx)}|${R.x},${R.y},${R.w},${R.h}|${l.mask ? l.mask.enabled : ''}`;
+  const key = l.isGroup || live ? '' : `${l.version}|${JSON.stringify(fx)}|${R.x},${R.y},${R.w},${R.h}|${l.mask ? l.mask.enabled : ''}`;
   const hit = key ? cache.get(l) : undefined;
   if (hit && hit.key === key) {
     g.clearRect(0, 0, W, H);

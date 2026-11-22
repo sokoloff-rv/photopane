@@ -252,7 +252,7 @@ const D: Record<string, [string, string]> = {
   'cmd.flipLayerV': ['Отразить по вертикали', 'Flip Vertical'],
   'cmd.settings': ['Настройки', 'Preferences'],
 
-  'cmd.enhance': ['Коррекция изображения', 'Enhance'],
+  'cmd.enhance': ['Коррекция', 'Adjust'],
   'cmd.levels': ['Уровни', 'Levels'],
   'cmd.curves': ['Кривые', 'Curves'],
   'cmd.hueSat': ['Цветовой тон/Насыщенность', 'Hue/Saturation'],

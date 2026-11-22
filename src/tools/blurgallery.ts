@@ -47,6 +47,8 @@ export class BlurGalleryTool extends Tool {
   private tilt = { cx: 0, cy: 0, angle: 0, focus: 100, trans: 150, blur: 15 };
   private drag: { what: string; start: { x: number; y: number }; snap: any } | null = null;
   private timer = 0;
+  /** Bokeh highlights: bright spots in the blurred area light up like out-of-focus lights (0..100). */
+  private bokeh = 0;
 
   constructor() { super({}); }
 
@@ -124,6 +126,11 @@ export class BlurGalleryTool extends Tool {
         const p = (y * w + x) * 4;
         dst[p] = a[p] + (c[p] - a[p]) * fr; dst[p + 1] = a[p + 1] + (c[p + 1] - a[p + 1]) * fr;
         dst[p + 2] = a[p + 2] + (c[p + 2] - a[p + 2]) * fr; dst[p + 3] = a[p + 3] + (c[p + 3] - a[p + 3]) * fr;
+        if (this.bokeh && f > 0) {
+          const L = (0.299 * dst[p] + 0.587 * dst[p + 1] + 0.114 * dst[p + 2]) / 255;
+          const k = 1 + (this.bokeh / 100) * 1.8 * (f / n) * smoothstep(0.5, 0.92, L);
+          dst[p] *= k; dst[p + 1] *= k; dst[p + 2] *= k;
+        }
       }
     }
   }
@@ -325,6 +332,7 @@ export class BlurGalleryTool extends Tool {
           this.schedule(); app.update('overlay');
         },
       }),
+      numberField({ label: t('blur.bokeh'), value: this.bokeh, min: 0, max: 100, unit: '%', onChange: v => { this.bokeh = v; this.schedule(); } }),
       this.mode === 'field' ? span(t('blur.fieldHint')) : null,
       spacer(),
       textButton(t('dlg.cancel'), () => this.cancel()),

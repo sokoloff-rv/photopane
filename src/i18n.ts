@@ -174,6 +174,7 @@ const D: Record<string, [string, string]> = {
   'blur.iris': ['Диафрагма', 'Iris'],
   'blur.tilt': ['Наклон-смещение', 'Tilt-Shift'],
   'blur.amount': ['Размытие', 'Blur'],
+  'blur.bokeh': ['Блики боке', 'Bokeh highlights'],
   'blur.fieldHint': ['Щелчок по изображению — новая булавка', 'Click the image to add a pin'],
 
   'nav.zoomHint': ['Масштаб: введите значение и нажмите Enter', 'Zoom: type a value and press Enter'],

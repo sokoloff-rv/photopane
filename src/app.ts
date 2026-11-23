@@ -379,7 +379,7 @@ export class App {
   register(c: Command) { this.commands.set(c.id, c); }
 
   /** Commands that only change the view; the rest wait until an open Adjust/filter window is closed. */
-  static readonly VIEW_COMMANDS = new Set(['zoomIn', 'zoomOut', 'fit', 'actual', 'rulers', 'showGuides', 'snap', 'clearGuides', 'shortcuts', 'about']);
+  static readonly VIEW_COMMANDS = new Set(['zoomIn', 'zoomOut', 'fit', 'actual', 'rulers', 'showGuides', 'snap', 'clearGuides', 'shortcuts', 'about', 'language']);
   commandLocked(id: string) { return sideDialogOpen() && !App.VIEW_COMMANDS.has(id); }
 
   run(id: string) {

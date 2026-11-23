@@ -376,6 +376,8 @@ export function registerCommands(app: App) {
   toggleSetting('snap', 'snap', true, ['Ctrl+Shift+;']);
   R('clearGuides', () => { const d = D(); d.guides = { h: [], v: [] }; app.update('overlay'); }, [], () => !!app.doc && (app.doc.guides.h.length + app.doc.guides.v.length > 0));
 
+  R('language', () => { setLang(getLang() === 'ru' ? 'en' : 'ru'); app.relocalize(); });
+
   /* ---------- Help ---------- */
   R('shortcuts', () => shortcutsDialog(app));
   R('about', () => openDialog({ title: 'PhotoPane', body: el('p', { class: 'dlg-text' }, t('about.text')), cancelLabel: null, width: 360 }));

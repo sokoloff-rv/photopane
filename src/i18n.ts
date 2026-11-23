@@ -345,7 +345,7 @@ const D: Record<string, [string, string]> = {
   'cmd.motionBlur': ['Размытие в движении', 'Motion Blur'],
   'cmd.radialBlur': ['Радиальное размытие', 'Radial Blur'],
   'cmd.surfaceBlur': ['Размытие по поверхности', 'Surface Blur'],
-  'cmd.highPass': ['Цветовой контраст (High Pass)', 'High Pass'],
+  'cmd.highPass': ['Цветовой контраст', 'High Pass'],
   'cmd.dehaze': ['Удаление дымки', 'Dehaze'],
   'cmd.denoise': ['Шумоподавление', 'Reduce Noise'],
   'cmd.glow': ['Свечение', 'Glow'],

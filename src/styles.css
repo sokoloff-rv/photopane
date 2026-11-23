@@ -106,7 +106,7 @@ button { cursor: default; }
 .mini-btn.swap { right: -5px; top: -5px; }
 .mini-btn.reset { left: -5px; bottom: -5px; }
 .reset-ico { position: relative; width: 11px; height: 11px; }
-.reset-ico i { position: absolute; width: 7px; height: 7px; border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 1.5px; }
+.reset-ico i { position: absolute; width: 7px; height: 7px; border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 50%; }
 .reset-ico i:first-child { background: #000; left: 0; top: 0; z-index: 1; }
 .reset-ico i:last-child { background: #fff; right: 0; bottom: 0; }
 

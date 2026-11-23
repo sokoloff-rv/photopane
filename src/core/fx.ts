@@ -384,6 +384,76 @@ export function gradientMap(src: Buf, dst: Buf, stops: { p: number; c: RGBc }[],
   }
 }
 
+/* ---------------- simple colour filters ---------------- */
+const SEPIA_STOPS: { p: number; c: RGBc }[] = [{ p: 0, c: [38, 22, 12] }, { p: 0.55, c: [160, 112, 70] }, { p: 1, c: [246, 232, 206] }];
+
+/** Sepia: brown toning by brightness (the classic old-photo look); `amount` mixes it with the original. */
+export function sepia(src: Buf, dst: Buf, _w: number, _h: number, amount: number) {
+  gradientMap(src, dst, SEPIA_STOPS, amount);
+}
+
+/** Posterize: each channel reduced to `levels` equal steps (poster / screen-print look). */
+export function posterize(src: Buf, dst: Buf, _w: number, _h: number, levels: number) {
+  const n = Math.max(2, Math.min(255, Math.round(levels)));
+  const lut = new Uint8ClampedArray(256);
+  for (let i = 0; i < 256; i++) lut[i] = Math.round(Math.min(n - 1, Math.floor(i * n / 256)) * 255 / (n - 1));
+  for (let i = 0; i < src.length; i += 4) { dst[i] = lut[src[i]]; dst[i + 1] = lut[src[i + 1]]; dst[i + 2] = lut[src[i + 2]]; dst[i + 3] = src[i + 3]; }
+}
+
+/** Threshold: pure black and white, split at brightness `level` (line art, stamps, scans). */
+export function threshold(src: Buf, dst: Buf, _w: number, _h: number, level: number) {
+  for (let i = 0; i < src.length; i += 4) {
+    const v = lum(src[i], src[i + 1], src[i + 2]) >= level ? 255 : 0;
+    dst[i] = dst[i + 1] = dst[i + 2] = v; dst[i + 3] = src[i + 3];
+  }
+}
+
+/* ---------------- simple effects ---------------- */
+/**
+ * Emboss: relief lit from `angle` (degrees, 135 = from the top left): the brightness difference across
+ * `height` px, on grey or over the image colours.
+ */
+export function emboss(src: Buf, dst: Buf, w: number, h: number, angle: number, height: number, amount: number, color: boolean) {
+  const n = w * h;
+  const L = new Float32Array(n);
+  for (let i = 0, p = 0; p < n; i += 4, p++) L[p] = lum(src[i], src[i + 1], src[i + 2]);
+  const an = angle * Math.PI / 180, dx = Math.cos(an) * height, dy = -Math.sin(an) * height;
+  const k = amount / 100, mx = w - 1, my = h - 1;
+  const at = (x: number, y: number) => {
+    x = x < 0 ? 0 : x > mx ? mx : x; y = y < 0 ? 0 : y > my ? my : y;
+    const x0 = x | 0, y0 = y | 0, x1 = x0 < mx ? x0 + 1 : mx, y1 = y0 < my ? y0 + 1 : my, fx = x - x0, fy = y - y0;
+    const t = L[y0 * w + x0] + (L[y0 * w + x1] - L[y0 * w + x0]) * fx, b = L[y1 * w + x0] + (L[y1 * w + x1] - L[y1 * w + x0]) * fx;
+    return t + (b - t) * fy;
+  };
+  for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i += 4) {
+    // facing the light (darker towards it, brighter away from it) comes out bright
+    const d = (at(x - dx, y - dy) - at(x + dx, y + dy)) * k;
+    if (color) { dst[i] = src[i] + d; dst[i + 1] = src[i + 1] + d; dst[i + 2] = src[i + 2] + d; }
+    else dst[i] = dst[i + 1] = dst[i + 2] = 128 + d;
+    dst[i + 3] = src[i + 3];
+  }
+}
+
+/** Find Edges: outlines of the image in its colours on white (Sobel per channel), like a coloured sketch. */
+export function findEdges(src: Buf, dst: Buf, w: number, h: number) {
+  const mx = w - 1, my = h - 1;
+  for (let y = 0; y < h; y++) {
+    const ya = (y > 0 ? y - 1 : 0) * w, yb = y * w, yc = (y < my ? y + 1 : my) * w;
+    for (let x = 0; x < w; x++) {
+      const xa = x > 0 ? x - 1 : 0, xc = x < mx ? x + 1 : mx;
+      const i = (yb + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        const p00 = src[(ya + xa) * 4 + c], p01 = src[(ya + x) * 4 + c], p02 = src[(ya + xc) * 4 + c];
+        const p10 = src[(yb + xa) * 4 + c], p12 = src[(yb + xc) * 4 + c];
+        const p20 = src[(yc + xa) * 4 + c], p21 = src[(yc + x) * 4 + c], p22 = src[(yc + xc) * 4 + c];
+        const gx = p02 + 2 * p12 + p22 - p00 - 2 * p10 - p20, gy = p20 + 2 * p21 + p22 - p00 - 2 * p01 - p02;
+        dst[i + c] = 255 - Math.sqrt(gx * gx + gy * gy) / 4;
+      }
+      dst[i + 3] = src[i + 3];
+    }
+  }
+}
+
 /* ---------------- 3D LUT (.cube) ---------------- */
 export interface Lut3D { size: number; data: Float32Array; min: RGBc; max: RGBc; title: string }
 

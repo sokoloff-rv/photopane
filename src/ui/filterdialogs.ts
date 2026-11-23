@@ -133,6 +133,41 @@ export function halftoneDialog() {
   });
 }
 
+/* ---------------- simple colour filters ---------------- */
+export function sepiaDialog() {
+  sliderFilter({
+    cmd: 'sepia', key: 'sepia', def: { amount: 100 },
+    sliders: [S('amount', 'adj.amount', 0, 100, 100, '%') as any],
+    job: p => ['sepia', p.amount],
+  });
+}
+
+export function posterizeDialog() {
+  sliderFilter({
+    cmd: 'posterize', key: 'posterize', def: { levels: 4 },
+    sliders: [S('levels', 'flt.levels', 2, 32, 4) as any],
+    job: p => ['posterize', p.levels],
+  });
+}
+
+export function thresholdDialog() {
+  sliderFilter({
+    cmd: 'threshold', key: 'threshold', def: { level: 128 },
+    sliders: [S('level', 'flt.level', 1, 255, 128) as any],
+    job: p => ['threshold', p.level],
+  });
+}
+
+/* ---------------- simple effects ---------------- */
+export function embossDialog() {
+  sliderFilter({
+    cmd: 'emboss', key: 'emboss', def: { angle: 135, height: 3, amount: 100, color: false },
+    sliders: [S('angle', 'opt.angle', 0, 360, 135, '°') as any, S('height', 'flt.height', 1, 20, 3, ' px') as any, S('amount', 'adj.amount', 10, 500, 100, '%') as any],
+    extra: (p, refresh) => [checkbox(t('flt.keepColors'), p.color, v => { p.color = v; refresh(); })],
+    job: (p, _w, _h, _ox, _oy, k) => ['emboss', p.angle, p.height * k, p.amount, p.color],
+  });
+}
+
 const GM_PRESETS: { name: string; stops: { p: number; c: RGBc }[] }[] = [
   { name: 'bw', stops: [{ p: 0, c: [0, 0, 0] }, { p: 1, c: [255, 255, 255] }] },
   { name: 'sepia', stops: [{ p: 0, c: [38, 22, 12] }, { p: 0.55, c: [160, 112, 70] }, { p: 1, c: [246, 232, 206] }] },

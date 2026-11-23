@@ -15,14 +15,12 @@ const MENUS: { key: string; items: Item[] }[] = [
     'imageSize', 'canvasSize',
     { sub: 'cmd.rotation', items: ['rot180', 'rotCW', 'rotCCW', 'rotArbitrary', '-', 'flipCanvasH', 'flipCanvasV'] }, 'cropToSel', '-',
     'upscale', 'removeBg', 'removeObject'] },
-  // all filters at once, in groups: blur, blur on the canvas, detail, light, stylize, colour (LUT last)
+  // all filters at once, in four groups as people look for them: blur, sharpness & noise, effects, colour (LUT last)
   { key: 'menu.filter', items: [
-    'gaussian', 'motionBlur', 'radialBlur', 'surfaceBlur', '-',
-    'fieldBlur', 'irisBlur', 'tiltShift', '-',
-    'unsharp', 'highPass', 'dehaze', 'denoise', '-',
-    'glow', 'chromatic', 'noise', '-',
-    'pixelate', 'halftone', '-',
-    'invert', 'desaturate', 'gradientMap', 'lut',
+    'gaussian', 'motionBlur', 'radialBlur', 'surfaceBlur', 'fieldBlur', 'irisBlur', 'tiltShift', '-',
+    'unsharp', 'highPass', 'dehaze', 'denoise', 'noise', '-',
+    'glow', 'chromatic', 'emboss', 'findEdges', 'pixelate', 'halftone', '-',
+    'desaturate', 'sepia', 'invert', 'posterize', 'threshold', 'gradientMap', 'lut',
   ] },
   { key: 'menu.view', items: ['zoomIn', 'zoomOut', 'fit', 'actual', '-', 'compare', '-', 'rulers', 'showGuides', 'snap', 'clearGuides'] },
   { key: 'menu.help', items: ['shortcuts', 'about'] },

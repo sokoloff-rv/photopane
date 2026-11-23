@@ -16,9 +16,11 @@ import { aiSettingsDialog, upscaleDialog, removeBackground, selectSubject, remov
 import {
   motionBlurDialog, radialBlurDialog, surfaceBlurDialog, highPassDialog, dehazeDialog, denoiseDialog, glowDialog,
   chromaticDialog, pixelateDialog, halftoneDialog, gradientMapDialog, lutDialog,
+  sepiaDialog, posterizeDialog, thresholdDialog, embossDialog,
 } from './ui/filterdialogs';
 import { enhanceDialog, levelsDialog, curvesDialog, gaussianDialog, unsharpDialog, noiseDialog } from './ui/adjustdialogs';
 import { instantAdjust, invert, desaturate, autoTone, autoContrast, autoColor } from './core/adjust';
+import { findEdges } from './core/fx';
 import { blurGalleryTool } from './tools/blurgallery';
 import { layerStyleDialog, clearLayerStyle } from './ui/layerstyle';
 import { hasEffects } from './core/layer';
@@ -168,6 +170,11 @@ export function registerCommands(app: App) {
   R('pixelate', () => pixelateDialog(), [], hasPixelLayer);
   R('halftone', () => halftoneDialog(), [], hasPixelLayer);
   R('gradientMap', () => gradientMapDialog(), [], hasPixelLayer);
+  R('sepia', () => sepiaDialog(), [], hasPixelLayer);
+  R('posterize', () => posterizeDialog(), [], hasPixelLayer);
+  R('threshold', () => thresholdDialog(), [], hasPixelLayer);
+  R('emboss', () => embossDialog(), [], hasPixelLayer);
+  R('findEdges', () => instantAdjust('cmd.findEdges', (src, dst, s) => findEdges(src, dst, s.w, s.h)), [], hasPixelLayer);
   R('lut', () => lutDialog(), [], hasPixelLayer);
   R('levels', () => levelsDialog(), ['Ctrl+L'], hasPixelLayer);
   R('curves', () => curvesDialog(), ['Ctrl+M'], hasPixelLayer);

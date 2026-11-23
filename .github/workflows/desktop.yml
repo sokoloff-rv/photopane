@@ -1,11 +1,11 @@
 name: Desktop builds
 
 # Builds the PhotoPane desktop app (Tauri) for Windows and macOS and attaches the installers
-# to the workflow run as artifacts.
+# to the workflow run as artifacts. Runs only on request: the "Run workflow" button in Actions
+# or a version tag (v1.0.0 …), not on every push.
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
     tags: ['v*']
 
 concurrency:

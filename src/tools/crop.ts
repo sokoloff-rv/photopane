@@ -292,14 +292,17 @@ export class CropTool extends Tool<CropOpts> {
     app.update('options');
   }
 
+  /**
+   * A new preset or orientation always gives the largest frame of that ratio, centred on the image (fitting
+   * it into the current frame made the frame shrink with every orientation swap).
+   */
   private fitRatio() {
     const ratio = this.ratio();
-    if (ratio && this.rect) {
-      const r = this.rect;
-      const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
-      let w = r.w, h = r.w / ratio;
-      if (h > r.h) { h = r.h; w = h * ratio; }
-      this.rect = roundRect({ x: cx - w / 2, y: cy - h / 2, w, h });
+    const d = app.doc;
+    if (ratio && d) {
+      let w = d.width, h = w / ratio;
+      if (h > d.height) { h = d.height; w = h * ratio; }
+      this.rect = roundRect({ x: (d.width - w) / 2, y: (d.height - h) / 2, w, h });
     }
     app.update('overlay', 'options');
   }

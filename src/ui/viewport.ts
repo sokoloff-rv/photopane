@@ -172,9 +172,16 @@ export class Viewport {
     const m = 32;
     const a = this.area();
     const iw = d.width * d.zoom, ih = d.height * d.zoom;
-    // centred while it fits the visible area; movable as soon as an edge is hidden, even by a pixel
-    d.panX = iw <= a.w ? a.x + (a.w - iw) / 2 : clamp(d.panX, a.x + a.w - iw - m, a.x + m);
-    d.panY = ih <= a.h ? a.y + (a.h - ih) / 2 : clamp(d.panY, a.y + a.h - ih - m, a.y + m);
+    // centred while the whole picture is visible; as soon as any edge is hidden (even by a pixel) it can be
+    // moved in both directions: along a side that does not fit up to a little past its edges, along a side
+    // that fits within the free space
+    const overflow = iw > a.w || ih > a.h;
+    const axis = (pan: number, start: number, size: number, len: number) =>
+      len > size ? clamp(pan, start + size - len - m, start + m)
+        : !overflow ? start + (size - len) / 2
+        : clamp(pan, start - m, start + size - len + m);
+    d.panX = axis(d.panX, a.x, a.w, iw);
+    d.panY = axis(d.panY, a.y, a.h, ih);
   }
 
   /** Keep the view within bounds and align the image to physical pixels so 100% is perfectly sharp. */

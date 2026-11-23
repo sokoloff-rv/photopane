@@ -19,6 +19,29 @@ export interface DialogOptions {
   chain?: boolean;
   /** Non-dimming dialog that lets clicks through to the canvas (color picker eyedropper). */
   passthrough?: boolean;
+  /** Where the window was dragged is remembered under this name (default: the side key or the title). */
+  posKey?: string;
+}
+
+/* ---------- remembered window positions (kept in this browser / app profile) ---------- */
+const POS_STORE = 'pp.dialogPos';
+function savedPositions(): Record<string, { x: number; y: number }> {
+  try { return JSON.parse(localStorage.getItem(POS_STORE) || '{}'); } catch { return {}; }
+}
+function rememberPosition(key: string, x: number, y: number) {
+  try {
+    const all = savedPositions();
+    all[key] = { x: Math.round(x), y: Math.round(y) };
+    localStorage.setItem(POS_STORE, JSON.stringify(all));
+  } catch { /* storage unavailable: positions are just not kept */ }
+}
+/** Put a window at x, y, kept on screen (a smaller window or another monitor since it was saved). */
+function placeCard(card: HTMLElement, x: number, y: number) {
+  const r = card.getBoundingClientRect();
+  card.style.position = 'fixed';
+  card.style.margin = '0';
+  card.style.left = Math.max(0, Math.min(x, window.innerWidth - Math.min(r.width, 160))) + 'px';
+  card.style.top = Math.max(0, Math.min(y, window.innerHeight - 48)) + 'px';
 }
 
 let openCount = 0;
@@ -89,6 +112,10 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
     card.addEventListener('pointerdown', () => raise(card), true);
   }
   document.body.append(overlay);
+  // the place the user last dragged this window to
+  const posKey = o.posKey ?? o.sideKey ?? o.title;
+  const saved = savedPositions()[posKey];
+  if (saved) placeCard(card, saved.x, saved.y);
   raise(card);
   let closed = false;
   const close = () => {
@@ -133,7 +160,12 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
     card.style.position = 'fixed';
     card.style.margin = '0';
     const move = (ev: PointerEvent) => { card.style.left = ev.clientX - dx + 'px'; card.style.top = ev.clientY - dy + 'px'; };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    const up = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      // kept on screen, and stored as the same style position it is restored with
+      placeCard(card, parseFloat(card.style.left) || 0, parseFloat(card.style.top) || 0);
+      rememberPosition(posKey, parseFloat(card.style.left) || 0, parseFloat(card.style.top) || 0);
+    };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   });

@@ -5,7 +5,8 @@ import { Selection } from './core/selection';
 import { createCanvas, ctx2d, el } from './core/util';
 import { css } from './core/color';
 import { t, setLang, getLang } from './i18n';
-import { openDialog, toast, promptNumber } from './ui/dialog';
+import { openDialog, toast, promptNumber, resetDialogPositions } from './ui/dialog';
+import { resetPanelLayout } from './ui/panels/panel';
 import { numberField, select } from './ui/controls';
 import { cloneLayer, transformLayer, transformDocument, cropDocument, mergeDown, mergeVisible, stampVisible, flatten, copySelected, clearSelected, layerBounds } from './core/ops';
 import { pickFiles, openFiles, saveDoc, exportDialog, readClipboardImage, writeClipboard, placeImage } from './io/files';
@@ -386,6 +387,7 @@ export function registerCommands(app: App) {
   }, ['Ctrl+R'], undefined, { checked: () => app.settings.rulers ?? false });
   toggleSetting('showGuides', 'showGuides', true, ['Ctrl+;']);
   toggleSetting('snap', 'snap', true, ['Ctrl+Shift+;']);
+  R('resetLayout', () => { resetDialogPositions(); resetPanelLayout(); app.update('all'); });
   R('clearGuides', () => { const d = D(); d.guides = { h: [], v: [] }; app.update('overlay'); }, [], () => !!app.doc && (app.doc.guides.h.length + app.doc.guides.v.length > 0));
 
   R('language', () => { setLang(getLang() === 'ru' ? 'en' : 'ru'); app.relocalize(); });

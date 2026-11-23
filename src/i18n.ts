@@ -517,6 +517,7 @@ const D: Record<string, [string, string]> = {
   'ai.removingObject': ['Удаление объекта…', 'Removing the object…'],
   'ai.outpainting': ['Дорисовка…', 'Generating…'],
   'cmd.compare': ['Дублировать', 'Duplicate'],
+  'cmd.resetLayout': ['Сбросить расположение окон и панелей', 'Reset window and panel layout'],
   'app.compareCopy': ['{0} (копия)', '{0} (copy)'],
   'cmd.actual': ['100%', '100%'],
   'cmd.rulers': ['Линейки', 'Rulers'],

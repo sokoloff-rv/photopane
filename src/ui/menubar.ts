@@ -22,7 +22,7 @@ const MENUS: { key: string; items: Item[] }[] = [
     'glow', 'chromatic', 'emboss', 'findEdges', 'pixelate', 'halftone', '-',
     'desaturate', 'sepia', 'invert', 'posterize', 'threshold', 'gradientMap', 'lut',
   ] },
-  { key: 'menu.view', items: ['zoomIn', 'zoomOut', 'fit', 'actual', '-', 'compare', '-', 'rulers', 'showGuides', 'snap', 'clearGuides'] },
+  { key: 'menu.view', items: ['zoomIn', 'zoomOut', 'fit', 'actual', '-', 'compare', '-', 'rulers', 'showGuides', 'snap', 'clearGuides', '-', 'resetLayout'] },
   { key: 'menu.help', items: ['shortcuts', 'about'] },
 ];
 

@@ -28,6 +28,15 @@ export class Panel {
   renderTitle() { this.titleEl.textContent = t(this.titleKey); }
 }
 
+/** View → Reset layout: default column width, panel heights, all panels expanded. */
+export function resetPanelLayout() {
+  try {
+    for (const k of Object.keys(localStorage)) if (k === 'pp.panelsW' || k.startsWith('pp.panelH.') || k.startsWith('pp.panel.')) localStorage.removeItem(k);
+  } catch { /* nothing kept */ }
+  document.documentElement.style.removeProperty('--panels-w');
+  document.querySelectorAll<HTMLElement>('.panels .panel').forEach(p => { p.style.height = ''; p.classList.remove('collapsed'); });
+}
+
 /** Splitters: right column width and heights of the stacked panels. */
 export function installPanelResizers(column: HTMLElement, panels: Panel[]) {
   const root = document.documentElement;

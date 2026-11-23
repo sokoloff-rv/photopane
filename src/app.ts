@@ -381,7 +381,7 @@ export class App {
   register(c: Command) { this.commands.set(c.id, c); }
 
   /** Commands that only change the view: available while correction/filter windows are open. */
-  static readonly VIEW_COMMANDS = new Set(['zoomIn', 'zoomOut', 'fit', 'actual', 'rulers', 'showGuides', 'snap', 'clearGuides', 'shortcuts', 'about', 'language']);
+  static readonly VIEW_COMMANDS = new Set(['zoomIn', 'zoomOut', 'fit', 'actual', 'rulers', 'showGuides', 'snap', 'clearGuides', 'resetLayout', 'shortcuts', 'about', 'language']);
   /** Correction and filter windows: different ones combine (the adjustment chain), each once. */
   static readonly CHAIN_COMMANDS = new Set([
     'enhance', 'levels', 'curves', 'hslMixer', 'toning', 'gaussian', 'unsharp', 'noise', 'motionBlur', 'radialBlur', 'surfaceBlur', 'highPass', 'dehaze',

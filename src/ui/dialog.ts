@@ -35,13 +35,22 @@ function rememberPosition(key: string, x: number, y: number) {
     localStorage.setItem(POS_STORE, JSON.stringify(all));
   } catch { /* storage unavailable: positions are just not kept */ }
 }
-/** Put a window at x, y, kept on screen (a smaller window or another monitor since it was saved). */
+/** View → Reset layout: forget where windows were dragged; open ones go back to their usual place. */
+export function resetDialogPositions() {
+  try { localStorage.removeItem(POS_STORE); } catch { /* nothing kept */ }
+  document.querySelectorAll<HTMLElement>('.dlg-overlay .dlg').forEach(card => {
+    card.style.position = ''; card.style.left = ''; card.style.top = ''; card.style.margin = '';
+  });
+}
+
+/** Put a window at x, y, wholly on screen (the app window may be smaller or on another monitor since then). */
 function placeCard(card: HTMLElement, x: number, y: number) {
-  const r = card.getBoundingClientRect();
+  // layout size, not the on-screen one (the opening animation scales the window a little)
+  const w = card.offsetWidth, h = card.offsetHeight;
   card.style.position = 'fixed';
   card.style.margin = '0';
-  card.style.left = Math.max(0, Math.min(x, window.innerWidth - Math.min(r.width, 160))) + 'px';
-  card.style.top = Math.max(0, Math.min(y, window.innerHeight - 48)) + 'px';
+  card.style.left = Math.max(0, Math.min(x, window.innerWidth - w)) + 'px';
+  card.style.top = Math.max(0, Math.min(y, window.innerHeight - h)) + 'px';
 }
 
 let openCount = 0;

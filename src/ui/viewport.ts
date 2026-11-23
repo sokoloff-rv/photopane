@@ -137,14 +137,15 @@ export class Viewport {
     const d = this.doc;
     if (!d || this.w < 10) return;
     const pad = 48;
-    let z = Math.min((this.w - pad) / d.width, (this.h - pad) / d.height);
+    const a = this.area();
+    let z = Math.min((a.w - pad) / d.width, (a.h - pad) / d.height);
     // 100% = one image pixel per physical screen pixel (like Photoshop), regardless of Windows scaling
     if (onlyShrink) z = Math.min(z, 1 / this.dpr);
     // prefer exact 100% over a slightly smaller zoom when only the decorative margin is in the way
-    if (z < 1 / this.dpr && d.width / this.dpr <= this.w - 4 && d.height / this.dpr <= this.h - 4) z = 1 / this.dpr;
+    if (z < 1 / this.dpr && d.width / this.dpr <= a.w - 4 && d.height / this.dpr <= a.h - 4) z = 1 / this.dpr;
     d.zoom = clamp(z, 0.01, 64);
-    d.panX = Math.round((this.w - d.width * d.zoom) / 2);
-    d.panY = Math.round((this.h - d.height * d.zoom) / 2);
+    d.panX = Math.round(a.x + (a.w - d.width * d.zoom) / 2);
+    d.panY = Math.round(a.y + (a.h - d.height * d.zoom) / 2);
     d.fitted = true;
     d.autoFit = onlyShrink;
     this.snapPan();
@@ -159,13 +160,21 @@ export class Viewport {
    * While the picture fits in the view it stays exactly centred; once it is larger it can be moved,
    * but not pushed out of sight (a small margin past its edges).
    */
+  /** The part of the pane where the picture is visible (the rulers cover a band at the top and left). */
+  private area() {
+    const r = app.settings.rulers ? RB : 0;
+    return { x: r, y: r, w: this.w - r, h: this.h - r };
+  }
+
   private constrainPan() {
     const d = this.doc;
     if (!d || this.w < 10 || this.h < 10) return;
     const m = 32;
+    const a = this.area();
     const iw = d.width * d.zoom, ih = d.height * d.zoom;
-    d.panX = iw <= this.w ? (this.w - iw) / 2 : clamp(d.panX, this.w - iw - m, m);
-    d.panY = ih <= this.h ? (this.h - ih) / 2 : clamp(d.panY, this.h - ih - m, m);
+    // centred while it fits the visible area; movable as soon as an edge is hidden, even by a pixel
+    d.panX = iw <= a.w ? a.x + (a.w - iw) / 2 : clamp(d.panX, a.x + a.w - iw - m, a.x + m);
+    d.panY = ih <= a.h ? a.y + (a.h - ih) / 2 : clamp(d.panY, a.y + a.h - ih - m, a.y + m);
   }
 
   /** Keep the view within bounds and align the image to physical pixels so 100% is perfectly sharp. */

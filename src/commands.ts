@@ -376,7 +376,14 @@ export function registerCommands(app: App) {
   R('compare', () => (app.split ? app.endCompare() : app.startCompare()), [], hasDoc, { checked: () => !!app.split });
   const toggleSetting = (id: string, key: string, def: boolean, keys: string[]) =>
     R(id, () => { app.settings[key] = !(app.settings[key] ?? def); app.saveSettings(); app.update('overlay'); }, keys, undefined, { checked: () => app.settings[key] ?? def });
-  toggleSetting('rulers', 'rulers', false, ['Ctrl+R']);
+  // the rulers cover part of the canvas: the picture re-centres (or refits) for the visible area
+  R('rulers', () => {
+    app.settings.rulers = !(app.settings.rulers ?? false);
+    app.saveSettings();
+    const d = app.doc, vp = app.viewport;
+    if (d) { if (d.autoFit) vp.fit(true); else vp.snapPan(); }
+    app.update('view', 'overlay');
+  }, ['Ctrl+R'], undefined, { checked: () => app.settings.rulers ?? false });
   toggleSetting('showGuides', 'showGuides', true, ['Ctrl+;']);
   toggleSetting('snap', 'snap', true, ['Ctrl+Shift+;']);
   R('clearGuides', () => { const d = D(); d.guides = { h: [], v: [] }; app.update('overlay'); }, [], () => !!app.doc && (app.doc.guides.h.length + app.doc.guides.v.length > 0));

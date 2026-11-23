@@ -35,25 +35,44 @@ function sample(a: Float32Array, w: number, h: number, x: number, y: number, o: 
     o[c] = top + (bot - top) * fy;
   }
 }
-/** Box mean of a single-channel float image (radius r), O(N). */
+/** Average of two bilinear samples of a premultiplied float buffer (clamped to the edges), written to b[i..i+3]. */
+function avg2(a: Float32Array, w: number, h: number, xa: number, ya: number, xb: number, yb: number, b: Float32Array, i: number) {
+  const mx = w - 1, my = h - 1;
+  xa = xa < 0 ? 0 : xa > mx ? mx : xa; ya = ya < 0 ? 0 : ya > my ? my : ya;
+  xb = xb < 0 ? 0 : xb > mx ? mx : xb; yb = yb < 0 ? 0 : yb > my ? my : yb;
+  const ax0 = xa | 0, ay0 = ya | 0, bx0 = xb | 0, by0 = yb | 0;
+  const afx = xa - ax0, afy = ya - ay0, bfx = xb - bx0, bfy = yb - by0;
+  const ax1 = ax0 < mx ? ax0 + 1 : mx, ay1 = ay0 < my ? ay0 + 1 : my, bx1 = bx0 < mx ? bx0 + 1 : mx, by1 = by0 < my ? by0 + 1 : my;
+  const a00 = (ay0 * w + ax0) * 4, a10 = (ay0 * w + ax1) * 4, a01 = (ay1 * w + ax0) * 4, a11 = (ay1 * w + ax1) * 4;
+  const b00 = (by0 * w + bx0) * 4, b10 = (by0 * w + bx1) * 4, b01 = (by1 * w + bx0) * 4, b11 = (by1 * w + bx1) * 4;
+  for (let c = 0; c < 4; c++) {
+    const at = a[a00 + c] + (a[a10 + c] - a[a00 + c]) * afx, ab = a[a01 + c] + (a[a11 + c] - a[a01 + c]) * afx;
+    const bt = a[b00 + c] + (a[b10 + c] - a[b00 + c]) * bfx, bb = a[b01 + c] + (a[b11 + c] - a[b01 + c]) * bfx;
+    b[i + c] = ((at + (ab - at) * afy) + (bt + (bb - bt) * bfy)) / 2;
+  }
+}
+/** Box mean of a single-channel float image (radius r, clamped edges), O(N), both passes in memory order. */
 function boxMean(src: Float32Array, w: number, h: number, r: number): Float32Array {
   const tmp = new Float32Array(w * h), out = new Float32Array(w * h);
+  const k = 1 / (2 * r + 1), lastX = w - 1, lastY = h - 1;
   for (let y = 0; y < h; y++) {
     const row = y * w;
     let acc = 0;
-    for (let x = -r; x <= r; x++) acc += src[row + Math.min(w - 1, Math.max(0, x))];
+    for (let x = -r; x <= r; x++) acc += src[row + (x < 0 ? 0 : x > lastX ? lastX : x)];
     for (let x = 0; x < w; x++) {
-      tmp[row + x] = acc / (2 * r + 1);
-      acc += src[row + Math.min(w - 1, x + r + 1)] - src[row + Math.max(0, x - r)];
+      tmp[row + x] = acc * k;
+      const xa = x + r + 1, xb = x - r;
+      acc += src[row + (xa > lastX ? lastX : xa)] - src[row + (xb < 0 ? 0 : xb)];
     }
   }
-  for (let x = 0; x < w; x++) {
-    let acc = 0;
-    for (let y = -r; y <= r; y++) acc += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
-    for (let y = 0; y < h; y++) {
-      out[y * w + x] = acc / (2 * r + 1);
-      acc += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
-    }
+  const acc = new Float64Array(w);
+  for (let y = -r; y <= r; y++) { const o = (y < 0 ? 0 : y > lastY ? lastY : y) * w; for (let x = 0; x < w; x++) acc[x] += tmp[o + x]; }
+  for (let y = 0; y < h; y++) {
+    const o = y * w;
+    for (let x = 0; x < w; x++) out[o + x] = acc[x] * k;
+    const ya = y + r + 1, yb = y - r;
+    const oa = (ya > lastY ? lastY : ya) * w, ob = (yb < 0 ? 0 : yb) * w;
+    for (let x = 0; x < w; x++) acc[x] += tmp[oa + x] - tmp[ob + x];
   }
   return out;
 }
@@ -94,13 +113,9 @@ export function keepAlpha(src: Buf, dst: Buf) { for (let i = 3; i < src.length; 
 export function motionBlur(src: Buf, dst: Buf, w: number, h: number, angle: number, dist: number) {
   let a: Float32Array = toPremul(src), b: Float32Array = new Float32Array(a.length);
   const dx = Math.cos(angle * Math.PI / 180), dy = -Math.sin(angle * Math.PI / 180);
-  const s1 = new Float32Array(4), s2 = new Float32Array(4);
   for (let s = dist / 4; s >= 0.35; s /= 2) {
     const ox = dx * s, oy = dy * s;
-    for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i += 4) {
-      sample(a, w, h, x + ox, y + oy, s1); sample(a, w, h, x - ox, y - oy, s2);
-      b[i] = (s1[0] + s2[0]) / 2; b[i + 1] = (s1[1] + s2[1]) / 2; b[i + 2] = (s1[2] + s2[2]) / 2; b[i + 3] = (s1[3] + s2[3]) / 2;
-    }
+    for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i += 4) avg2(a, w, h, x + ox, y + oy, x - ox, y - oy, b, i);
     const t = a; a = b; b = t;
   }
   fromPremul(a, dst);
@@ -109,16 +124,14 @@ export function motionBlur(src: Buf, dst: Buf, w: number, h: number, angle: numb
 /** Radial blur around (cx, cy): zoom (rays from the centre) or spin (circles around it). */
 export function radialBlur(src: Buf, dst: Buf, w: number, h: number, cx: number, cy: number, amount: number, mode: 'zoom' | 'spin') {
   let a: Float32Array = toPremul(src), b: Float32Array = new Float32Array(a.length);
-  const s1 = new Float32Array(4), s2 = new Float32Array(4);
   const R = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy));
   let s = mode === 'zoom' ? amount / 100 * 0.2 : amount / 100 * (20 * Math.PI / 180);
   while (s * R >= 0.5) {
     const cs = Math.cos(s), sn = Math.sin(s);
     for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i += 4) {
       const vx = x - cx, vy = y - cy;
-      if (mode === 'zoom') { sample(a, w, h, cx + vx * (1 + s), cy + vy * (1 + s), s1); sample(a, w, h, cx + vx * (1 - s), cy + vy * (1 - s), s2); }
-      else { sample(a, w, h, cx + vx * cs - vy * sn, cy + vx * sn + vy * cs, s1); sample(a, w, h, cx + vx * cs + vy * sn, cy - vx * sn + vy * cs, s2); }
-      b[i] = (s1[0] + s2[0]) / 2; b[i + 1] = (s1[1] + s2[1]) / 2; b[i + 2] = (s1[2] + s2[2]) / 2; b[i + 3] = (s1[3] + s2[3]) / 2;
+      if (mode === 'zoom') avg2(a, w, h, cx + vx * (1 + s), cy + vy * (1 + s), cx + vx * (1 - s), cy + vy * (1 - s), b, i);
+      else avg2(a, w, h, cx + vx * cs - vy * sn, cy + vx * sn + vy * cs, cx + vx * cs + vy * sn, cy - vx * sn + vy * cs, b, i);
     }
     const t = a; a = b; b = t;
     s /= 2;
@@ -147,21 +160,35 @@ export function highPass(src: Buf, dst: Buf, w: number, h: number, radius: numbe
   }
 }
 
-/** Sliding minimum over a window of radius r (rows then columns). */
-function minFilter(src: Float32Array, w: number, h: number, r: number): Float32Array {
-  const tmp = new Float32Array(w * h), out = new Float32Array(w * h);
-  const q = new Int32Array(Math.max(w, h));
-  const pass = (get: (i: number) => number, set: (i: number, v: number) => void, n: number) => {
+/** Sliding minimum along each row (monotonic queue), radius r, edges clamped. */
+function minRows(src: Float32Array, dst: Float32Array, w: number, h: number, r: number, q: Int32Array) {
+  for (let y = 0; y < h; y++) {
+    const o = y * w;
     let head = 0, tail = 0;
-    for (let i = 0; i < n + r; i++) {
-      if (i < n) { const v = get(i); while (tail > head && get(q[tail - 1]) >= v) tail--; q[tail++] = i; }
+    for (let i = 0; i < w + r; i++) {
+      if (i < w) { const v = src[o + i]; while (tail > head && src[o + q[tail - 1]] >= v) tail--; q[tail++] = i; }
       const c = i - r;
-      if (c >= 0) { while (q[head] < c - r) head++; set(c, get(q[head])); }
+      if (c >= 0) { while (q[head] < c - r) head++; dst[o + c] = src[o + q[head]]; }
     }
-  };
-  for (let y = 0; y < h; y++) pass(i => src[y * w + i], (i, v) => { tmp[y * w + i] = v; }, w);
-  for (let x = 0; x < w; x++) pass(i => tmp[i * w + x], (i, v) => { out[i * w + x] = v; }, h);
+  }
+}
+/** Transpose a w×h single-channel image in cache-friendly blocks. */
+function transpose(src: Float32Array, w: number, h: number): Float32Array {
+  const out = new Float32Array(w * h), B = 64;
+  for (let y0 = 0; y0 < h; y0 += B) for (let x0 = 0; x0 < w; x0 += B) {
+    const y1 = Math.min(h, y0 + B), x1 = Math.min(w, x0 + B);
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) out[x * h + y] = src[y * w + x];
+  }
   return out;
+}
+/** Sliding minimum over a square window of radius r (rows, then columns through a transpose). */
+function minFilter(src: Float32Array, w: number, h: number, r: number): Float32Array {
+  const q = new Int32Array(Math.max(w, h) + 1);
+  const tmp = new Float32Array(w * h);
+  minRows(src, tmp, w, h, r, q);
+  const t = transpose(tmp, w, h), t2 = new Float32Array(w * h);
+  minRows(t, t2, h, w, r, q);
+  return transpose(t2, h, w);
 }
 
 /** Dehaze (dark channel prior with a guided-filter transmission map); negative adds haze. */
@@ -203,14 +230,14 @@ export function dehaze(src: Buf, dst: Buf, w: number, h: number, amount: number)
 }
 
 /** Noise reduction with separate luminance and colour strength (YCbCr). */
-export function denoise(src: Buf, dst: Buf, w: number, h: number, luma: number, chroma: number) {
+export function denoise(src: Buf, dst: Buf, w: number, h: number, luma: number, chroma: number, scale = 1) {
   const n = w * h;
   const Y = new Float32Array(n), Cb = new Float32Array(n), Cr = new Float32Array(n);
   for (let i = 0, p = 0; p < n; i += 4, p++) {
     const r = src[i] / 255, g = src[i + 1] / 255, b = src[i + 2] / 255;
     Y[p] = lum(r, g, b); Cb[p] = -0.168736 * r - 0.331264 * g + 0.5 * b; Cr[p] = 0.5 * r - 0.418688 * g - 0.081312 * b;
   }
-  const y2 = luma > 0 ? guided(Y, Y, w, h, 2 + Math.round(luma / 40), Math.pow(luma / 100, 2) * 0.012) : Y;
+  const y2 = luma > 0 ? guided(Y, Y, w, h, Math.max(1, Math.round((2 + Math.round(luma / 40)) * scale)), Math.pow(luma / 100, 2) * 0.012) : Y;
   const sc = chroma / 100 * Math.max(2, Math.min(w, h) / 250);
   const cb2 = chroma > 0 ? blurF(Cb, w, h, sc) : Cb, cr2 = chroma > 0 ? blurF(Cr, w, h, sc) : Cr;
   for (let i = 0, p = 0; p < n; i += 4, p++) {
@@ -274,28 +301,67 @@ export function pixelate(src: Buf, dst: Buf, w: number, h: number, cell: number)
   }
 }
 
-/** Halftone: dots on a rotated grid, sized by darkness; mono (black on white) or in the image colours. */
+/**
+ * Halftone: dots on a rotated grid, sized by the darkness of their cell; mono (black on white) or in the
+ * image colours. Computed per pixel (cell averages first, then each pixel tests the four nearest dots with
+ * an antialiased edge) instead of drawing hundreds of thousands of circles on a canvas.
+ */
 export function halftone(src: Buf, dst: Buf, w: number, h: number, cell: number, angle: number, color: boolean) {
-  const c = Math.max(3, cell);
-  const bl = gaussianBlur(src, w, h, c / 3);
-  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-  const g = cv.getContext('2d')!;
-  g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
+  const c = Math.max(1, cell);   // the dialog keeps it ≥ 3; smaller only for the reduced draft preview
   const an = angle * Math.PI / 180, cs = Math.cos(an), sn = Math.sin(an);
-  const R = Math.hypot(w, h);
-  for (let v = -R; v < R; v += c) for (let u = -R; u < R; u += c) {
-    const x = w / 2 + u * cs - v * sn, y = h / 2 + u * sn + v * cs;
-    if (x < -c || y < -c || x > w + c || y > h + c) continue;
-    const xi = Math.min(w - 1, Math.max(0, Math.round(x))), yi = Math.min(h - 1, Math.max(0, Math.round(y)));
-    const i = (yi * w + xi) * 4;
-    const L = lum(bl[i], bl[i + 1], bl[i + 2]) / 255;
-    const rad = c * 0.71 * Math.sqrt(Math.max(0, 1 - L));
-    if (rad < 0.3) continue;
-    g.fillStyle = color ? `rgb(${bl[i]},${bl[i + 1]},${bl[i + 2]})` : '#000';
-    g.beginPath(); g.arc(x, y, rad, 0, Math.PI * 2); g.fill();
+  const cx = w / 2, cy = h / 2;
+  const N = Math.ceil(Math.hypot(w, h) / 2 / c) + 2, S = 2 * N + 1;
+  // grid coordinates of a pixel: u along the rotated x axis, v along the rotated y axis (in cells)
+  const ic = 1 / c;
+  // 1) average colour of each cell (alpha-weighted)
+  const sr = new Float32Array(S * S), sg = new Float32Array(S * S), sb = new Float32Array(S * S), sa = new Float32Array(S * S);
+  for (let y = 0, i = 0; y < h; y++) {
+    const dy = y - cy;
+    for (let x = 0; x < w; x++, i += 4) {
+      const al = src[i + 3];
+      if (!al) continue;
+      const dx = x - cx;
+      const u = (dx * cs + dy * sn) * ic, v = (dy * cs - dx * sn) * ic;
+      const k = (Math.round(v) + N) * S + Math.round(u) + N;
+      sr[k] += src[i] * al; sg[k] += src[i + 1] * al; sb[k] += src[i + 2] * al; sa[k] += al;
+    }
   }
-  const out = g.getImageData(0, 0, w, h).data;
-  for (let i = 0; i < src.length; i += 4) { dst[i] = out[i]; dst[i + 1] = out[i + 1]; dst[i + 2] = out[i + 2]; dst[i + 3] = src[i + 3]; }
+  // 2) dot radius (in cells) per cell from its lightness
+  const rad = new Float32Array(S * S);
+  for (let k = 0; k < rad.length; k++) {
+    const a = sa[k];
+    if (!a) continue;
+    sr[k] /= a; sg[k] /= a; sb[k] /= a;
+    const L = lum(sr[k], sg[k], sb[k]) / 255;
+    const r = 0.71 * Math.sqrt(Math.max(0, 1 - L));
+    rad[k] = r * c < 0.3 ? 0 : r;
+  }
+  // 3) each pixel: coverage by the nearest dots (union), 1 px soft edge
+  for (let y = 0, i = 0; y < h; y++) {
+    const dy = y - cy;
+    for (let x = 0; x < w; x++, i += 4) {
+      const dx = x - cx;
+      const u = (dx * cs + dy * sn) * ic, v = (dy * cs - dx * sn) * ic;
+      const u0 = Math.floor(u), v0 = Math.floor(v);
+      let cov = 0, best = -1;
+      for (let j = v0; j <= v0 + 1; j++) for (let q = u0; q <= u0 + 1; q++) {
+        const k = (j + N) * S + q + N;
+        const r = rad[k];
+        if (!r) continue;
+        const du = u - q, dv = v - j, d2 = du * du + dv * dv, reach = r + 0.5 * ic;
+        if (d2 >= reach * reach) continue;
+        const e = (r - Math.sqrt(d2)) * c + 0.5;
+        const cv = e >= 1 ? 1 : e;
+        if (cv > cov) { cov = cv; best = k; }
+      }
+      if (color && best >= 0) {
+        dst[i] = 255 + (sr[best] - 255) * cov; dst[i + 1] = 255 + (sg[best] - 255) * cov; dst[i + 2] = 255 + (sb[best] - 255) * cov;
+      } else {
+        dst[i] = dst[i + 1] = dst[i + 2] = 255 * (1 - cov);
+      }
+      dst[i + 3] = src[i + 3];
+    }
+  }
 }
 
 export type RGBc = [number, number, number];

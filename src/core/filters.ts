@@ -13,34 +13,44 @@ export function boxesForGauss(sigma: number, n = 3): number[] {
   return sizes;
 }
 
+/*
+ * Box passes with clamped edges. Both run along rows in memory order: the vertical pass keeps one running
+ * sum per column instead of walking down columns, which on a wide photo missed the cache on every pixel.
+ */
 function boxH(src: Float32Array, dst: Float32Array, w: number, h: number, r: number) {
   const iarr = 1 / (r + r + 1);
+  const last = w - 1;
   for (let y = 0; y < h; y++) {
-    const row = y * w;
-    for (let c = 0; c < 4; c++) {
-      let ti = row, li = row, ri = row + r;
-      const fv = src[row * 4 + c], lv = src[(row + w - 1) * 4 + c];
-      let val = (r + 1) * fv;
-      for (let j = 0; j < r; j++) val += src[(row + Math.min(j, w - 1)) * 4 + c];
-      for (let j = 0; j <= r; j++) { val += (ri < row + w ? src[ri * 4 + c] : lv) - fv; dst[ti * 4 + c] = val * iarr; ri++; ti++; }
-      for (let j = r + 1; j < w - r; j++) { val += src[ri * 4 + c] - src[li * 4 + c]; dst[ti * 4 + c] = val * iarr; ri++; li++; ti++; }
-      for (let j = Math.max(w - r, r + 1); j < w; j++) { val += lv - src[li * 4 + c]; dst[ti * 4 + c] = val * iarr; li++; ti++; }
+    const o = y * w * 4;
+    let a0 = 0, a1 = 0, a2 = 0, a3 = 0;
+    for (let j = -r; j <= r; j++) {
+      const k = o + (j < 0 ? 0 : j > last ? last : j) * 4;
+      a0 += src[k]; a1 += src[k + 1]; a2 += src[k + 2]; a3 += src[k + 3];
+    }
+    for (let x = 0; x < w; x++) {
+      const d = o + x * 4;
+      dst[d] = a0 * iarr; dst[d + 1] = a1 * iarr; dst[d + 2] = a2 * iarr; dst[d + 3] = a3 * iarr;
+      const xa = x + r + 1, xb = x - r;
+      const ka = o + (xa > last ? last : xa) * 4, kb = o + (xb < 0 ? 0 : xb) * 4;
+      a0 += src[ka] - src[kb]; a1 += src[ka + 1] - src[kb + 1]; a2 += src[ka + 2] - src[kb + 2]; a3 += src[ka + 3] - src[kb + 3];
     }
   }
 }
 
 function boxV(src: Float32Array, dst: Float32Array, w: number, h: number, r: number) {
   const iarr = 1 / (r + r + 1);
-  for (let x = 0; x < w; x++) {
-    for (let c = 0; c < 4; c++) {
-      let ti = x, li = x, ri = x + r * w;
-      const fv = src[x * 4 + c], lv = src[(x + w * (h - 1)) * 4 + c];
-      let val = (r + 1) * fv;
-      for (let j = 0; j < r; j++) val += src[(x + Math.min(j, h - 1) * w) * 4 + c];
-      for (let j = 0; j <= r; j++) { val += (ri < w * h ? src[ri * 4 + c] : lv) - fv; dst[ti * 4 + c] = val * iarr; ri += w; ti += w; }
-      for (let j = r + 1; j < h - r; j++) { val += src[ri * 4 + c] - src[li * 4 + c]; dst[ti * 4 + c] = val * iarr; li += w; ri += w; ti += w; }
-      for (let j = Math.max(h - r, r + 1); j < h; j++) { val += lv - src[li * 4 + c]; dst[ti * 4 + c] = val * iarr; li += w; ti += w; }
-    }
+  const W4 = w * 4, last = h - 1;
+  const acc = new Float64Array(W4);
+  for (let j = -r; j <= r; j++) {
+    const o = (j < 0 ? 0 : j > last ? last : j) * W4;
+    for (let k = 0; k < W4; k++) acc[k] += src[o + k];
+  }
+  for (let y = 0; y < h; y++) {
+    const o = y * W4;
+    for (let k = 0; k < W4; k++) dst[o + k] = acc[k] * iarr;
+    const ya = y + r + 1, yb = y - r;
+    const oa = (ya > last ? last : ya) * W4, ob = (yb < 0 ? 0 : yb) * W4;
+    for (let k = 0; k < W4; k++) acc[k] += src[oa + k] - src[ob + k];
   }
 }
 

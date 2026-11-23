@@ -18,4 +18,5 @@ export default defineConfig({
   server: { port: 5178, strictPort: true, proxy },
   preview: { port: 5178, proxy },
   build: { target: 'es2022' },
+  worker: { format: 'es' },
 });

@@ -5,10 +5,8 @@ import { checkbox, segmented } from './controls';
 import { adjustDialog, sliderRow, SliderSpec } from './adjustdialogs';
 import { toast } from './dialog';
 import { openColorPicker } from './colorpicker';
-import {
-  motionBlur, radialBlur, surfaceBlur, highPass, dehaze, denoise, glow, chromatic, pixelate, halftone,
-  gradientMap, parseCube, applyLut, Lut3D, RGBc,
-} from '../core/fx';
+import { gradientMap, parseCube, applyLut, Lut3D, RGBc } from '../core/fx';
+import { runJob, FxJob } from '../core/fxjobs';
 
 /** Remembered filter settings (per filter, in app settings). */
 function mem<T extends object>(key: string, def: T): T {
@@ -21,7 +19,10 @@ function sliderFilter<P extends Record<string, any>>(o: {
   cmd: string; key: string; def: P; sliders: (SliderSpec & { key: keyof P & string })[];
   extra?: (p: P, refresh: () => void) => HTMLElement[];
   alpha?: boolean;
-  compute: (p: P, src: Uint8ClampedArray, dst: Uint8ClampedArray, w: number, h: number, ox: number, oy: number) => void;
+  /** Fast enough at full size: no draft preview or worker. */
+  fast?: boolean;
+  /** The filter as a data job; `k` scales sizes in pixels (1 for the real result, < 1 for the draft preview). */
+  job: (p: P, w: number, h: number, ox: number, oy: number, k: number) => FxJob;
 }) {
   const p = mem(o.key, o.def);
   let refresh = () => {};
@@ -30,7 +31,8 @@ function sliderFilter<P extends Record<string, any>>(o: {
     ...(o.extra ? o.extra(p, () => refresh()) : []));
   const res = adjustDialog({
     title: t('cmd.' + o.cmd), body, label: 'cmd.' + o.cmd, alpha: o.alpha,
-    compute: s => (src, dst) => o.compute(p, src, dst, s.w, s.h, s.ox, s.oy),
+    compute: s => (src, dst) => runJob(o.job(p, s.w, s.h, s.ox, s.oy, 1), src, dst, s.w, s.h),
+    job: o.fast ? undefined : (w, h, ox, oy, k) => o.job(p, w, h, ox, oy, k),
   });
   if (res) { refresh = () => { app.saveSettings(); res.refresh(); }; res.refresh(); }
 }
@@ -42,7 +44,7 @@ export function motionBlurDialog() {
   sliderFilter({
     cmd: 'motionBlur', key: 'motion', def: { angle: 0, dist: 30 }, alpha: true,
     sliders: [S('angle', 'opt.angle', -180, 180, 0, '°') as any, S('dist', 'flt.distance', 1, 500, 30, ' px') as any],
-    compute: (p, src, dst, w, h) => motionBlur(src, dst, w, h, p.angle, p.dist),
+    job: (p, _w, _h, _ox, _oy, k) => ['motionBlur', p.angle, p.dist * k],
   });
 }
 
@@ -53,9 +55,9 @@ export function radialBlurDialog() {
     extra: (p, refresh) => [segmented<'zoom' | 'spin'>([
       { value: 'zoom', label: t('flt.zoom'), title: t('flt.zoom') }, { value: 'spin', label: t('flt.spin'), title: t('flt.spin') },
     ], p.mode, v => { p.mode = v; refresh(); })],
-    compute: (p, src, dst, w, h, ox, oy) => {
+    job: (p, _w, _h, ox, oy, k) => {
       const d = app.doc!;
-      radialBlur(src, dst, w, h, d.width * p.cx / 100 - ox, d.height * p.cy / 100 - oy, p.amount, p.mode);
+      return ['radialBlur', d.width * k * p.cx / 100 - ox, d.height * k * p.cy / 100 - oy, p.amount, p.mode];
     },
   });
 }
@@ -64,7 +66,7 @@ export function surfaceBlurDialog() {
   sliderFilter({
     cmd: 'surfaceBlur', key: 'surface', def: { radius: 6, threshold: 18 },
     sliders: [S('radius', 'dlg.radius', 1, 60, 6, ' px') as any, S('threshold', 'adj.threshold', 1, 100, 18) as any],
-    compute: (p, src, dst, w, h) => surfaceBlur(src, dst, w, h, p.radius, p.threshold),
+    job: (p, _w, _h, _ox, _oy, k) => ['surfaceBlur', p.radius * k, p.threshold],
   });
 }
 
@@ -74,7 +76,7 @@ export function highPassDialog() {
     cmd: 'highPass', key: 'highpass', def: { radius: 3 },
     sliders: [S('radius', 'dlg.radius', 0.5, 100, 3, ' px', 0.1) as any],
     extra: () => [el('div', { class: 'muted sm' }, t('flt.highPassHint'))],
-    compute: (p, src, dst, w, h) => highPass(src, dst, w, h, p.radius),
+    job: (p, _w, _h, _ox, _oy, k) => ['highPass', p.radius * k],
   });
 }
 
@@ -82,7 +84,7 @@ export function dehazeDialog() {
   sliderFilter({
     cmd: 'dehaze', key: 'dehaze', def: { amount: 40 },
     sliders: [S('amount', 'adj.amount', -100, 100, 40) as any],
-    compute: (p, src, dst, w, h) => dehaze(src, dst, w, h, p.amount),
+    job: p => ['dehaze', p.amount],
   });
 }
 
@@ -90,7 +92,7 @@ export function denoiseDialog() {
   sliderFilter({
     cmd: 'denoise', key: 'denoise', def: { luma: 30, chroma: 50 },
     sliders: [S('luma', 'flt.luma', 0, 100, 30) as any, S('chroma', 'flt.chroma', 0, 100, 50) as any],
-    compute: (p, src, dst, w, h) => denoise(src, dst, w, h, p.luma, p.chroma),
+    job: (p, _w, _h, _ox, _oy, k) => ['denoise', p.luma, p.chroma, k],
   });
 }
 
@@ -100,7 +102,7 @@ export function glowDialog() {
     cmd: 'glow', key: 'glow', def: { threshold: 170, radius: 25, strength: 80, warm: false },
     sliders: [S('threshold', 'adj.threshold', 0, 250, 170) as any, S('radius', 'dlg.radius', 1, 200, 25, ' px') as any, S('strength', 'adj.amount', 0, 200, 80, '%') as any],
     extra: (p, refresh) => [checkbox(t('flt.halation'), p.warm, v => { p.warm = v; refresh(); })],
-    compute: (p, src, dst, w, h) => glow(src, dst, w, h, p.threshold, p.radius, p.strength, p.warm),
+    job: (p, _w, _h, _ox, _oy, k) => ['glow', p.threshold, p.radius * k, p.strength, p.warm],
   });
 }
 
@@ -109,7 +111,7 @@ export function chromaticDialog() {
     cmd: 'chromatic', key: 'chromatic', def: { amount: 30 },
     sliders: [S('amount', 'adj.amount', -100, 100, 30) as any],
     extra: () => [el('div', { class: 'muted sm' }, t('flt.chromaticHint'))],
-    compute: (p, src, dst, w, h, ox, oy) => { const d = app.doc!; chromatic(src, dst, w, h, p.amount, d.width / 2 - ox, d.height / 2 - oy); },
+    job: (p, _w, _h, ox, oy, k) => { const d = app.doc!; return ['chromatic', p.amount, d.width * k / 2 - ox, d.height * k / 2 - oy]; },
   });
 }
 
@@ -117,8 +119,8 @@ export function chromaticDialog() {
 export function pixelateDialog() {
   sliderFilter({
     cmd: 'pixelate', key: 'pixelate', def: { cell: 16 },
-    sliders: [S('cell', 'flt.cell', 2, 200, 16, ' px') as any],
-    compute: (p, src, dst, w, h) => pixelate(src, dst, w, h, p.cell),
+    sliders: [S('cell', 'flt.cell', 2, 200, 16, ' px') as any], fast: true,
+    job: p => ['pixelate', p.cell],
   });
 }
 
@@ -127,7 +129,7 @@ export function halftoneDialog() {
     cmd: 'halftone', key: 'halftone', def: { cell: 10, angle: 45, color: false },
     sliders: [S('cell', 'flt.dot', 3, 80, 10, ' px') as any, S('angle', 'opt.angle', 0, 90, 45, '°') as any],
     extra: (p, refresh) => [checkbox(t('flt.colorDots'), p.color, v => { p.color = v; refresh(); })],
-    compute: (p, src, dst, w, h) => halftone(src, dst, w, h, p.cell, p.angle, p.color),
+    job: (p, _w, _h, _ox, _oy, k) => ['halftone', p.cell * k, p.angle, p.color],
   });
 }
 

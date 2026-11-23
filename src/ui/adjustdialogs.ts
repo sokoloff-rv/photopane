@@ -1,5 +1,5 @@
 import { app } from '../app';
-import { el, clamp } from '../core/util';
+import { el, clamp, createCanvas, ctx2d } from '../core/util';
 import { t } from '../i18n';
 import { openDialog } from './dialog';
 import { checkbox, select } from './controls';
@@ -8,6 +8,7 @@ import {
 } from '../core/adjust';
 import { histogram, levelsLUT, curveLUT, composeLUT, gaussianBlur, clipPoints, Histogram } from '../core/filters';
 import { keepAlpha } from '../core/fx';
+import { runJob, FxJob } from '../core/fxjobs';
 import { splitCompareTool } from '../tools/splitcompare';
 import { EnhanceGPU } from '../core/gpuadjust';
 
@@ -33,27 +34,116 @@ export function sliderRow(spec: SliderSpec, value: number, onInput: (v: number) 
  * Common dialog with live preview over an AdjustSession. "Before / after" puts a draggable line on the
  * canvas (original on the left); `alpha` adds "Preserve transparency" for filters that spread pixels.
  */
+/** Size of the draft preview of heavy filters (pixels): about what the screen shows of a whole photo. */
+const DRAFT_PIXELS = 0.6e6;
+
+type PixelFn = (src: Uint8ClampedArray, dst: Uint8ClampedArray) => void;
+
 export function adjustDialog(opts: {
   title: string; body: HTMLElement; width?: number; label: string;
-  compute: (s: AdjustSession) => (src: Uint8ClampedArray, dst: Uint8ClampedArray) => void;
+  compute: (s: AdjustSession) => PixelFn;
   onReady?: (s: AdjustSession, refresh: () => void) => void;
   extra?: HTMLElement[];
   alpha?: boolean;
+  /**
+   * The filter as a data job for the given size, with sizes in pixels scaled by k. On large layers this gives
+   * a draft preview (the filter on a reduced copy, instantly) and the full-size result from a worker
+   * once the sliders rest, so the dialog never freezes.
+   */
+  job?: (w: number, h: number, ox: number, oy: number, k: number) => FxJob;
 }) {
   const s = AdjustSession.start();
   if (!s) return null;
   let previewOn = true;
   let keepA = opts.alpha ? !!app.settings.fltKeepAlpha : false;
-  const fn = () => {
-    const f = opts.compute(s);
-    return keepA ? (src: Uint8ClampedArray, dst: Uint8ClampedArray) => { f(src, dst); keepAlpha(src, dst); } : f;
-  };
+  const withAlpha = (f: PixelFn): PixelFn => keepA ? (src, dst) => { f(src, dst); keepAlpha(src, dst); } : f;
+  const fn = () => withAlpha(opts.compute(s));
   // `cur` is the function for the current settings; the session reuses its result while only the
   // before/after line moves
-  let cur: ((src: Uint8ClampedArray, dst: Uint8ClampedArray) => void) | null = null;
-  const refresh = () => { cur = fn(); if (previewOn) s.preview(cur); };
-  const refreshView = () => { if (previewOn) s.preview(cur ??= fn()); };
-  const prev = checkbox(t('adj.preview'), true, v => { previewOn = v; if (v) refreshView(); else s.restore(); });
+  let cur: PixelFn | null = null;
+  /** Bumped on every settings change; worker results for older settings are dropped. */
+  let gen = 0;
+
+  /* ----- draft preview on a reduced copy ----- */
+  const useDraft = !!opts.job && s.w * s.h > DRAFT_PIXELS * 1.8;
+  // the draft size adapts so a heavy filter (radial blur) still answers within ~50 ms
+  let draftPx = DRAFT_PIXELS, sw = 1, sh = 1;
+  let smallSrc: ImageData | null = null, draftCanvas: HTMLCanvasElement | null = null, lastDraft: HTMLCanvasElement | null = null;
+  let draftShown = false, fullTimer = 0;
+  const makeDraft = () => {
+    const t0 = performance.now();
+    if (!draftCanvas || !smallSrc) {
+      const k = Math.min(1, Math.sqrt(draftPx / (s.w * s.h)));
+      sw = Math.max(1, Math.round(s.w * k)); sh = Math.max(1, Math.round(s.h * k));
+      const big = createCanvas(s.w, s.h);
+      ctx2d(big).putImageData(s.orig, 0, 0);
+      draftCanvas = createCanvas(sw, sh);
+      const g = ctx2d(draftCanvas);
+      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+      g.drawImage(big, 0, 0, sw, sh);
+      smallSrc = g.getImageData(0, 0, sw, sh);
+    }
+    const out = new ImageData(sw, sh);
+    runJob(opts.job!(sw, sh, s.ox * sw / s.w, s.oy * sh / s.h, sw / s.w), smallSrc.data, out.data, sw, sh);
+    if (keepA) keepAlpha(smallSrc.data, out.data);
+    ctx2d(draftCanvas).putImageData(out, 0, 0);
+    const c = (lastDraft = draftCanvas);
+    const ms = performance.now() - t0;
+    const next = ms > 50 ? draftPx * 50 / ms : ms < 15 ? draftPx * 1.5 : draftPx;
+    const clamped = Math.max(0.12e6, Math.min(DRAFT_PIXELS, next));
+    if (Math.abs(clamped - draftPx) / draftPx > 0.25) { draftPx = clamped; draftCanvas = null; smallSrc = null; }
+    return c;
+  };
+
+  /* ----- full-size result in a worker ----- */
+  let worker: Worker | null = null, workerFailed = false, busy = false, inflight = -1;
+  let queued: { id: number; job: FxJob } | null = null;
+  let waitFull: ((ok: boolean) => void) | null = null;
+  let haveFull = -1;   // gen of the full result shown
+  const startWorker = () => {
+    if (worker || workerFailed) return !!worker;
+    try {
+      worker = new Worker(new URL('../core/fxworker.ts', import.meta.url), { type: 'module' });
+      worker.postMessage({ type: 'init', src: s.orig.data.slice(), w: s.w, h: s.h });
+      worker.onmessage = (e: MessageEvent) => {
+        busy = false; inflight = -1;
+        if (queued) { const q = queued; queued = null; busy = true; inflight = q.id; worker!.postMessage({ type: 'run', ...q }); }
+        const { id, dst } = e.data as { id: number; dst: Uint8ClampedArray };
+        if (id !== gen || s.done) return;
+        const f = withAlpha((_src, out) => out.set(dst));
+        cur = f; haveFull = id; draftShown = false;
+        if (previewOn) s.preview(f);
+        waitFull?.(true); waitFull = null;
+      };
+      worker.onerror = () => { workerFailed = true; worker?.terminate(); worker = null; waitFull?.(false); waitFull = null; };
+    } catch { workerFailed = true; worker = null; }
+    return !!worker;
+  };
+  const runFull = () => {
+    if (s.done) return;
+    if (!startWorker()) { draftShown = false; if (previewOn) s.preview(cur ??= fn()); return; }
+    if (inflight === gen || queued?.id === gen) return;   // already on its way
+    const job = { id: gen, job: opts.job!(s.w, s.h, s.ox, s.oy, 1) };
+    if (busy) { queued = job; return; }
+    busy = true; inflight = gen;
+    worker!.postMessage({ type: 'run', ...job });
+  };
+
+  const refresh = () => {
+    cur = fn(); gen++;
+    if (!previewOn) return;
+    if (!useDraft) { s.preview(cur); return; }
+    draftShown = true;
+    s.previewDraft(makeDraft);
+    clearTimeout(fullTimer);
+    fullTimer = window.setTimeout(runFull, 250);
+  };
+  const refreshView = () => {
+    if (!previewOn) return;
+    if (draftShown && lastDraft) { const c = lastDraft; s.previewDraft(() => c); }
+    else s.preview(cur ??= fn());
+  };
+  const prev = checkbox(t('adj.preview'), true, v => { previewOn = v; if (!v) s.restore(); else if (draftShown) refresh(); else refreshView(); });
   let splitOn = false;
   const endSplit = () => { if (!splitOn) return; splitOn = false; splitCompareTool.detach(); if (app.tool === splitCompareTool) app.popTool(); app.update('overlay'); };
   const split = checkbox(t('adj.beforeAfter'), false, v => {
@@ -64,10 +154,25 @@ export function adjustDialog(opts: {
   const rows: HTMLElement[] = [prev, split];
   if (opts.alpha) rows.push(checkbox(t('adj.keepAlpha'), keepA, v => { keepA = v; app.settings.fltKeepAlpha = v; app.saveSettings(); refresh(); }));
   opts.body.append(el('div', { class: 'adj-foot adj-foot-wrap' }, ...rows, ...(opts.extra || [])));
+  const finish = () => { clearTimeout(fullTimer); worker?.terminate(); worker = null; endSplit(); };
+  let committing = false;
   openDialog({
     title: opts.title, body: opts.body, width: opts.width || 340, side: true,
-    onOk: () => { endSplit(); s.commit(opts.label, cur ?? fn()); },
-    onCancel: () => { endSplit(); s.cancel(); },
+    onOk: async () => {
+      if (committing) return false;
+      committing = true;
+      // the full result of the current settings is (or will shortly be) ready in the worker: use it
+      if (useDraft && haveFull !== gen && startWorker()) {
+        clearTimeout(fullTimer);
+        document.body.classList.add('busy-cursor');
+        const ok = await new Promise<boolean>(res => { waitFull = res; runFull(); });
+        document.body.classList.remove('busy-cursor');
+        if (!ok) cur = fn();
+      }
+      finish();
+      s.commit(opts.label, cur ?? fn());
+    },
+    onCancel: () => { finish(); s.cancel(); },
   });
   opts.onReady?.(s, refresh);
   return { s, refresh };
@@ -338,10 +443,11 @@ export function curvesDialog() {
 export function gaussianDialog() {
   let radius = app.settings.gaussR ?? 4;
   let refresh = () => {};
-  const body = el('div', { class: 'adj' }, sliderRow({ key: 'r', label: t('dlg.radius'), min: 0.1, max: 250, step: 0.1, def: 4, unit: ' px' }, radius, v => { radius = v; refresh(); }));
+  const body = el('div', { class: 'adj' }, sliderRow({ key: 'r', label: t('dlg.radius'), min: 0.1, max: 250, step: 0.1, def: 4, unit: ' px' }, radius, v => { radius = v; app.settings.gaussR = v; refresh(); }));
   const res = adjustDialog({
     title: t('cmd.gaussian'), body, label: 'cmd.gaussian', alpha: true,
-    compute: s => (src, dst) => { dst.set(gaussianBlur(src, s.w, s.h, radius)); app.settings.gaussR = radius; },
+    compute: s => (src, dst) => dst.set(gaussianBlur(src, s.w, s.h, radius)),
+    job: (_w, _h, _ox, _oy, k) => ['gaussian', radius * k],
   });
   if (res) { refresh = res.refresh; refresh(); }
 }

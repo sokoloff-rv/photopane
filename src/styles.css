@@ -164,7 +164,7 @@ button { cursor: default; }
 .nav-zoom .range { flex: 1; }
 .nav-pct { width: 56px; height: 22px; text-align: right; color: var(--text2); background: var(--fill); border: 0; border-radius: 5px; padding: 0 6px; font-variant-numeric: tabular-nums; font-size: 11.5px; outline: none; }
 .nav-pct:hover { color: var(--text); }
-.nav-pct:focus { color: var(--text); box-shadow: 0 0 0 2px var(--accent-soft), inset 0 0 0 1px var(--accent); }
+.nav-pct:focus { color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); background: var(--fill-hover); }
 
 .hist .panel-body { flex: 1; padding-left: 6px; padding-right: 6px; }
 .hist-list { overflow-y: auto; flex: 1; min-height: 0; }
@@ -228,7 +228,7 @@ button { cursor: default; }
 .num-label { color: var(--text2); cursor: ew-resize; user-select: none; white-space: nowrap; }
 .num-label:hover { color: var(--text); }
 .num-box { display: inline-flex; align-items: center; background: var(--fill); border-radius: 5px; height: 24px; padding-left: 7px; }
-.num-box:focus-within { box-shadow: 0 0 0 2px var(--accent-soft), inset 0 0 0 1px var(--accent); }
+.num-box:focus-within { box-shadow: inset 0 0 0 1px var(--accent); background: var(--fill-hover); }
 .num-input { background: none; border: 0; outline: none; padding: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .num-unit { color: var(--text3); margin-left: 3px; font-size: 11px; }
 .num-arrow { border: 0; background: none; color: var(--text3); padding: 0 5px; height: 100%; display: flex; align-items: center; }
@@ -245,14 +245,14 @@ button { cursor: default; }
 
 .select { background: var(--fill); border: 0; border-radius: 5px; height: 24px; padding: 0 6px; outline: none; }
 .select:hover { background: var(--fill-hover); }
-.select:focus { box-shadow: 0 0 0 2px var(--accent-soft), inset 0 0 0 1px var(--accent); }
+.select:focus { box-shadow: inset 0 0 0 1px var(--accent); background: var(--fill-hover); }
 .select option { background: #2c2c2c; }
 .seg { display: inline-flex; background: var(--fill); border-radius: 6px; padding: 2px; gap: 1px; }
 .seg-btn { border: 0; background: none; color: var(--text2); height: 22px; min-width: 26px; padding: 0 6px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
 .seg-btn:hover { color: var(--text); }
 .seg-btn.on { background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
 .text-input { background: var(--fill); border: 0; border-radius: 6px; height: 28px; padding: 0 9px; outline: none; width: 100%; }
-.text-input:focus { box-shadow: 0 0 0 3px var(--accent-soft), inset 0 0 0 1px var(--accent); }
+.text-input:focus { box-shadow: inset 0 0 0 1px var(--accent); background: var(--fill-hover); }
 .text-input.sm { height: 22px; padding: 0 6px; }
 
 /* ---------- dialogs ---------- */
@@ -425,7 +425,9 @@ body.busy-cursor, body.busy-cursor * { cursor: progress !important; }
 .font-tabs .seg-btn { flex: 1; }
 .font-search { display: flex; gap: 6px; }
 .font-search .text-input { flex: 1; min-width: 0; }
+/* the search field and the style list are one height */
 .font-search .select { flex: none; max-width: 130px; }
+.font-search .font-q, .font-search .font-cat { height: 28px; box-sizing: border-box; }
 .font-list { height: 340px; overflow-y: auto; margin: 0 -4px; }
 .font-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 32px; padding: 0 10px; border-radius: 6px; }
 .font-row:hover { background: var(--fill-hover); }

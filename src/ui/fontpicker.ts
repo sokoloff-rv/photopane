@@ -33,8 +33,8 @@ export function fontPicker(current: string, sys: SystemFonts, onPick: (family: s
     let tab: Tab = 'google';
     const panel = el('div', { class: 'menu-drop ctx-menu font-pop' });
     const tabs = el('div', { class: 'seg font-tabs' });
-    const search = el('input', { class: 'text-input sm', type: 'text', placeholder: t('gf.search') }) as HTMLInputElement;
-    const cat = el('select', { class: 'select' }) as HTMLSelectElement;
+    const search = el('input', { class: 'text-input font-q', type: 'text', placeholder: t('gf.search') }) as HTMLInputElement;
+    const cat = el('select', { class: 'select font-cat' }) as HTMLSelectElement;
     cat.append(el('option', { value: '' }, t('gf.all')), ...CATS.map(c => el('option', { value: c }, t('gf.cat.' + c))));
     cat.value = lastCat;
     const list = el('div', { class: 'font-list' });
@@ -96,7 +96,6 @@ export function fontPicker(current: string, sys: SystemFonts, onPick: (family: s
           io.observe(row);
         }
         if (!items.length) list.append(el('div', { class: 'font-empty' }, t('gf.empty')));
-        foot.append(el('span', { class: 'muted sm' }, t('gf.note')));
       } else {
         const items = sys.list().filter(f => !q || f.toLowerCase().includes(q));
         for (const f of items) {

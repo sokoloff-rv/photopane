@@ -272,7 +272,7 @@ export class LassoTool extends Tool<LassoOpts> {
   private prepareEdges() {
     const d = app.doc!;
     const W = d.width, H = d.height;
-    const src = d.composite().getContext('2d')!.getImageData(0, 0, W, H).data;
+    const src = d.compositeRead().getImageData(0, 0, W, H).data;
     const L = new Float32Array(W * H);
     for (let i = 0, p = 0; p < L.length; i += 4, p++) L[p] = (0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2]) * src[i + 3] / 255;
     const mag = new Float32Array(W * H);
@@ -428,8 +428,7 @@ export class WandTool extends Tool<WandOpts> {
     const l = d.active;
     let img: ImageData;
     if (this.o.allLayers || !l || l.isGroup) {
-      const c = d.composite();
-      img = c.getContext('2d')!.getImageData(0, 0, d.width, d.height);
+      img = d.compositeRead().getImageData(0, 0, d.width, d.height);
     } else img = d.layerImageData(l);
     const cov = floodMask(img, e.x, e.y, this.o.tolerance, this.o.contiguous, this.o.antialias);
     applySelection(Selection.fromAlphaArray(cov, d.width, d.height), mode);

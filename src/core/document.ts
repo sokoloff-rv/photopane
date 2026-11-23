@@ -179,6 +179,23 @@ export class Doc {
     return this._composite;
   }
 
+  /**
+   * The composite for reading pixels (eyedropper, magic wand, fill, magnetic lasso). Reading the composite
+   * canvas itself makes the browser move it out of GPU memory, after which every redraw of a large picture
+   * uploads it again; this CPU copy is refreshed only when the picture has changed.
+   */
+  compositeRead(): CanvasRenderingContext2D {
+    const r = this._read;
+    if (r && r.ver === this.version && r.g.canvas.width === this.width && r.g.canvas.height === this.height) return r.g;
+    const c = r?.g.canvas.width === this.width && r.g.canvas.height === this.height ? r.g.canvas as HTMLCanvasElement : createCanvas(this.width, this.height);
+    const g = r?.g.canvas === c ? r.g : c.getContext('2d', { willReadFrequently: true })!;
+    g.clearRect(0, 0, this.width, this.height);
+    g.drawImage(this.composite(), 0, 0);
+    this._read = { g, ver: this.version };
+    return g;
+  }
+  private _read: { g: CanvasRenderingContext2D; ver: number } | null = null;
+
   /** Layer rendered into a document-sized canvas (without effects, with mask). */
   layerImageData(l: Layer): ImageData {
     const c = createCanvas(this.width, this.height);

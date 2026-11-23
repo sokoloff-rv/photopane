@@ -225,13 +225,13 @@ export function sampleColor(x: number, y: number, size: number, allLayers: boole
   const ix = Math.floor(x), iy = Math.floor(y);
   if (ix < 0 || iy < 0 || ix >= d.width || iy >= d.height) return null;
   const r = Math.floor(size / 2);
-  let src: HTMLCanvasElement, ox = 0, oy = 0;
-  if (allLayers) src = d.composite();
-  else { const l = d.active; if (!l || l.isGroup) return null; src = l.canvas; ox = l.x; oy = l.y; }
+  let g: CanvasRenderingContext2D, ox = 0, oy = 0;
+  if (allLayers) g = d.compositeRead();
+  else { const l = d.active; if (!l || l.isGroup) return null; g = ctx2d(l.canvas); ox = l.x; oy = l.y; }
   const sx = Math.max(0, ix - r - ox), sy = Math.max(0, iy - r - oy);
-  const w = Math.min(src.width - sx, size), h = Math.min(src.height - sy, size);
+  const w = Math.min(g.canvas.width - sx, size), h = Math.min(g.canvas.height - sy, size);
   if (w <= 0 || h <= 0) return null;
-  const data = ctx2d(src).getImageData(sx, sy, w, h).data;
+  const data = g.getImageData(sx, sy, w, h).data;
   let R = 0, G = 0, B = 0, A = 0;
   for (let i = 0; i < data.length; i += 4) { const a = data[i + 3]; R += data[i] * a; G += data[i + 1] * a; B += data[i + 2] * a; A += a; }
   if (!A) return null;

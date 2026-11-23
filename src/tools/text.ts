@@ -396,7 +396,7 @@ export class TextTool extends Tool<TextOpts> {
       numberField({ label: t('opt.size'), value: Math.round(td.size * 10) / 10, min: 1, max: 2000, step: 0.5, unit: 'px', onChange: (v, fin) => { if (fin) this.setStyle({ size: v }); } }),
       colorSwatch(td.color as RGB, t('opt.textColor'), c => { if (this.targetLayer()) this.setStyle({ color: c }); else app.setColor('fg', c); }),
       sep(),
-      el('div', { class: 'seg' }, toggle('italic', 'italic'), toggle('underline', 'underline'), toggle('strike', 'strike'), toggle('caps', 'caps')),
+      el('div', { class: 'seg' }, toggle('italic', 'italic'), toggle('underline', 'underline'), toggle('strike', 'strike')),
       sep(),
       segmented<'left' | 'center' | 'right'>([
         { value: 'left', icon: 'alignL', title: t('opt.alignLeft') },
@@ -404,7 +404,7 @@ export class TextTool extends Tool<TextOpts> {
         { value: 'right', icon: 'alignR', title: t('opt.alignRight') },
       ], td.align, v => this.setAlign(v)),
       numberField({ label: t('opt.leading'), value: Math.round(td.leading * 100), min: 50, max: 2000, unit: '%', presets: [80, 100, 115, 125, 150, 175, 200, 250, 300], onChange: (v, fin) => { if (fin) this.setStyle({ leading: v / 100 }); } }),
-      numberField({ label: t('opt.tracking'), value: td.tracking, min: -200, max: 1000, presets: [-100, -75, -50, -25, -10, 0, 10, 25, 50, 75, 100, 200], onChange: (v, fin) => { if (fin) this.setStyle({ tracking: v }); } }),
+      numberField({ label: t('opt.tracking'), title: t('opt.trackingTip'), value: td.tracking, min: -200, max: 1000, presets: [-100, -75, -50, -25, -10, 0, 10, 25, 50, 75, 100, 200], onChange: (v, fin) => { if (fin) this.setStyle({ tracking: v }); } }),
       ...(this.editing ? [spacer(), textButton(t('opt.apply'), () => this.commit(), true)] : []),
     ];
   }

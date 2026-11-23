@@ -1,4 +1,5 @@
 import { app } from '../../app';
+import type { Doc } from '../../core/document';
 import { el, clamp } from '../../core/util';
 import { Panel } from './panel';
 import { iconButton } from '../controls';
@@ -42,6 +43,28 @@ export class NavigatorPanel extends Panel {
     new ResizeObserver(() => requestAnimationFrame(() => this.render())).observe(this.canvas.parentElement!);
   }
 
+  private thumb: { canvas: HTMLCanvasElement; doc: unknown; ver: number; at: number } | null = null;
+  private thumbTimer = 0;
+  /** Small copy of the picture; while it keeps changing it is redrawn at most every 200 ms. */
+  private thumbnail(d: Doc, tw: number, th: number): HTMLCanvasElement {
+    let t = this.thumb;
+    const fresh = t && t.doc === d && t.canvas.width === tw && t.canvas.height === th;
+    if (fresh && t!.ver === d.version) return t!.canvas;
+    const now = performance.now();
+    if (fresh && now - t!.at < 200) {
+      if (!this.thumbTimer) this.thumbTimer = window.setTimeout(() => { this.thumbTimer = 0; this.render(); }, 220);
+      return t!.canvas;
+    }
+    const c = t?.canvas ?? document.createElement('canvas');
+    if (c.width !== tw || c.height !== th) { c.width = tw; c.height = th; }
+    const g = c.getContext('2d')!;
+    g.clearRect(0, 0, tw, th);
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(d.displayComposite(), 0, 0, tw, th);
+    t = this.thumb = { canvas: c, doc: d, ver: d.version, at: now };
+    return c;
+  }
+
   private centerAt(e: PointerEvent) {
     const d = app.doc;
     if (!d) return;
@@ -61,7 +84,8 @@ export class NavigatorPanel extends Panel {
     const view = this.canvas.parentElement!;
     const W = Math.max(40, view.clientWidth), H = Math.max(40, view.clientHeight);
     const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = Math.max(1, W * dpr); this.canvas.height = H * dpr;
+    const cw = Math.max(1, Math.round(W * dpr)), ch = Math.max(1, Math.round(H * dpr));
+    if (this.canvas.width !== cw || this.canvas.height !== ch) { this.canvas.width = cw; this.canvas.height = ch; }
     this.canvas.style.width = W + 'px'; this.canvas.style.height = H + 'px';
     const g = this.canvas.getContext('2d')!;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -73,8 +97,7 @@ export class NavigatorPanel extends Panel {
     const x = (W - w) / 2, y = (H - h) / 2;
     this.box = { x, y, w, h, scale };
     g.fillStyle = '#fff'; g.fillRect(x, y, w, h);
-    g.imageSmoothingQuality = 'high';
-    g.drawImage(d.displayComposite(), x, y, w, h);
+    g.drawImage(this.thumbnail(d, Math.max(1, Math.round(w * dpr)), Math.max(1, Math.round(h * dpr))), x, y, w, h);
     // viewport rectangle
     const vp = app.viewport;
     const vx = x + (-d.panX / d.zoom) * scale, vy = y + (-d.panY / d.zoom) * scale;

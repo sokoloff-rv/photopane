@@ -35,7 +35,9 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
     const d = app.doc!;
     tg.surface.ensureCovers({ x: 0, y: 0, w: d.width, h: d.height });
     this.target = tg;
-    this.backup = cloneCanvas(tg.surface.canvas);
+    // the dabs read the stroke's starting pixels: a CPU canvas, so the first read does not wait for the GPU
+    this.backup = createCanvas(tg.surface.w, tg.surface.h);
+    this.backup.getContext('2d', { willReadFrequently: true })!.drawImage(tg.surface.canvas, 0, 0);
     this.sel = d.selection ? d.selection.alpha() : null;
     this.total = null;
     this.path = new DabPath(() => Math.max(1, this.o.size * this.spacing()));

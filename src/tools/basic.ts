@@ -341,7 +341,7 @@ export class BucketTool extends Tool<BucketOpts> {
     if (!target) return;
     if (e.x < 0 || e.y < 0 || e.x >= d.width || e.y >= d.height) return;
     let img: ImageData;
-    if (this.o.allLayers || target.isMask) img = ctx2d(d.composite()).getImageData(0, 0, d.width, d.height);
+    if (this.o.allLayers || target.isMask) img = d.compositeRead().getImageData(0, 0, d.width, d.height);
     else img = d.layerImageData(target.layer);
     const cov = floodMask(img, e.x, e.y, this.o.tolerance, this.o.contiguous, this.o.antialias);
     const buf = createCanvas(d.width, d.height);

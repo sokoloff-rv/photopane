@@ -30,6 +30,9 @@ export class Viewport {
   private devSize: { w: number; h: number } | null = null;
   /** Cached sharp downscale of the picture for zooms below 100% */
   private scaled: { canvas: HTMLCanvasElement; doc: unknown; ver: number; w: number; h: number; ok: boolean } | null = null;
+  /** When the picture last changed, and the pending sharp redraw after a burst of changes. */
+  private lastChange = 0;
+  private sharpTimer = 0;
 
   /** Compare: the document shown in this pane (null = the current document). */
   bound: Doc | null = null;
@@ -270,6 +273,20 @@ export class Viewport {
       const dw = Math.max(1, Math.round(d.width * dz)), dh = Math.max(1, Math.round(d.height * dz));
       let s = this.scaled;
       if (!s || s.doc !== d || s.ver !== d.version || s.w !== dw || s.h !== dh) {
+        // while the picture keeps changing (painting, sliders, filter previews) the sharp resampling of the
+        // whole image (tens of ms on a large photo) waits: the browser's quick filter is drawn meanwhile,
+        // and the sharp version follows a moment after the last change
+        const now = performance.now();
+        const burst = s && s.doc === d && s.w === dw && s.h === dh && now - this.lastChange < 250;
+        this.lastChange = now;
+        if (burst) {
+          clearTimeout(this.sharpTimer);
+          this.sharpTimer = window.setTimeout(() => this.render(), 260);
+          g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+          g.drawImage(comp, dx, dy, dw, dh);
+          g.restore();
+          return;
+        }
         const canvas = s?.canvas ?? document.createElement('canvas');
         s = this.scaled = { canvas, doc: d, ver: d.version, w: dw, h: dh, ok: resampleSharp(comp, dw, dh, canvas) };
       }

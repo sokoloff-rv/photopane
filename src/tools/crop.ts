@@ -318,22 +318,38 @@ export class PerspCropTool extends Tool {
   private quad: Quad | null = null;
   private docId = -1;
   private drag: { i: number; start: P; quad: Quad } | null = null;
+  /** Esc / Cancel removed the frame: no frame until a new one is dragged out (like the crop tool). */
+  private cleared = false;
 
   constructor() { super({}); }
 
   activate() { this.reset(); }
   private reset() {
     const d = app.doc;
+    this.cleared = false;
     if (!d) { this.quad = null; return; }
     const ix = d.width * 0.1, iy = d.height * 0.1;
     this.quad = rectQuad({ x: ix, y: iy, w: d.width - 2 * ix, h: d.height - 2 * iy });
     this.docId = d.id;
     app.update('overlay');
   }
-  private ensure() { if (!app.doc) return false; if (this.docId !== app.doc.id || !this.quad) this.reset(); return !!this.quad; }
+  private ensure() {
+    if (!app.doc) return false;
+    if (this.docId !== app.doc.id) this.reset();
+    else if (!this.quad && !this.cleared) this.reset();
+    return !!this.quad;
+  }
+  private clear() { this.quad = null; this.drag = null; this.cleared = true; this.docId = app.doc?.id ?? -1; app.update('overlay', 'options'); }
 
   down(e: PEvent) {
-    if (!this.ensure()) return;
+    if (!app.doc) return;
+    if (!this.ensure()) {
+      // no frame: drag out a new rectangle, its corners can then be moved
+      this.quad = rectQuad({ x: e.x, y: e.y, w: 0, h: 0 });
+      this.cleared = false;
+      this.drag = { i: -1, start: { x: e.x, y: e.y }, quad: this.quad };
+      return;
+    }
     const v = app.viewport;
     const q = this.quad!;
     let idx = q.findIndex(p => { const s = v.toScreen(p.x, p.y); return Math.hypot(s.x - e.sx, s.y - e.sy) < 10; });
@@ -346,6 +362,12 @@ export class PerspCropTool extends Tool {
     const dr = this.drag;
     if (!dr) return;
     const dx = e.x - dr.start.x, dy = e.y - dr.start.y;
+    if (dr.i === -1) {
+      const x0 = Math.min(dr.start.x, e.x), y0 = Math.min(dr.start.y, e.y);
+      this.quad = rectQuad({ x: x0, y: y0, w: Math.abs(dx), h: Math.abs(dy) });
+      app.update('overlay', 'options');
+      return;
+    }
     const q = dr.quad.map(p => ({ ...p })) as Quad;
     if (dr.i === 4) q.forEach(p => { p.x += dx; p.y += dy; });
     else q[dr.i] = { x: q[dr.i].x + dx, y: q[dr.i].y + dy };
@@ -353,10 +375,14 @@ export class PerspCropTool extends Tool {
     app.update('overlay');
   }
 
-  up() { this.drag = null; }
+  up() {
+    // a click without dragging leaves no frame
+    if (this.drag?.i === -1 && this.quad && Math.abs(this.quad[2].x - this.quad[0].x) < 2) this.clear();
+    this.drag = null;
+  }
 
   hover(e: PEvent) {
-    if (!this.ensure()) return;
+    if (!this.ensure()) { const c = arrowBadgeCursor('perspCrop'); if (c !== this.cursor) { this.cursor = c; app.viewport.updateCursor(); } return; }
     const v = app.viewport;
     const onCorner = this.quad!.some(p => { const s = v.toScreen(p.x, p.y); return Math.hypot(s.x - e.sx, s.y - e.sy) < 10; });
     const c = onCorner ? 'pointer' : pointInPoly({ x: e.x, y: e.y }, this.quad!) ? 'move' : arrowBadgeCursor('perspCrop');
@@ -365,7 +391,7 @@ export class PerspCropTool extends Tool {
 
   keydown(e: KeyboardEvent) {
     if (e.key === 'Enter') { this.apply(); return true; }
-    if (e.key === 'Escape') { this.reset(); return true; }
+    if (e.key === 'Escape') { if (this.quad) { this.clear(); return true; } return false; }
     return false;
   }
 
@@ -428,6 +454,6 @@ export class PerspCropTool extends Tool {
   }
 
   options() {
-    return [span(t('hint.perspCrop')), spacer(), textButton(t('dlg.cancel'), () => this.reset()), textButton(t('opt.apply'), () => this.apply(), true)];
+    return [span(t('hint.perspCrop')), spacer(), textButton(t('dlg.cancel'), () => this.clear()), textButton(t('opt.apply'), () => this.apply(), true)];
   }
 }

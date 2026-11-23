@@ -264,11 +264,14 @@ button { cursor: default; }
 .dlg-head { display: flex; align-items: center; padding: 12px 10px 4px 18px; user-select: none; }
 .dlg-title { flex: 1; font-size: 13px; font-weight: 600; }
 .dlg-x { opacity: 0.7; }
-.dlg-body { padding: 10px 18px 6px; overflow: auto; }
+.dlg-body { padding: 10px 18px 6px; overflow-x: hidden; overflow-y: auto; }
 .dlg-foot { display: flex; gap: 8px; padding: 14px 18px 16px; }
 .dlg-text { margin: 4px 0 8px; color: var(--text2); line-height: 1.5; }
 .form { display: flex; flex-direction: column; gap: 10px; }
-.form-row { display: flex; align-items: center; gap: 10px; }
+.form-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* fields in a dialog row shrink to the dialog instead of pushing past it (long choices end with …) */
+.form-row > * { min-width: 0; }
+.dlg .select { max-width: 100%; text-overflow: ellipsis; }
 .form-row > label:first-child { width: 110px; color: var(--text2); flex: none; }
 .form-label { color: var(--text2); margin-top: 4px; }
 .preset-row { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -341,7 +344,7 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .icon-btn:disabled { opacity: 0.35; pointer-events: none; }
 
 /* ---------- stage 4: layer style ---------- */
-.ls { display: grid; grid-template-columns: 190px 1fr; gap: 16px; min-height: 380px; }
+.ls { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 16px; min-height: 380px; }
 .ls-list { display: flex; flex-direction: column; gap: 1px; border-right: 1px solid var(--sep); padding-right: 10px; }
 .ls-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; }
 .ls-item:hover { background: var(--fill); }

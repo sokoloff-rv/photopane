@@ -68,6 +68,7 @@ const BRUSH_SLIDERS: { key: string; label: string; min: number; max: number; uni
 ];
 const BRUSH_CHECKS: { key: string; label: string }[] = [
   { key: 'pressure', label: 'opt.pressure' }, { key: 'aligned', label: 'opt.aligned' }, { key: 'allLayers', label: 'opt.allLayers' },
+  { key: 'showSource', label: 'opt.showSource' },
 ];
 
 /**

@@ -5,7 +5,7 @@ import { AdjustSession } from '../core/adjust';
 import { gaussianBlur, smoothstep } from '../core/filters';
 import { createCanvas, ctx2d, clamp } from '../core/util';
 import { previews } from '../core/render';
-import { numberField, segmented, sep } from '../ui/controls';
+import { numberField } from '../ui/controls';
 import { spacer, textButton, span } from './transform';
 import { toast } from '../ui/dialog';
 
@@ -52,7 +52,8 @@ export class BlurGalleryTool extends Tool {
 
   constructor() { super({}); }
 
-  get nameKey() { return 'cmd.blurGallery'; }
+  /** Each of the three is its own filter to the user: its own name, options and history step. */
+  get nameKey() { return this.mode === 'field' ? 'cmd.fieldBlur' : this.mode === 'iris' ? 'cmd.irisBlur' : 'cmd.tiltShift'; }
   get hintKey() { return 'hint.blur.' + this.mode; }
 
   begin(mode: Mode): boolean {
@@ -168,7 +169,7 @@ export class BlurGalleryTool extends Tool {
       const R = this.maxBlur();
       const levels = this.levelsFor(this.srcCanvas!, R);
       this.cleanup();
-      s.commit('cmd.blurGallery', (_src, dst) => this.composite(levels, R, s.w, s.h, 1, s.ox, s.oy, dst));
+      s.commit(this.nameKey, (_src, dst) => this.composite(levels, R, s.w, s.h, 1, s.ox, s.oy, dst));
       app.popTool();
     }, 30);
   }
@@ -318,12 +319,6 @@ export class BlurGalleryTool extends Tool {
   options() {
     const blurVal = this.mode === 'field' ? (this.pins[this.selPin]?.blur ?? 15) : this.mode === 'iris' ? this.iris.blur : this.tilt.blur;
     return [
-      segmented<Mode>([
-        { value: 'field', label: t('blur.field'), title: t('cmd.fieldBlur') },
-        { value: 'iris', label: t('blur.iris'), title: t('cmd.irisBlur') },
-        { value: 'tilt', label: t('blur.tilt'), title: t('cmd.tiltShift') },
-      ], this.mode, v => { this.mode = v; this.schedule(); app.update('options', 'overlay', 'status'); }),
-      sep(),
       numberField({
         label: t('blur.amount'), value: Math.round(blurVal), min: 0, max: 500, unit: 'px',
         onChange: v => {

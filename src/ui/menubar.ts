@@ -56,9 +56,9 @@ export class MenuBar {
       btn.addEventListener('pointerdown', e => {
         e.preventDefault();
         if (this.open === wrap) { this.close(); return; }
-        this.show(wrap, m.items);
+        this.show(wrap, m.items, m.key === 'menu.filter');
       });
-      btn.addEventListener('pointerenter', () => { if (this.open && this.open !== wrap) this.show(wrap, m.items); });
+      btn.addEventListener('pointerenter', () => { if (this.open && this.open !== wrap) this.show(wrap, m.items, m.key === 'menu.filter'); });
       menus.append(wrap);
     }
     const lang = el('button', { class: 'chip', title: t('cmd.language') }, icon('languages', 14), el('span', {}, getLang().toUpperCase()));
@@ -66,14 +66,15 @@ export class MenuBar {
     this.el.append(logo, menus, el('div', { style: { flex: '1' } }), lang);
   }
 
-  private show(wrap: HTMLElement, items: Item[]) {
+  /** `noKeys`: the Filter menu lists every filter equally, so no shortcut stands out (they still work). */
+  private show(wrap: HTMLElement, items: Item[], noKeys = false) {
     this.close();
-    wrap.append(this.buildList(items));
+    wrap.append(this.buildList(items, noKeys));
     wrap.classList.add('open');
     this.open = wrap;
   }
 
-  private buildList(items: Item[]): HTMLElement {
+  private buildList(items: Item[], noKeys = false): HTMLElement {
     const list = el('div', { class: 'menu-drop' });
     for (const it of items) {
       if (it === '-') { list.append(el('div', { class: 'menu-sep' })); continue; }
@@ -91,7 +92,7 @@ export class MenuBar {
       const row = el('div', { class: 'menu-item' + (enabled ? '' : ' disabled') },
         el('span', { class: 'mi-check' }, checked ? icon('check', 13) : ''),
         el('span', { class: 'mi-label' }, t(c?.label || 'cmd.' + it)),
-        el('span', { class: 'mi-key' }, c?.keys?.[0] ? prettyKey(c.keys[0]) : ''));
+        el('span', { class: 'mi-key' }, c?.keys?.[0] && !noKeys ? prettyKey(c.keys[0]) : ''));
       if (!c) row.title = t('app.soon');
       row.addEventListener('click', e => {
         e.stopPropagation();

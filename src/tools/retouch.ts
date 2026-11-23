@@ -323,7 +323,7 @@ export class ReplaceTool extends PixelBrush<CROpts> {
 }
 
 /* ---------------- Clone stamp ---------------- */
-interface StampOpts { size: number; hardness: number; opacity: number; flow: number; aligned: boolean; allLayers: boolean }
+interface StampOpts { size: number; hardness: number; opacity: number; flow: number; aligned: boolean; allLayers: boolean; showSource: boolean }
 
 export class StampTool extends Tool<StampOpts> {
   readonly id = 'stamp';
@@ -337,7 +337,7 @@ export class StampTool extends Tool<StampOpts> {
   private dabCanvas = createCanvas(1, 1);
   private strokeStart: { x: number; y: number } | null = null;
 
-  constructor() { super({ size: 60, hardness: 50, opacity: 100, flow: 100, aligned: true, allLayers: false }); }
+  constructor() { super({ size: 60, hardness: 50, opacity: 100, flow: 100, aligned: true, allLayers: false, showSource: true }); }
 
   brushSize() { return this.o.size; }
 
@@ -393,6 +393,8 @@ export class StampTool extends Tool<StampOpts> {
   }
 
   overlay(g: CanvasRenderingContext2D) {
+    // the source marker can be hidden to see the picture under it better
+    if (this.o.showSource === false) return;
     const v = app.viewport;
     let p: { x: number; y: number } | null = null;
     if (this.session && this.offset) {
@@ -423,6 +425,7 @@ export class StampTool extends Tool<StampOpts> {
       sep(),
       checkbox(t('opt.aligned'), this.o.aligned, v => { this.set('aligned', v); this.offset = null; }),
       checkbox(t('opt.allLayers'), this.o.allLayers, v => this.set('allLayers', v)),
+      checkbox(t('opt.showSource'), this.o.showSource !== false, v => { this.set('showSource', v); app.update('overlay'); }),
     ];
   }
 }

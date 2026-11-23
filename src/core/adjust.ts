@@ -21,6 +21,17 @@ export class AdjustSession {
   done = false;
   /** Before/after line (document x) for the preview: the original is shown left of it. */
   split: number | null = null;
+  /**
+   * Optional GPU renderer: returns a canvas with the finished layer (selection and split applied,
+   * premultiplied), or null to fall back to the CPU function.
+   */
+  gpu: ((final: boolean) => HTMLCanvasElement | null) | null = null;
+  /** Called once when the session ends (frees GPU resources). */
+  onEnd: (() => void) | null = null;
+  /** Last CPU result, so moving the before/after line does not recompute it. */
+  private full: Uint8ClampedArray | null = null;
+  private fullFn: unknown = null;
+  private out: ImageData | null = null;
 
   static start(): AdjustSession | null {
     const target = app.paintTarget();
@@ -51,10 +62,27 @@ export class AdjustSession {
   }
 
   apply(fn: (src: Uint8ClampedArray, dst: Uint8ClampedArray) => void, final = false) {
+    if (this.gpu) {
+      const c = this.gpu(final);
+      if (c) {
+        const g = this.target.surface.ctx;
+        g.save(); g.globalCompositeOperation = 'copy'; g.drawImage(c, 0, 0); g.restore();
+        this.target.layer.touch();
+        app.update('canvas');
+        return;
+      }
+      this.gpu = null;   // GPU lost: continue on the CPU
+    }
     const src = this.orig.data;
-    const out = new ImageData(this.w, this.h);
+    // the same function again (only the before/after line moved): reuse its result
+    if (!this.full || this.fullFn !== fn) {
+      this.full = new Uint8ClampedArray(src.length);
+      fn(src, this.full);
+      this.fullFn = fn;
+    }
+    const out = (this.out ??= new ImageData(this.w, this.h));
     const dst = out.data;
-    fn(src, dst);
+    dst.set(this.full);
     if (!final && this.split != null) {
       const cut = Math.max(0, Math.min(this.w, Math.round(this.split - this.ox)));
       for (let y = 0; y < this.h; y++) { const r = y * this.w * 4; dst.set(src.subarray(r, r + cut * 4), r); }
@@ -76,6 +104,13 @@ export class AdjustSession {
     app.update('canvas');
   }
 
+  private end() {
+    this.done = true;
+    this.full = null; this.out = null;
+    this.onEnd?.(); this.onEnd = null;
+    this.gpu = null;
+  }
+
   restore() {
     this.target.surface.ctx.putImageData(this.orig, 0, 0);
     this.target.layer.touch();
@@ -86,7 +121,7 @@ export class AdjustSession {
     if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
     this.split = null;
     if (fn) this.apply(fn, true); else if (this.pending) { this.pending(); this.pending = null; }
-    this.done = true;
+    this.end();
     this.target.surface.markDirty();
     app.commit(label);
   }
@@ -94,7 +129,7 @@ export class AdjustSession {
   cancel() {
     if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
     this.pending = null;
-    this.done = true;
+    this.end();
     this.restore();
   }
 }

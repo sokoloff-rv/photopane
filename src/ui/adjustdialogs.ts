@@ -9,6 +9,7 @@ import {
 import { histogram, levelsLUT, curveLUT, composeLUT, gaussianBlur, clipPoints, Histogram } from '../core/filters';
 import { keepAlpha } from '../core/fx';
 import { splitCompareTool } from '../tools/splitcompare';
+import { EnhanceGPU } from '../core/gpuadjust';
 
 /* ---------------- controls ---------------- */
 export interface SliderSpec { key: string; label: string; min: number; max: number; def: number; step?: number; unit?: string }
@@ -47,21 +48,25 @@ export function adjustDialog(opts: {
     const f = opts.compute(s);
     return keepA ? (src: Uint8ClampedArray, dst: Uint8ClampedArray) => { f(src, dst); keepAlpha(src, dst); } : f;
   };
-  const refresh = () => { if (previewOn) s.preview(fn()); };
-  const prev = checkbox(t('adj.preview'), true, v => { previewOn = v; if (v) refresh(); else s.restore(); });
+  // `cur` is the function for the current settings; the session reuses its result while only the
+  // before/after line moves
+  let cur: ((src: Uint8ClampedArray, dst: Uint8ClampedArray) => void) | null = null;
+  const refresh = () => { cur = fn(); if (previewOn) s.preview(cur); };
+  const refreshView = () => { if (previewOn) s.preview(cur ??= fn()); };
+  const prev = checkbox(t('adj.preview'), true, v => { previewOn = v; if (v) refreshView(); else s.restore(); });
   let splitOn = false;
   const endSplit = () => { if (!splitOn) return; splitOn = false; splitCompareTool.detach(); if (app.tool === splitCompareTool) app.popTool(); app.update('overlay'); };
   const split = checkbox(t('adj.beforeAfter'), false, v => {
-    if (v) { splitOn = true; splitCompareTool.attach(s, refresh); app.pushTool(splitCompareTool); }
+    if (v) { splitOn = true; splitCompareTool.attach(s, refreshView); app.pushTool(splitCompareTool); }
     else endSplit();
-    refresh();
+    refreshView();
   });
   const rows: HTMLElement[] = [prev, split];
   if (opts.alpha) rows.push(checkbox(t('adj.keepAlpha'), keepA, v => { keepA = v; app.settings.fltKeepAlpha = v; app.saveSettings(); refresh(); }));
   opts.body.append(el('div', { class: 'adj-foot adj-foot-wrap' }, ...rows, ...(opts.extra || [])));
   openDialog({
     title: opts.title, body: opts.body, width: opts.width || 340, side: true,
-    onOk: () => { endSplit(); s.commit(opts.label, fn()); },
+    onOk: () => { endSplit(); s.commit(opts.label, cur ?? fn()); },
     onCancel: () => { endSplit(); s.cancel(); },
   });
   opts.onReady?.(s, refresh);
@@ -111,6 +116,14 @@ export function enhanceDialog(vignetteOnly = false) {
     title: vignetteOnly ? t('cmd.vignette') : t('cmd.enhance'), body, width: 320,
     label: vignetteOnly ? 'cmd.vignette' : 'cmd.enhance',
     compute: s => (src, dst) => enhance(p, s, (cache ??= new DetailCache(s)), src, dst),
+    onReady: s => {
+      // the same maths on the GPU: smooth sliders even on large photos (CPU stays as the fallback)
+      const gpu = EnhanceGPU.create(s);
+      if (!gpu) return;
+      const d = app.doc!;
+      s.gpu = final => gpu.render(p, d.width, d.height, final ? null : s.split);
+      s.onEnd = () => gpu.dispose();
+    },
     extra: vignetteOnly ? [el('div', { style: { flex: '1' } }), reset] : [el('div', { style: { flex: '1' } }), auto, reset],
   });
   if (res) { refresh = res.refresh; session = res.s; if (vignetteOnly) refresh(); }

@@ -6,11 +6,14 @@
  * create() returns null where WebGL2 is missing or the layer is too large; the chain then uses the CPU.
  */
 import type { EnhanceParams } from './adjust';
+import { HslParams, ToneParams, tintChroma } from './colorgrade';
 
 /** One step of the chain as the GPU sees it. */
 export type GpuStageDesc =
   | { kind: 'enhance'; p: EnhanceParams }
-  | { kind: 'lut'; r: Uint8ClampedArray; g: Uint8ClampedArray; b: Uint8ClampedArray };
+  | { kind: 'lut'; r: Uint8ClampedArray; g: Uint8ClampedArray; b: Uint8ClampedArray }
+  | { kind: 'hsl'; p: HslParams }
+  | { kind: 'tone'; p: ToneParams };
 
 const VS = `#version 300 es
 in vec2 p;
@@ -182,6 +185,89 @@ void main() {
   o = res;
 }`;
 
+/* HSL colour helpers shared by the colour shaders (the same as rgbToHsl / hslToRgb in core/color.ts). */
+const COLOR_GLSL = `
+vec3 rgb2hsl(vec3 c) {
+  float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+  float l = (mx + mn) * 0.5;
+  if (mx == mn) return vec3(0.0, 0.0, l);
+  float d = mx - mn;
+  float s = l > 0.5 ? d / (2.0 - mx - mn) : d / (mx + mn);
+  float h;
+  if (mx == c.r) h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+  else if (mx == c.g) h = (c.b - c.r) / d + 2.0;
+  else h = (c.r - c.g) / d + 4.0;
+  return vec3(h / 6.0, s, l);
+}
+float hue2rgb(float p, float q, float t) {
+  if (t < 0.0) t += 1.0;
+  if (t > 1.0) t -= 1.0;
+  if (t < 1.0 / 6.0) return p + (q - p) * 6.0 * t;
+  if (t < 0.5) return q;
+  if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+  return p;
+}
+vec3 hsl2rgb(vec3 h) {
+  if (h.y == 0.0) return vec3(h.z);
+  float q = h.z < 0.5 ? h.z * (1.0 + h.y) : h.z + h.y - h.z * h.y;
+  float p = 2.0 * h.z - q;
+  return vec3(hue2rgb(p, q, h.x + 1.0 / 3.0), hue2rgb(p, q, h.x), hue2rgb(p, q, h.x - 1.0 / 3.0));
+}`;
+
+/* HSL mixer: hslMix() in core/colorgrade.ts. */
+const FS_HSL = `#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D uIn, uSel; uniform int uHasSel;
+uniform float uHue[8], uSat[8], uLum[8];
+out vec4 o;
+${COLOR_GLSL}
+const float C[9] = float[9](0.0, 30.0, 60.0, 120.0, 180.0, 225.0, 270.0, 315.0, 360.0);
+void main() {
+  ivec2 q = ivec2(gl_FragCoord.xy);
+  vec4 s = texelFetch(uIn, q, 0);
+  vec4 res = s;
+  vec3 hsl = rgb2hsl(s.rgb);
+  if (hsl.y > 0.0) {
+    float hd = mod(hsl.x * 360.0, 360.0);
+    float dh = 0.0, ds = 0.0, dl = 0.0;
+    for (int i = 0; i < 8; i++) {
+      if (hd >= C[i] && hd < C[i + 1]) {
+        float t = (hd - C[i]) / (C[i + 1] - C[i]);
+        int j = i == 7 ? 0 : i + 1;
+        dh = uHue[i] * (1.0 - t) + uHue[j] * t;
+        ds = uSat[i] * (1.0 - t) + uSat[j] * t;
+        dl = uLum[i] * (1.0 - t) + uLum[j] * t;
+      }
+    }
+    float sw = smoothstep(0.02, 0.2, hsl.y);
+    float h2 = mod(hsl.x + dh / 100.0 * (30.0 / 360.0) * sw + 1.0, 1.0);
+    float s2 = clamp(hsl.y * (1.0 + ds / 100.0), 0.0, 1.0);
+    float k = dl / 100.0 * 0.5 * sw;
+    float l2 = clamp(k > 0.0 ? hsl.z + (1.0 - hsl.z) * k : hsl.z + hsl.z * k, 0.0, 1.0);
+    res = vec4(hsl2rgb(vec3(h2, s2, l2)), s.a);
+  }
+  if (uHasSel == 1) res = mix(s, res, texelFetch(uSel, q, 0).r);
+  o = res;
+}`;
+
+/* Toning: splitTone() in core/colorgrade.ts. */
+const FS_TONE = `#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D uIn, uSel; uniform int uHasSel;
+uniform vec3 uTS, uTH; uniform float uAS, uAH, uMid;
+out vec4 o;
+void main() {
+  ivec2 q = ivec2(gl_FragCoord.xy);
+  vec4 s = texelFetch(uIn, q, 0);
+  float L = dot(s.rgb, vec3(0.299, 0.587, 0.114));
+  float t = smoothstep(uMid - 0.3, uMid + 0.3, L);
+  float fade = clamp(L * 5.0, 0.0, 1.0) * clamp((1.0 - L) * 5.0, 0.0, 1.0);
+  vec3 c = s.rgb + uTS * (uAS * (1.0 - t) * fade) + uTH * (uAH * t * fade);
+  vec4 res = vec4(clamp(c, 0.0, 1.0), s.a);
+  if (uHasSel == 1) res = mix(s, res, texelFetch(uSel, q, 0).r);
+  o = res;
+}`;
+
 /* Screen output: the result (the original left of the before/after line), flipped and premultiplied for drawImage. */
 const FS_SHOW = `#version 300 es
 precision highp float; precision highp int;
@@ -196,7 +282,7 @@ void main() {
 interface Prog { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> }
 interface GL {
   canvas: HTMLCanvasElement; gl: WebGL2RenderingContext;
-  enh: Prog; lut: Prog; show: Prog; blur: Prog; down: Prog;
+  enh: Prog; lut: Prog; hsl: Prog; tone: Prog; show: Prog; blur: Prog; down: Prog;
   /** internal format for the wide blur: half float when it can be rendered to */
   fmt: { internal: number; type: number };
   maxSize: number;
@@ -230,6 +316,8 @@ function init(): GL | null {
     const enh = prog(FS_ENH, ['uIn', 'uSmall', 'uLarge', 'uSel', 'uSize', 'uOrigin', 'uHasSel', 'uHasSmall', 'uHasLarge', 'uHasVig',
       'uGamma', 'uCf', 'uBp', 'uWp', 'uSh', 'uHl', 'uWr', 'uWb', 'uTg', 'uHshift', 'uSkin', 'uSat', 'uVib', 'uSharp', 'uClar', 'uGrain', 'uVamt', 'uVc', 'uVr', 'uInner', 'uWidth']);
     const lut = prog(FS_LUT, ['uIn', 'uLut', 'uSel', 'uHasSel']);
+    const hsl = prog(FS_HSL, ['uIn', 'uSel', 'uHasSel', 'uHue', 'uSat', 'uLum']);
+    const tone = prog(FS_TONE, ['uIn', 'uSel', 'uHasSel', 'uTS', 'uTH', 'uAS', 'uAH', 'uMid']);
     const show = prog(FS_SHOW, ['uIn', 'uBase', 'uSize', 'uSplit']);
     const blur = prog(FS_BLUR, ['uIn', 'uSize', 'uDir', 'uSigma', 'uPremul']);
     const down = prog(FS_DOWN, ['uIn', 'uSize', 'uF']);
@@ -244,7 +332,7 @@ function init(): GL | null {
     const vp = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array;
     const maxSize = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) as number, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number, vp[0], vp[1]);
     canvas.addEventListener('webglcontextlost', () => { shared = undefined; });
-    return { canvas, gl, enh, lut, show, blur, down, fmt, maxSize, fbo: gl.createFramebuffer()! };
+    return { canvas, gl, enh, lut, hsl, tone, show, blur, down, fmt, maxSize, fbo: gl.createFramebuffer()! };
   } catch (e) {
     console.warn('PhotoPane: GPU adjustments unavailable', e);
     return null;
@@ -362,6 +450,24 @@ export class GpuChain {
   private stage(d: GpuStageDesc, input: WebGLTexture, key: string, out: WebGLTexture, docW: number, docH: number) {
     const { gl } = this.st;
     const sel = this.sel ?? input;
+    if (d.kind === 'hsl') {
+      const p = d.p;
+      this.pass(this.st.hsl, out, this.w, this.h, [['uIn', input], ['uSel', sel]], u => {
+        gl.uniform1i(u.uHasSel, this.sel ? 1 : 0);
+        gl.uniform1fv(u.uHue, new Float32Array(p.hue)); gl.uniform1fv(u.uSat, new Float32Array(p.sat)); gl.uniform1fv(u.uLum, new Float32Array(p.lum));
+      });
+      return;
+    }
+    if (d.kind === 'tone') {
+      const p = d.p, ts = tintChroma(p.shHue), th = tintChroma(p.hiHue);
+      this.pass(this.st.tone, out, this.w, this.h, [['uIn', input], ['uSel', sel]], u => {
+        gl.uniform1i(u.uHasSel, this.sel ? 1 : 0);
+        gl.uniform3f(u.uTS, ts[0], ts[1], ts[2]); gl.uniform3f(u.uTH, th[0], th[1], th[2]);
+        gl.uniform1f(u.uAS, p.shSat / 100 * 0.35); gl.uniform1f(u.uAH, p.hiSat / 100 * 0.35);
+        gl.uniform1f(u.uMid, 0.5 - p.balance / 100 * 0.3);
+      });
+      return;
+    }
     if (d.kind === 'lut') {
       const data = new Uint8Array(256 * 4);
       for (let i = 0; i < 256; i++) { data[i * 4] = d.r[i]; data[i * 4 + 1] = d.g[i]; data[i * 4 + 2] = d.b[i]; data[i * 4 + 3] = 255; }

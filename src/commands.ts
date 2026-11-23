@@ -13,6 +13,7 @@ import { TransformTool } from './tools/transform';
 import { imageSizeDialog, canvasSizeDialog, rotateArbitraryDialog } from './ui/docdialogs';
 import { fillDialog, strokeDialog } from './ui/filldialogs';
 import { batchDialog } from './ui/batchdialog';
+import { hslMixerDialog, toningDialog } from './ui/colordialogs';
 import { aiSettingsDialog, upscaleDialog, removeBackground, selectSubject, removeObject } from './ui/aidialogs';
 import {
   motionBlurDialog, radialBlurDialog, surfaceBlurDialog, highPassDialog, dehazeDialog, denoiseDialog, glowDialog,
@@ -180,6 +181,8 @@ export function registerCommands(app: App) {
   R('lut', () => lutDialog(), [], hasPixelLayer);
   R('levels', () => levelsDialog(), ['Ctrl+L'], hasPixelLayer);
   R('curves', () => curvesDialog(), ['Ctrl+M'], hasPixelLayer);
+  R('hslMixer', () => hslMixerDialog(), [], hasPixelLayer);
+  R('toning', () => toningDialog(), [], hasPixelLayer);
   R('invert', () => instantAdjust('cmd.invert', invert), ['Ctrl+I'], hasPixelLayer);
   R('desaturate', () => instantAdjust('cmd.desaturate', desaturate), ['Ctrl+Shift+U'], hasPixelLayer);
   R('gaussian', () => gaussianDialog(), [], hasPixelLayer);

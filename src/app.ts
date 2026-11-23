@@ -384,7 +384,7 @@ export class App {
   static readonly VIEW_COMMANDS = new Set(['zoomIn', 'zoomOut', 'fit', 'actual', 'rulers', 'showGuides', 'snap', 'clearGuides', 'shortcuts', 'about', 'language']);
   /** Correction and filter windows: different ones combine (the adjustment chain), each once. */
   static readonly CHAIN_COMMANDS = new Set([
-    'enhance', 'levels', 'curves', 'gaussian', 'unsharp', 'noise', 'motionBlur', 'radialBlur', 'surfaceBlur', 'highPass', 'dehaze',
+    'enhance', 'levels', 'curves', 'hslMixer', 'toning', 'gaussian', 'unsharp', 'noise', 'motionBlur', 'radialBlur', 'surfaceBlur', 'highPass', 'dehaze',
     'denoise', 'glow', 'chromatic', 'pixelate', 'halftone', 'sepia', 'posterize', 'threshold', 'emboss', 'gradientMap', 'lut',
   ]);
   /** While side windows are open: only viewing, and other correction/filter windows (an open one is pointed at). */

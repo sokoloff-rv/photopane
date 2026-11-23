@@ -11,7 +11,7 @@ const MENUS: { key: string; items: Item[] }[] = [
   { key: 'menu.file', items: ['new', 'newFromClipboard', 'open', '-', 'place', '-', 'save', 'saveAs', 'export', '-', 'batch', '-', 'close'] },
   { key: 'menu.edit', items: ['undo', 'redo', '-', 'cut', 'copy', 'copyMerged', 'paste', 'clear', '-', 'settings'] },
   { key: 'menu.image', items: [
-    'enhance', 'levels', 'curves', '-',
+    'enhance', 'levels', 'curves', 'hslMixer', 'toning', '-',
     'imageSize', 'canvasSize',
     { sub: 'cmd.rotation', items: ['rot180', 'rotCW', 'rotCCW', 'rotArbitrary', '-', 'flipCanvasH', 'flipCanvasV'] }, 'cropToSel', '-',
     'upscale', 'removeBg', 'removeObject'] },

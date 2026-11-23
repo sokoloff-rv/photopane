@@ -31,8 +31,8 @@ function sliderFilter<P extends Record<string, any>>(o: {
     ...(o.extra ? o.extra(p, () => refresh()) : []));
   const res = adjustDialog({
     title: t('cmd.' + o.cmd), body, label: 'cmd.' + o.cmd, alpha: o.alpha,
-    compute: s => (src, dst) => runJob(o.job(p, s.w, s.h, s.ox, s.oy, 1), src, dst, s.w, s.h),
-    job: o.fast ? undefined : (w, h, ox, oy, k) => o.job(p, w, h, ox, oy, k),
+    compute: c => (src, dst) => runJob(o.job(p, c.w, c.h, c.ox, c.oy, c.k), src, dst, c.w, c.h),
+    job: o.fast ? undefined : c => o.job(p, c.w, c.h, c.ox, c.oy, c.k),
   });
   if (res) { refresh = () => { app.saveSettings(); res.refresh(); }; res.refresh(); }
 }

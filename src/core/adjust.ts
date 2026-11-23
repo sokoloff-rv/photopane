@@ -21,20 +21,10 @@ export class AdjustSession {
   done = false;
   /** Before/after line (document x) for the preview: the original is shown left of it. */
   split: number | null = null;
-  /**
-   * Optional GPU renderer: returns a canvas with the finished layer (selection and split applied,
-   * premultiplied), or null to fall back to the CPU function.
-   */
-  gpu: ((final: boolean) => HTMLCanvasElement | null) | null = null;
-  /** Called once when the session ends (frees GPU resources). */
-  onEnd: (() => void) | null = null;
   /** Last CPU result, so moving the before/after line does not recompute it. */
   private full: Uint8ClampedArray | null = null;
   private fullFn: unknown = null;
   private out: ImageData | null = null;
-  /** Canvas copies of the original and the selection, for drawing drafts on the GPU. */
-  private origCanvas: HTMLCanvasElement | null = null;
-  private selCanvas: HTMLCanvasElement | null = null;
 
   static start(): AdjustSession | null {
     const target = app.paintTarget();
@@ -65,17 +55,6 @@ export class AdjustSession {
   }
 
   apply(fn: (src: Uint8ClampedArray, dst: Uint8ClampedArray) => void, final = false) {
-    if (this.gpu) {
-      const c = this.gpu(final);
-      if (c) {
-        const g = this.target.surface.ctx;
-        g.save(); g.globalCompositeOperation = 'copy'; g.drawImage(c, 0, 0); g.restore();
-        this.target.layer.touch();
-        app.update('canvas');
-        return;
-      }
-      this.gpu = null;   // GPU lost: continue on the CPU
-    }
     const src = this.orig.data;
     // the same function again (only the before/after line moved): reuse its result
     if (!this.full || this.fullFn !== fn) {
@@ -109,49 +88,7 @@ export class AdjustSession {
 
   private end() {
     this.done = true;
-    this.full = null; this.out = null; this.origCanvas = null; this.selCanvas = null;
-    this.onEnd?.(); this.onEnd = null;
-    this.gpu = null;
-  }
-
-  /**
-   * Show a reduced-size result scaled up to the layer (fast preview while the settings of a heavy filter
-   * change; the full result follows). Selection and the before/after line are applied with canvas compositing.
-   */
-  previewDraft(make: () => HTMLCanvasElement | null) {
-    this.pending = () => { const c = make(); if (c) this.drawDraft(c); };
-    if (!this.raf) this.raf = requestAnimationFrame(() => { this.raf = 0; const p = this.pending; this.pending = null; p?.(); });
-  }
-
-  private drawDraft(c: HTMLCanvasElement) {
-    const g = this.target.surface.ctx;
-    const { w, h } = this;
-    if (!this.origCanvas) { this.origCanvas = createCanvas(w, h); ctx2d(this.origCanvas).putImageData(this.orig, 0, 0); }
-    g.save();
-    g.globalCompositeOperation = 'copy';
-    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-    g.drawImage(c, 0, 0, w, h);
-    if (this.sel) {
-      if (!this.selCanvas) {
-        this.selCanvas = createCanvas(w, h);
-        const m = new ImageData(w, h);
-        for (let i = 0; i < this.sel.length; i++) m.data[i * 4 + 3] = this.sel[i];
-        ctx2d(this.selCanvas).putImageData(m, 0, 0);
-      }
-      // result inside the selection, original outside: draft·k + orig·(1−k)
-      g.globalCompositeOperation = 'destination-in'; g.drawImage(this.selCanvas, 0, 0);
-      const outside = createCanvas(w, h), og = ctx2d(outside);
-      og.drawImage(this.origCanvas, 0, 0);
-      og.globalCompositeOperation = 'destination-out'; og.drawImage(this.selCanvas, 0, 0);
-      g.globalCompositeOperation = 'lighter'; g.drawImage(outside, 0, 0);
-    }
-    if (this.split != null) {
-      const cut = Math.max(0, Math.min(w, Math.round(this.split - this.ox)));
-      if (cut > 0) { g.globalCompositeOperation = 'copy'; g.beginPath(); g.rect(0, 0, cut, h); g.clip(); g.drawImage(this.origCanvas, 0, 0); }
-    }
-    g.restore();
-    this.target.layer.touch();
-    app.update('canvas');
+    this.full = null; this.out = null;
   }
 
   restore() {
@@ -337,13 +274,18 @@ export function autoEnhanceParams(src: Uint8ClampedArray, sel: Uint8Array | null
   return p;
 }
 
-/** Cache of blurred copies used by sharpness/clarity. */
+/** Blurred copies of an input used by sharpness/clarity, kept while the same input comes back. */
 export class DetailCache {
-  small: Uint8ClampedArray | null = null;
-  large: Uint8ClampedArray | null = null;
-  constructor(private s: AdjustSession) {}
-  getSmall() { return (this.small ??= gaussianBlur(this.s.orig.data, this.s.w, this.s.h, 1.2)); }
-  getLarge() { return (this.large ??= gaussianBlur(this.s.orig.data, this.s.w, this.s.h, Math.max(8, Math.min(60, Math.max(this.s.w, this.s.h) / 60)))); }
+  private small: { src: Uint8ClampedArray; data: Uint8ClampedArray } | null = null;
+  private large: { src: Uint8ClampedArray; data: Uint8ClampedArray } | null = null;
+  getSmall(src: Uint8ClampedArray, w: number, h: number) {
+    if (this.small?.src !== src) this.small = { src, data: gaussianBlur(src, w, h, 1.2) };
+    return this.small.data;
+  }
+  getLarge(src: Uint8ClampedArray, w: number, h: number) {
+    if (this.large?.src !== src) this.large = { src, data: gaussianBlur(src, w, h, Math.max(8, Math.min(60, Math.max(w, h) / 60))) };
+    return this.large.data;
+  }
 }
 
 /** Vignette factor table builder. Returns t(x,y) 0..1 (0 = center). */
@@ -361,7 +303,8 @@ export function vignetteFn(docW: number, docH: number, midpoint: number, roundne
   };
 }
 
-export function enhance(p: EnhanceParams, s: AdjustSession, cache: DetailCache, src: Uint8ClampedArray, dst: Uint8ClampedArray) {
+/** `s`: size and layer offset of the pixels; k < 1 for a reduced draft (the vignette scales with it). */
+export function enhance(p: EnhanceParams, s: { w: number; h: number; ox: number; oy: number; k?: number }, cache: DetailCache, src: Uint8ClampedArray, dst: Uint8ClampedArray) {
   // per-channel tone LUT: brightness (gamma), contrast, whites/blacks
   const lut = new Float32Array(256);
   const gamma = Math.pow(2, -p.brightness / 100);
@@ -383,10 +326,11 @@ export function enhance(p: EnhanceParams, s: AdjustSession, cache: DetailCache, 
   const skin = p.skin / 100;
   // grain: luminance noise, stable per document pixel, strongest in the midtones
   const grain = p.grain / 100 * 0.16;
-  const small = sharp ? cache.getSmall() : null;
-  const large = clar ? cache.getLarge() : null;
+  const small = sharp ? cache.getSmall(src, s.w, s.h) : null;
+  const large = clar ? cache.getLarge(src, s.w, s.h) : null;
   const doc = app.doc!;
-  const vig = p.vignette ? vignetteFn(doc.width, doc.height, p.vigMidpoint, p.vigRoundness, p.vigFeather) : null;
+  const k = s.k ?? 1;
+  const vig = p.vignette ? vignetteFn(doc.width * k, doc.height * k, p.vigMidpoint, p.vigRoundness, p.vigFeather) : null;
   const vamt = p.vignette / 100;
   const W = s.w;
   for (let i = 0, px = 0; i < src.length; i += 4, px++) {

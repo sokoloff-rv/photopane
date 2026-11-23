@@ -1,7 +1,9 @@
 import { app } from '../app';
 import { t } from '../i18n';
 import { Tool, PEvent } from './tool';
-import type { AdjustSession } from '../core/adjust';
+
+/** Whatever shows a before/after preview: the line position in document x (null = off). */
+export interface SplitHost { split: number | null }
 
 /**
  * Before / after line on the canvas while a filter dialog is open: left of the line shows the original,
@@ -11,13 +13,13 @@ export class SplitCompareTool extends Tool {
   readonly id = 'splitCompare';
   readonly iconName = 'move';
   cursor = 'ew-resize';
-  private session: AdjustSession | null = null;
+  private session: SplitHost | null = null;
   private refresh: () => void = () => {};
   private dragging = false;
 
   constructor() { super({}); }
 
-  attach(s: AdjustSession, refresh: () => void) {
+  attach(s: SplitHost, refresh: () => void) {
     this.session = s;
     this.refresh = refresh;
     const d = app.doc!;

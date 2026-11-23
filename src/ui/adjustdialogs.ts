@@ -1,16 +1,15 @@
 import { app } from '../app';
-import { el, clamp, createCanvas, ctx2d } from '../core/util';
+import { el, clamp } from '../core/util';
 import { t } from '../i18n';
 import { openDialog } from './dialog';
 import { checkbox, select } from './controls';
 import {
-  AdjustSession, DetailCache, enhance, EnhanceParams, ENHANCE_DEFAULTS, autoEnhanceParams, applyLUTs, unsharp, addNoise,
+  DetailCache, enhance, EnhanceParams, ENHANCE_DEFAULTS, autoEnhanceParams, applyLUTs, unsharp, addNoise,
 } from '../core/adjust';
 import { histogram, levelsLUT, curveLUT, composeLUT, gaussianBlur, clipPoints, Histogram } from '../core/filters';
-import { keepAlpha } from '../core/fx';
-import { runJob, FxJob } from '../core/fxjobs';
-import { splitCompareTool } from '../tools/splitcompare';
-import { EnhanceGPU } from '../core/gpuadjust';
+import { FxJob } from '../core/fxjobs';
+import { AdjustChain, PixelFn, StageCtx } from '../core/adjustchain';
+import { GpuStageDesc } from '../core/gpuchain';
 
 /* ---------------- controls ---------------- */
 export interface SliderSpec { key: string; label: string; min: number; max: number; def: number; step?: number; unit?: string }
@@ -31,151 +30,45 @@ export function sliderRow(spec: SliderSpec, value: number, onInput: (v: number) 
 }
 
 /**
- * Common dialog with live preview over an AdjustSession. "Before / after" puts a draggable line on the
- * canvas (original on the left); `alpha` adds "Preserve transparency" for filters that spread pixels.
+ * A correction or filter window. It joins the adjustment chain (core/adjustchain.ts): several different
+ * windows can be open at once and combine in the order they were opened; the same window cannot be opened
+ * twice. "Before / after" (shared by all open windows) puts a draggable line on the canvas.
  */
-/** Size of the draft preview of heavy filters (pixels): about what the screen shows of a whole photo. */
-const DRAFT_PIXELS = 0.6e6;
-
-type PixelFn = (src: Uint8ClampedArray, dst: Uint8ClampedArray) => void;
-
 export function adjustDialog(opts: {
   title: string; body: HTMLElement; width?: number; label: string;
-  compute: (s: AdjustSession) => PixelFn;
-  onReady?: (s: AdjustSession, refresh: () => void) => void;
+  /** CPU computation for the current settings on the stage input. */
+  compute: (c: StageCtx) => PixelFn;
+  /** The current settings for the GPU (Adjust, Levels, Curves): smooth chains on large photos. */
+  gpu?: () => GpuStageDesc;
+  /** A heavy filter as a data job: draft preview on large layers, full result in a worker. */
+  job?: (c: StageCtx) => FxJob;
   extra?: HTMLElement[];
   alpha?: boolean;
-  /**
-   * The filter as a data job for the given size, with sizes in pixels scaled by k. On large layers this gives
-   * a draft preview (the filter on a reduced copy, instantly) and the full-size result from a worker
-   * once the sliders rest, so the dialog never freezes.
-   */
-  job?: (w: number, h: number, ox: number, oy: number, k: number) => FxJob;
 }) {
-  const s = AdjustSession.start();
-  if (!s) return null;
-  let previewOn = true;
+  const key = opts.label.replace(/^cmd\./, '');
   let keepA = opts.alpha ? !!app.settings.fltKeepAlpha : false;
-  const withAlpha = (f: PixelFn): PixelFn => keepA ? (src, dst) => { f(src, dst); keepAlpha(src, dst); } : f;
-  const fn = () => withAlpha(opts.compute(s));
-  // `cur` is the function for the current settings; the session reuses its result while only the
-  // before/after line moves
-  let cur: PixelFn | null = null;
-  /** Bumped on every settings change; worker results for older settings are dropped. */
-  let gen = 0;
-
-  /* ----- draft preview on a reduced copy ----- */
-  const useDraft = !!opts.job && s.w * s.h > DRAFT_PIXELS * 1.8;
-  // the draft size adapts so a heavy filter (radial blur) still answers within ~50 ms
-  let draftPx = DRAFT_PIXELS, sw = 1, sh = 1;
-  let smallSrc: ImageData | null = null, draftCanvas: HTMLCanvasElement | null = null, lastDraft: HTMLCanvasElement | null = null;
-  let draftShown = false, fullTimer = 0;
-  const makeDraft = () => {
-    const t0 = performance.now();
-    if (!draftCanvas || !smallSrc) {
-      const k = Math.min(1, Math.sqrt(draftPx / (s.w * s.h)));
-      sw = Math.max(1, Math.round(s.w * k)); sh = Math.max(1, Math.round(s.h * k));
-      const big = createCanvas(s.w, s.h);
-      ctx2d(big).putImageData(s.orig, 0, 0);
-      draftCanvas = createCanvas(sw, sh);
-      const g = ctx2d(draftCanvas);
-      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-      g.drawImage(big, 0, 0, sw, sh);
-      smallSrc = g.getImageData(0, 0, sw, sh);
-    }
-    const out = new ImageData(sw, sh);
-    runJob(opts.job!(sw, sh, s.ox * sw / s.w, s.oy * sh / s.h, sw / s.w), smallSrc.data, out.data, sw, sh);
-    if (keepA) keepAlpha(smallSrc.data, out.data);
-    ctx2d(draftCanvas).putImageData(out, 0, 0);
-    const c = (lastDraft = draftCanvas);
-    const ms = performance.now() - t0;
-    const next = ms > 50 ? draftPx * 50 / ms : ms < 15 ? draftPx * 1.5 : draftPx;
-    const clamped = Math.max(0.12e6, Math.min(DRAFT_PIXELS, next));
-    if (Math.abs(clamped - draftPx) / draftPx > 0.25) { draftPx = clamped; draftCanvas = null; smallSrc = null; }
-    return c;
-  };
-
-  /* ----- full-size result in a worker ----- */
-  let worker: Worker | null = null, workerFailed = false, busy = false, inflight = -1;
-  let queued: { id: number; job: FxJob } | null = null;
-  let waitFull: ((ok: boolean) => void) | null = null;
-  let haveFull = -1;   // gen of the full result shown
-  const startWorker = () => {
-    if (worker || workerFailed) return !!worker;
-    try {
-      worker = new Worker(new URL('../core/fxworker.ts', import.meta.url), { type: 'module' });
-      worker.postMessage({ type: 'init', src: s.orig.data.slice(), w: s.w, h: s.h });
-      worker.onmessage = (e: MessageEvent) => {
-        busy = false; inflight = -1;
-        if (queued) { const q = queued; queued = null; busy = true; inflight = q.id; worker!.postMessage({ type: 'run', ...q }); }
-        const { id, dst } = e.data as { id: number; dst: Uint8ClampedArray };
-        if (id !== gen || s.done) return;
-        const f = withAlpha((_src, out) => out.set(dst));
-        cur = f; haveFull = id; draftShown = false;
-        if (previewOn) s.preview(f);
-        waitFull?.(true); waitFull = null;
-      };
-      worker.onerror = () => { workerFailed = true; worker?.terminate(); worker = null; waitFull?.(false); waitFull = null; };
-    } catch { workerFailed = true; worker = null; }
-    return !!worker;
-  };
-  const runFull = () => {
-    if (s.done) return;
-    if (!startWorker()) { draftShown = false; if (previewOn) s.preview(cur ??= fn()); return; }
-    if (inflight === gen || queued?.id === gen) return;   // already on its way
-    const job = { id: gen, job: opts.job!(s.w, s.h, s.ox, s.oy, 1) };
-    if (busy) { queued = job; return; }
-    busy = true; inflight = gen;
-    worker!.postMessage({ type: 'run', ...job });
-  };
-
-  const refresh = () => {
-    cur = fn(); gen++;
-    if (!previewOn) return;
-    if (!useDraft) { s.preview(cur); return; }
-    draftShown = true;
-    s.previewDraft(makeDraft);
-    clearTimeout(fullTimer);
-    fullTimer = window.setTimeout(runFull, 250);
-  };
-  const refreshView = () => {
-    if (!previewOn) return;
-    if (draftShown && lastDraft) { const c = lastDraft; s.previewDraft(() => c); }
-    else s.preview(cur ??= fn());
-  };
-  const prev = checkbox(t('adj.preview'), true, v => { previewOn = v; if (!v) s.restore(); else if (draftShown) refresh(); else refreshView(); });
-  let splitOn = false;
-  const endSplit = () => { if (!splitOn) return; splitOn = false; splitCompareTool.detach(); if (app.tool === splitCompareTool) app.popTool(); app.update('overlay'); };
-  const split = checkbox(t('adj.beforeAfter'), false, v => {
-    if (v) { splitOn = true; splitCompareTool.attach(s, refreshView); app.pushTool(splitCompareTool); }
-    else endSplit();
-    refreshView();
-  });
-  const rows: HTMLElement[] = [prev, split];
+  const joined = AdjustChain.join({ key, label: opts.label, cpu: opts.compute, gpu: opts.gpu, job: opts.job, keepAlpha: opts.alpha ? () => keepA : undefined });
+  if (!joined) return null;
+  const { chain, stage } = joined;
+  const refresh = () => chain.changed(stage);
+  const split = checkbox(t('adj.beforeAfter'), chain.split != null, v => chain.setSplit(v));
+  const splitInput = split.querySelector('input') as HTMLInputElement;
+  const unsub = chain.onSplit(on => { splitInput.checked = on; });
+  const rows: HTMLElement[] = [split];
   if (opts.alpha) rows.push(checkbox(t('adj.keepAlpha'), keepA, v => { keepA = v; app.settings.fltKeepAlpha = v; app.saveSettings(); refresh(); }));
   opts.body.append(el('div', { class: 'adj-foot adj-foot-wrap' }, ...rows, ...(opts.extra || [])));
-  const finish = () => { clearTimeout(fullTimer); worker?.terminate(); worker = null; endSplit(); };
-  let committing = false;
+  let closing = false;
   openDialog({
-    title: opts.title, body: opts.body, width: opts.width || 340, side: true,
+    title: opts.title, body: opts.body, width: opts.width || 340, side: true, sideKey: key, chain: true,
     onOk: async () => {
-      if (committing) return false;
-      committing = true;
-      // the full result of the current settings is (or will shortly be) ready in the worker: use it
-      if (useDraft && haveFull !== gen && startWorker()) {
-        clearTimeout(fullTimer);
-        document.body.classList.add('busy-cursor');
-        const ok = await new Promise<boolean>(res => { waitFull = res; runFull(); });
-        document.body.classList.remove('busy-cursor');
-        if (!ok) cur = fn();
-      }
-      finish();
-      s.commit(opts.label, cur ?? fn());
+      if (closing) return false;
+      closing = true;
+      unsub();
+      await chain.ok(stage);
     },
-    onCancel: () => { finish(); s.cancel(); },
+    onCancel: () => { unsub(); chain.cancel(stage); },
   });
-  opts.onReady?.(s, refresh);
-  return { s, refresh };
+  return { refresh, chain, stage, sel: chain.sel, input: () => chain.inputOf(stage) };
 }
 
 /* ---------------- Enhance / Vignette ---------------- */
@@ -209,29 +102,23 @@ export function enhanceDialog(vignetteOnly = false) {
   });
   // Auto: moves the light and colour sliders at once, like Camera Raw (detail and vignette stay as they are)
   const auto = el('button', { class: 'btn sm' }, t('adj.auto'));
-  let session: AdjustSession | null = null;
+  let res: ReturnType<typeof adjustDialog> = null;
   auto.addEventListener('click', () => {
-    if (!session) return;
-    Object.assign(p, autoEnhanceParams(session.orig.data, session.sel));
+    if (!res) return;
+    Object.assign(p, autoEnhanceParams(res.input(), res.sel));
     rows.forEach(r => r.row.set((p as any)[r.spec.key]));
     refresh();
   });
-  let cache: DetailCache;
-  const res = adjustDialog({
+  const cache = new DetailCache();
+  res = adjustDialog({
     title: vignetteOnly ? t('cmd.vignette') : t('cmd.enhance'), body, width: 320,
     label: vignetteOnly ? 'cmd.vignette' : 'cmd.enhance',
-    compute: s => (src, dst) => enhance(p, s, (cache ??= new DetailCache(s)), src, dst),
-    onReady: s => {
-      // the same maths on the GPU: smooth sliders even on large photos (CPU stays as the fallback)
-      const gpu = EnhanceGPU.create(s);
-      if (!gpu) return;
-      const d = app.doc!;
-      s.gpu = final => gpu.render(p, d.width, d.height, final ? null : s.split);
-      s.onEnd = () => gpu.dispose();
-    },
+    compute: c => (src, dst) => enhance(p, c, cache, src, dst),
+    // the same maths on the GPU: smooth sliders even on large photos (the CPU stays as the fallback)
+    gpu: () => ({ kind: 'enhance', p: { ...p } }),
     extra: vignetteOnly ? [el('div', { style: { flex: '1' } }), reset] : [el('div', { style: { flex: '1' } }), auto, reset],
   });
-  if (res) { refresh = res.refresh; session = res.s; if (vignetteOnly) refresh(); }
+  if (res) { refresh = res.refresh; if (vignetteOnly) refresh(); }
 }
 
 /* ---------------- histogram drawing ---------------- */
@@ -321,17 +208,16 @@ export function levelsDialog() {
   const autoBtn = el('button', { class: 'btn sm' }, t('adj.auto'));
   const body = el('div', { class: 'adj' }, el('div', { class: 'form-row' }, el('span', { class: 'muted' }, t('adj.channel')), chSel), hc, inTrack, info, el('div', { style: { height: '8px' } }), outTrack, outInfo);
   const lutFor = (l: LevelsCh) => levelsLUT(l.inB, l.inW, l.gamma, l.outB, l.outW);
+  const luts = () => { const m = lutFor(chs.rgb); return [composeLUT(m, lutFor(chs.r)), composeLUT(m, lutFor(chs.g)), composeLUT(m, lutFor(chs.b))]; };
   const res = adjustDialog({
     title: t('cmd.levels'), body, width: 320, label: 'cmd.levels',
-    compute: () => (src, dst) => {
-      const m = lutFor(chs.rgb);
-      applyLUTs(src, dst, composeLUT(m, lutFor(chs.r)), composeLUT(m, lutFor(chs.g)), composeLUT(m, lutFor(chs.b)));
-    },
+    compute: () => { const [r, g, b] = luts(); return (src, dst) => applyLUTs(src, dst, r, g, b); },
+    gpu: () => { const [r, g, b] = luts(); return { kind: 'lut', r, g, b }; },
     extra: [el('div', { style: { flex: '1' } }), autoBtn],
   });
   if (!res) return;
   refresh = res.refresh;
-  hist = histogram(res.s.orig.data, res.s.sel);
+  hist = histogram(res.input(), res.sel);
   autoBtn.addEventListener('click', () => {
     for (const c of ['r', 'g', 'b'] as const) { const [lo, hi] = clipPoints(hist[c], hist.total, 0.001); chs[c] = { ...def(), inB: lo, inW: hi }; }
     chs.rgb = def();
@@ -425,17 +311,16 @@ export function curvesDialog() {
   const reset = el('button', { class: 'btn sm' }, t('adj.reset'));
   reset.addEventListener('click', () => { curves.rgb = base(); curves.r = base(); curves.g = base(); curves.b = base(); sel = -1; redraw(); refresh(); });
   const body = el('div', { class: 'adj' }, el('div', { class: 'form-row' }, el('span', { class: 'muted' }, t('adj.channel')), chSel), cv, info);
+  const luts = () => { const m = curveLUT(curves.rgb); return [composeLUT(m, curveLUT(curves.r)), composeLUT(m, curveLUT(curves.g)), composeLUT(m, curveLUT(curves.b))]; };
   const res = adjustDialog({
     title: t('cmd.curves'), body, width: 320, label: 'cmd.curves',
-    compute: () => (src, dst) => {
-      const m = curveLUT(curves.rgb);
-      applyLUTs(src, dst, composeLUT(m, curveLUT(curves.r)), composeLUT(m, curveLUT(curves.g)), composeLUT(m, curveLUT(curves.b)));
-    },
+    compute: () => { const [r, g, b] = luts(); return (src, dst) => applyLUTs(src, dst, r, g, b); },
+    gpu: () => { const [r, g, b] = luts(); return { kind: 'lut', r, g, b }; },
     extra: [el('div', { style: { flex: '1' } }), reset],
   });
   if (!res) return;
   refresh = res.refresh;
-  hist = histogram(res.s.orig.data, res.s.sel);
+  hist = histogram(res.input(), res.sel);
   redraw();
 }
 
@@ -446,15 +331,15 @@ export function gaussianDialog() {
   const body = el('div', { class: 'adj' }, sliderRow({ key: 'r', label: t('dlg.radius'), min: 0.1, max: 250, step: 0.1, def: 4, unit: ' px' }, radius, v => { radius = v; app.settings.gaussR = v; refresh(); }));
   const res = adjustDialog({
     title: t('cmd.gaussian'), body, label: 'cmd.gaussian', alpha: true,
-    compute: s => (src, dst) => dst.set(gaussianBlur(src, s.w, s.h, radius)),
-    job: (_w, _h, _ox, _oy, k) => ['gaussian', radius * k],
+    compute: c => (src, dst) => dst.set(gaussianBlur(src, c.w, c.h, radius * c.k)),
+    job: c => ['gaussian', radius * c.k],
   });
   if (res) { refresh = res.refresh; refresh(); }
 }
 
 export function unsharpDialog() {
   const p = { amount: 100, radius: 1.5, threshold: 0 };
-  let blurred: Uint8ClampedArray | null = null, blurredR = -1;
+  let blurred: Uint8ClampedArray | null = null, blurredR = -1, blurredSrc: Uint8ClampedArray | null = null;
   let refresh = () => {};
   const body = el('div', { class: 'adj' },
     sliderRow({ key: 'a', label: t('adj.amount'), min: 1, max: 500, def: 100, unit: '%' }, p.amount, v => { p.amount = v; refresh(); }),
@@ -462,8 +347,9 @@ export function unsharpDialog() {
     sliderRow({ key: 't', label: t('adj.threshold'), min: 0, max: 255, def: 0 }, p.threshold, v => { p.threshold = v; refresh(); }));
   const res = adjustDialog({
     title: t('cmd.unsharp'), body, label: 'cmd.unsharp',
-    compute: s => (src, dst) => {
-      if (!blurred || blurredR !== p.radius) { blurred = gaussianBlur(src, s.w, s.h, p.radius); blurredR = p.radius; }
+    compute: c => (src, dst) => {
+      const r = p.radius * c.k;
+      if (!blurred || blurredR !== r || blurredSrc !== src) { blurred = gaussianBlur(src, c.w, c.h, r); blurredR = r; blurredSrc = src; }
       unsharp(src, dst, blurred, p.amount, p.threshold);
     },
   });

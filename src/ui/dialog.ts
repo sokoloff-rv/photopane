@@ -13,6 +13,10 @@ export interface DialogOptions {
   extraButtons?: HTMLElement[];
   /** Non-dimming dialog placed beside the image (adjustments with live preview). */
   side?: boolean;
+  /** Side dialog: the command that opened it (the same one cannot be opened twice). */
+  sideKey?: string;
+  /** Side dialog that combines with other such windows (the adjustment chain). */
+  chain?: boolean;
   /** Non-dimming dialog that lets clicks through to the canvas (color picker eyedropper). */
   passthrough?: boolean;
 }
@@ -21,17 +25,34 @@ let openCount = 0;
 export const dialogOpen = () => openCount > 0;
 
 /**
- * The open side window (Adjust, Levels, a filter, Layer Style). It previews on the layer, so while it is
- * open the rest of the editor must not change the document: one such window at a time, no tab switching,
- * history jumps, layer changes or painting. Viewing (zoom, pan, the before/after line) stays available.
+ * Open side windows (Adjust, Levels, filters, Layer Style). They preview on the layer, so while any is open
+ * the rest of the editor must not change the document: no tab switching, history jumps, layer changes or
+ * painting. Different correction and filter windows can be open together (the adjustment chain); viewing
+ * (zoom, pan, the before/after line) stays available.
  */
-let sideCard: HTMLElement | null = null;
-export const sideDialogOpen = () => !!sideCard;
+export interface SideDialog { card: HTMLElement; key?: string; chain: boolean }
+const sides: SideDialog[] = [];
+export const sideDialogOpen = () => sides.length > 0;
+export const sideDialogs = (): readonly SideDialog[] => sides;
 
-/** Briefly shake the open side window to show it has to be finished first. Returns false if there is none. */
-export function nudgeSideDialog(): boolean {
-  const c = sideCard;
-  if (!c) return false;
+/** Dialogs from bottom to top; only the top one takes the keyboard (Esc, Enter). */
+const stack: HTMLElement[] = [];
+function raise(card: HTMLElement) {
+  const i = stack.indexOf(card);
+  if (i >= 0) stack.splice(i, 1);
+  stack.push(card);
+  stack.forEach((c, k) => { (c.parentElement as HTMLElement).style.zIndex = String(300 + k); });
+}
+
+/**
+ * Briefly shake a side window to show it is already open or has to be finished first: the one opened by
+ * `key`, else the topmost. Returns false if there is none.
+ */
+export function nudgeSideDialog(key?: string): boolean {
+  const d = (key && sides.find(x => x.key === key)) || [...sides].sort((a, b) => stack.indexOf(b.card) - stack.indexOf(a.card))[0];
+  if (!d) return false;
+  const c = d.card;
+  raise(c);
   c.classList.remove('nudge');
   void c.offsetWidth;
   c.classList.add('nudge');
@@ -42,10 +63,11 @@ export function nudgeSideDialog(): boolean {
 const LOCKED_WHILE_SIDE = '.tabs, .toolbar, .optionsbar, .panel.layers, .panel.hist';
 function sideGuard(e: Event) {
   const target = e.target as Element | null;
-  if (!sideCard || !target?.closest?.(LOCKED_WHILE_SIDE)) return;
+  if (!sides.length || !target?.closest?.(LOCKED_WHILE_SIDE)) return;
   e.preventDefault(); e.stopPropagation();
   if (e.type === 'pointerdown') nudgeSideDialog();
 }
+const GUARDED = ['pointerdown', 'click', 'dblclick', 'contextmenu'];
 
 export function openDialog(o: DialogOptions): { close: () => void; root: HTMLElement } {
   openCount++;
@@ -58,19 +80,27 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
     el('div', { class: 'dlg-body' }, o.body),
     el('div', { class: 'dlg-foot' }, ...(o.extraButtons || []), el('div', { style: { flex: '1' } }), cancel, ok));
   const overlay = el('div', { class: 'dlg-overlay' + (o.side ? ' side' : '') + (o.passthrough ? ' pass' : '') }, card);
-  document.body.append(overlay);
   if (o.side) {
-    sideCard = card;
-    for (const type of ['pointerdown', 'click', 'dblclick', 'contextmenu']) window.addEventListener(type, sideGuard, { capture: true });
+    // next to the side windows already open, towards the left
+    const offset = sides.reduce((x, d) => x + d.card.offsetWidth + 12, 0);
+    if (offset) overlay.style.paddingRight = `calc(var(--panels-w, 280px) + ${16 + offset}px)`;
+    if (!sides.length) for (const type of GUARDED) window.addEventListener(type, sideGuard, { capture: true });
+    sides.push({ card, key: o.sideKey, chain: !!o.chain });
+    card.addEventListener('pointerdown', () => raise(card), true);
   }
+  document.body.append(overlay);
+  raise(card);
   let closed = false;
   const close = () => {
     if (closed) return;
     closed = true; openCount--;
-    if (o.side && sideCard === card) {
-      sideCard = null;
-      for (const type of ['pointerdown', 'click', 'dblclick', 'contextmenu']) window.removeEventListener(type, sideGuard, { capture: true });
+    const si = sides.findIndex(d => d.card === card);
+    if (si >= 0) {
+      sides.splice(si, 1);
+      if (!sides.length) for (const type of GUARDED) window.removeEventListener(type, sideGuard, { capture: true });
     }
+    const ki = stack.indexOf(card);
+    if (ki >= 0) stack.splice(ki, 1);
     overlay.classList.add('closing');
     setTimeout(() => overlay.remove(), 120);
     window.removeEventListener('keydown', onKey, true);
@@ -81,6 +111,7 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
     if (r !== false) close();
   };
   const onKey = (e: KeyboardEvent) => {
+    if (stack[stack.length - 1] !== card) return;   // another dialog is on top
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); doCancel(); }
     else if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
       e.preventDefault(); e.stopPropagation();

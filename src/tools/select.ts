@@ -144,7 +144,9 @@ const LASSO_ICONS: Record<LassoType, string> = { free: 'freeLasso', poly: 'polyL
 export class LassoTool extends Tool<LassoOpts> {
   readonly id = 'lasso';
   readonly key = 'L';
-  get iconName() { return LASSO_ICONS[this.o.type] ?? 'freeLasso'; }
+  // the tool has its own icon; the options bar and the cursor show the type
+  readonly iconName = 'lasso';
+  private get typeIcon() { return LASSO_ICONS[this.o.type] ?? 'freeLasso'; }
   cursor = arrowBadgeCursor('freeLasso');
   private pts: P[] = [];
   private hoverPt: P | null = null;
@@ -162,7 +164,7 @@ export class LassoTool extends Tool<LassoOpts> {
 
   busy() { return this.pts.length > 0; }
   cancel() { this.pts = []; this.anchors = []; this.wire = []; this.hoverPt = null; this.dragging = false; app.update('overlay'); }
-  activate() { this.cursor = arrowBadgeCursor(this.iconName); }
+  activate() { this.cursor = arrowBadgeCursor(this.typeIcon); }
   deactivate() { this.cancel(); this.grad = null; }
 
   down(e: PEvent) {
@@ -392,7 +394,7 @@ export class LassoTool extends Tool<LassoOpts> {
         { value: 'free', icon: 'freeLasso', title: t('opt.lassoFree') },
         { value: 'poly', icon: 'polyLasso', title: t('opt.lassoPoly') },
         { value: 'magnetic', icon: 'magLasso', title: t('opt.lassoMag') },
-      ], this.o.type, v => { this.cancel(); this.set('type', v); this.cursor = arrowBadgeCursor(this.iconName); app.viewport.updateCursor(); app.update('options'); }),
+      ], this.o.type, v => { this.cancel(); this.set('type', v); this.cursor = arrowBadgeCursor(this.typeIcon); app.viewport.updateCursor(); app.update('options'); }),
       sep(),
       modeButtons(this.o.mode, m => this.set('mode', m)),
       sep(),

@@ -279,7 +279,7 @@ interface CROpts extends PixOpts { tolerance: number; sampling: 'once' | 'contin
 
 export class ReplaceTool extends PixelBrush<CROpts> {
   readonly id = 'replace';
-  readonly iconName = 'replace';
+  readonly iconName = 'colorReplace';
   readonly key = 'B';
   readonly label = 'tool.replace';
   private sample: [number, number, number] | null = null;

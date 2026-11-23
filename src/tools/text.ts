@@ -7,16 +7,29 @@ import {
   caretPos, hitIndex, selectionRects, baseStyle, toLocalPoint, toDocPoint, textQuad, textMatrix, fontWeight,
 } from '../core/text';
 import { icon } from '../ui/icons';
+import { fontPicker } from '../ui/fontpicker';
+import { onGoogleFontLoaded } from '../core/gfonts';
 import { pointInPoly } from '../core/geom';
 import { css, RGB } from '../core/color';
 import { el, normRect } from '../core/util';
 import { numberField, select, segmented, colorSwatch, sep } from '../ui/controls';
 import { spacer, textButton } from './transform';
 import { toast } from '../ui/dialog';
-import { loadLocalFontList, localFamilies, registerFamily } from '../core/fonts';
+import { loadLocalFontList, localFamilies, registerFamily, localFontsSupported } from '../core/fonts';
 import { clearFontCaches } from '../core/text';
 
 interface TextOpts { font: string; size: number; bold: boolean; italic: boolean; underline: boolean; align: 'left' | 'center' | 'right'; leading: number; tracking: number; weight: number; strike: boolean; caps: boolean }
+
+// a Google family finished loading: redraw the text layers that use it (they were drawn with a fallback)
+onGoogleFontLoaded(family => {
+  clearFontCaches();
+  for (const d of app.docs) for (const l of d.layers) {
+    const td = l.text;
+    if (l.kind !== 'text' || !td || td.psdPixels) continue;
+    if (td.font === family || td.runs?.some(r => r.s.font === family)) renderTextLayer(l);
+  }
+  app.update('canvas', 'overlay', 'options');
+});
 
 let systemFonts: string[] | null = null;
 let textCounter = 1;
@@ -345,19 +358,17 @@ export class TextTool extends Tool<TextOpts> {
     const l = this.targetLayer();
     const st = this.shownStyle();
     const td = st ? { ...st, align: l!.text!.align } : { ...this.o, color: app.fg, vScale: 1 };
-    const fonts = [...new Set([td.font, ...COMMON_FONTS, ...(systemFonts || [])])].sort((a, b) => a.localeCompare(b));
-    const fontOpts = fonts.map(f => ({ value: f, label: f }));
-    fontOpts.push({ value: '__more', label: systemFonts ? '' : t('opt.moreFonts') });
-    const fontSel = select(fontOpts.filter(o => o.label), td.font, async v => {
-      if (v === '__more') {
-        fontSel.value = td.font;
+    const fontSel = fontPicker(td.font, {
+      list: () => [...new Set([...COMMON_FONTS, ...(systemFonts || [])])].sort((a, b) => a.localeCompare(b)),
+      canLoadMore: () => !systemFonts && localFontsSupported(),
+      loadMore: async () => {
         const list = await loadLocalFontList();
-        if (list) { systemFonts = localFamilies(); app.update('options'); } else toast(t('opt.fontsDenied'));
-        return;
-      }
-      if (systemFonts?.includes(v)) { await registerFamily(v); clearFontCaches(); }
-      this.setStyle({ font: v, psName: undefined });
-    }, 'font-select');
+        if (list) { systemFonts = localFamilies(); return true; }
+        toast(t('opt.fontsDenied'));
+        return false;
+      },
+      register: async f => { if (systemFonts?.includes(f)) await registerFamily(f); },
+    }, f => { clearFontCaches(); this.setStyle({ font: f, psName: undefined }); });
     // style toggles as icons of one size (letters in different faces looked uneven)
     const toggle = (k: 'italic' | 'underline' | 'strike' | 'caps', ico: string) => {
       const on = !!(td as any)[k];

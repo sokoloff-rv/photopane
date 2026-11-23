@@ -5,9 +5,19 @@ import { t } from '../i18n';
 import { openDialog, toast } from './dialog';
 import { localFontsPermission, registerNeeded } from '../core/fonts';
 import { clearFontCaches, renderTextLayer } from '../core/text';
+import { isGoogleFamily, ensureGoogleFont } from '../core/gfonts';
 
 /** After opening a PSD: make fonts the browser cannot see usable (asks for access to local fonts once). */
 export async function ensureDocFonts(d: Doc) {
+  // Google Fonts families come from Google (or the cache) without asking anything
+  const google = [...new Set(d.missingFonts.filter(n => isGoogleFamily(n.family)).map(n => n.family))];
+  if (google.length) {
+    const ok = (await Promise.all(google.map(f => ensureGoogleFont(f).then(r => (r ? f : null))))).filter(Boolean) as string[];
+    d.missingFonts = d.missingFonts.filter(n => !ok.includes(n.family));
+    clearFontCaches();
+    for (const l of d.layers) if (l.kind === 'text' && l.text && !l.text.psdPixels) renderTextLayer(l);
+    app.update('canvas', 'options', 'overlay');
+  }
   const needs = d.missingFonts;
   if (!needs.length) return;
   const names = needs.map(n => n.psName).join(', ');

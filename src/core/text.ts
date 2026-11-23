@@ -2,6 +2,7 @@ import { Layer, TextData, CharStyle, StyleRun } from './layer';
 export type { CharStyle, StyleRun };
 import { createCanvas, ctx2d, Rect } from './util';
 import { css } from './color';
+import { isGoogleFamily, isGoogleLoaded, ensureGoogleFont } from './gfonts';
 
 export const COMMON_FONTS = [
   'Arial', 'Segoe UI', 'Calibri', 'Cambria', 'Candara', 'Consolas', 'Constantia', 'Corbel', 'Courier New',
@@ -352,6 +353,8 @@ export function selectionRects(t: TextData, a: number, b: number, lay = layoutTe
 export function renderTextLayer(l: Layer) {
   const t = l.text;
   if (!t) return;
+  // a Google Fonts family that is not here yet: fetch it (the layer is redrawn when it arrives)
+  for (const r of getRuns(t)) if (isGoogleFamily(r.s.font) && !isGoogleLoaded(r.s.font)) void ensureGoogleFont(r.s.font);
   t.psdPixels = false;
   const lay = layoutText(t);
   const maxSize = Math.max(t.size, ...getRuns(t).map(r => r.s.size));

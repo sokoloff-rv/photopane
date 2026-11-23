@@ -416,3 +416,23 @@ body.busy-cursor, body.busy-cursor * { cursor: progress !important; }
 .num-preset { border: 0; background: none; color: var(--text); text-align: right; padding: 4px 10px; border-radius: 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .num-preset:hover { background: var(--fill-hover); }
 .num-preset.on { background: var(--accent); color: #fff; }
+/* font menu */
+.font-pick { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 190px; height: 24px; padding: 0 6px 0 8px; border: 0; border-radius: 5px; background: var(--fill); color: var(--text); }
+.font-pick:hover { background: var(--fill-hover); }
+.font-pick-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.font-pop { width: 320px; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.font-tabs { width: 100%; }
+.font-tabs .seg-btn { flex: 1; }
+.font-search { display: flex; gap: 6px; }
+.font-search .text-input { flex: 1; min-width: 0; }
+.font-search .select { flex: none; max-width: 130px; }
+.font-list { height: 340px; overflow-y: auto; margin: 0 -4px; }
+.font-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 32px; padding: 0 10px; border-radius: 6px; }
+.font-row:hover { background: var(--fill-hover); }
+.font-row.on { background: var(--accent-soft); }
+.font-row.busy { opacity: 0.7; }
+.font-row-name { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.font-row-state { flex: none; color: var(--text2); font-size: 11px; display: flex; align-items: center; }
+.font-empty { padding: 20px; text-align: center; color: var(--text2); }
+.font-foot { display: flex; justify-content: center; text-align: center; }
+.font-foot:empty { display: none; }

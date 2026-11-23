@@ -6,7 +6,7 @@ import {
   Lasso, CornerDownRight, SquarePlus, Link2, Maximize, FilePlus, Image as ImageIcon, Settings, ArrowUpDown,
   TextAlignStart, TextAlignCenter, TextAlignEnd, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, Ruler, Magnet, RotateCw, RotateCcw,
-  Italic, Underline, Strikethrough, CaseUpper, SlidersHorizontal,
+  Italic, Underline, Strikethrough, CaseUpper, SlidersHorizontal, CloudDownload,
 } from 'lucide';
 
 type IconNode = Parameters<typeof createElement>[0];
@@ -38,7 +38,7 @@ const lucideMap: Record<string, IconNode> = {
   move: Move, marquee: SquareDashed, ellipse: CircleDashed, lasso: LassoSelect, freeLasso: Lasso, wand: WandSparkles, crop: Crop,
   perspCrop: Grid3x3, eyedropper: Pipette, heal: Bandage, brush: Brush, stamp: Stamp,
   eraser: Eraser, bucket: PaintBucket, blur: Droplet, triangle: Triangle, smudge: Pointer, dodge: Lollipop,
-  italic: Italic, underline: Underline, strike: Strikethrough, caps: CaseUpper, sliders: SlidersHorizontal,
+  italic: Italic, underline: Underline, strike: Strikethrough, caps: CaseUpper, sliders: SlidersHorizontal, cloudDown: CloudDownload,
   burn: Flame, text: Type, shape: Shapes, hand: Hand, eye: Eye, eyeOff: EyeOff, lock: Lock, lockOpen: LockOpen,
   folder: Folder, folderOpen: FolderOpen, folderPlus: FolderPlus, plus: Plus, trash: Trash, copy: Copy,
   chevronDown: ChevronDown, chevronRight: ChevronRight, swap: ArrowLeftRight, sparkles: Sparkles,

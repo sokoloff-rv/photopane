@@ -359,7 +359,10 @@ export function enhance(p: EnhanceParams, s: { w: number; h: number; ox: number;
     if (sat !== 1 || vib) {
       const l = 0.299 * r + 0.587 * g + 0.114 * b;
       const cur = Math.max(r, g, b) - Math.min(r, g, b);
-      const k = sat * (1 + vib * (1 - Math.min(1, cur * 1.5)));
+      // vibrance leaves skin mostly alone (like Lightroom), so portraits do not turn orange
+      let v = vib;
+      if (v) { const [hh, ss, ll] = rgbToHsl(Math.min(1, Math.max(0, r)), Math.min(1, Math.max(0, g)), Math.min(1, Math.max(0, b))); v *= 1 - 0.8 * skinWeight(hh * 360, ss, ll); }
+      const k = sat * (1 + v * (1 - Math.min(1, cur * 1.5)));
       r = l + (r - l) * k; g = l + (g - l) * k; b = l + (b - l) * k;
     }
     if (small) { r += sharp * (src[i] - small[i]) / 255; g += sharp * (src[i + 1] - small[i + 1]) / 255; b += sharp * (src[i + 2] - small[i + 2]) / 255; }

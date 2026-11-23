@@ -322,10 +322,11 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .adj { display: flex; flex-direction: column; gap: 2px; }
 .adj-section { color: var(--text2); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; margin: 8px 0 1px; }
 .adj-section:first-child { margin-top: 0; }
-.slider-row { display: grid; grid-template-columns: 1fr 52px; grid-template-rows: auto auto; gap: 2px 8px; padding: 2px 0; }
+.slider-row { display: grid; grid-template-columns: 1fr 52px; grid-template-rows: auto auto; gap: 0 8px; padding: 1px 0; }
 .slider-row label { color: var(--text); user-select: none; }
 .slider-row label:hover { color: #fff; }
-.slider-row .range { grid-column: 1 / -1; }
+/* room for the 14 px knob above and below the 3 px track, so it never touches the label */
+.slider-row .range { grid-column: 1 / -1; margin: 7px 0 6px; }
 .slider-val { text-align: right; background: transparent; border: 0; color: var(--text2); font-variant-numeric: tabular-nums; outline: none; width: 52px; padding: 0; }
 .slider-val:focus { color: var(--text); }
 .range.bipolar { background: linear-gradient(to right, rgba(255,255,255,.16) 0, rgba(255,255,255,.16) 100%); }

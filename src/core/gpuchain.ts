@@ -139,7 +139,10 @@ void main() {
     if (uSat != 1.0 || uVib != 0.0) {
       float l = luma(c);
       float cur = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
-      float k = uSat * (1.0 + uVib * (1.0 - min(1.0, cur * 1.5)));
+      // vibrance leaves skin mostly alone (like Lightroom)
+      float v = uVib;
+      if (v != 0.0) { vec3 h = rgb2hsl(clamp(c, 0.0, 1.0)); v *= 1.0 - 0.8 * skinWeight(h.x * 360.0, h.y, h.z); }
+      float k = uSat * (1.0 + v * (1.0 - min(1.0, cur * 1.5)));
       c = l + (c - l) * k;
     }
     if (uHasSmall == 1) c += uSharp * (s.rgb - straight(texelFetch(uSmall, q, 0)));

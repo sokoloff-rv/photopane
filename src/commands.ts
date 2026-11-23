@@ -382,7 +382,7 @@ export function registerCommands(app: App) {
 
   /* ---------- Help ---------- */
   R('shortcuts', () => shortcutsDialog(app));
-  R('about', () => openDialog({ title: 'PhotoPane', body: el('p', { class: 'dlg-text' }, t('about.text')), cancelLabel: null, width: 360 }));
+  R('about', () => openDialog({ title: 'PhotoPane', body: el('p', { class: 'dlg-text' }, t('about.text', __APP_VERSION__)), cancelLabel: null, width: 360 }));
 
   void placeImage;
 }

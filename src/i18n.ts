@@ -675,7 +675,7 @@ const D: Record<string, [string, string]> = {
   'sc.space': ['Пробел — временно «Рука»', 'Space — temporary Hand'],
   'sc.zoom': ['Ctrl/Alt + колесо — масштаб, Ctrl+0 — по размеру окна, Ctrl+1 — 100%', 'Ctrl/Alt + wheel — zoom, Ctrl+0 fit, Ctrl+1 100%'],
   'sc.colors': ['X — поменять цвета, D — по умолчанию', 'X swap colors, D default colors'],
-  'about.text': ['PhotoPane — лёгкий редактор изображений. Версия 0.3.', 'PhotoPane — a lightweight image editor. Version 0.3.'],
+  'about.text': ['PhotoPane — лёгкий и понятный редактор изображений. Версия {0}.', 'PhotoPane — a lightweight, easy image editor. Version {0}.'],
 };
 
 let lang: Lang = (localStorage.getItem('pp.lang') as Lang) || (navigator.language.startsWith('ru') ? 'ru' : 'en');

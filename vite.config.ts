@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import pkg from './package.json';
 
 // Прокси для облачных сервисов (обход CORS при работе в браузере).
 const proxy = {
@@ -19,4 +20,6 @@ export default defineConfig({
   preview: { port: 5178, proxy },
   build: { target: 'es2022' },
   worker: { format: 'es' },
+  // shown in Help > About
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
 });

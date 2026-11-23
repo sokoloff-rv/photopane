@@ -8,6 +8,10 @@ import { previews } from '../core/render';
 import { numberField } from '../ui/controls';
 import { spacer, textButton, span } from './transform';
 import { toast } from '../ui/dialog';
+import { GpuBlur, BlurShape } from '../core/gpublur';
+
+/** One full turn of the ring around a pin = this much blur (px), as the ring shows it. */
+const RING_TURN = 200;
 
 type Mode = 'field' | 'iris' | 'tilt';
 interface Pin { x: number; y: number; blur: number }
@@ -45,7 +49,11 @@ export class BlurGalleryTool extends Tool {
   private selPin = 0;
   private iris = { cx: 0, cy: 0, rx: 100, ry: 100, feather: 0.5, blur: 15 };
   private tilt = { cx: 0, cy: 0, angle: 0, focus: 100, trans: 150, blur: 15 };
-  private drag: { what: string; start: { x: number; y: number }; snap: any } | null = null;
+  private drag: { what: string; start: { x: number; y: number }; snap: any; angle?: number; turned?: number; blur0?: number } | null = null;
+  /** The ring under the pointer (shown highlighted, with the value). */
+  private ringHover: string | null = null;
+  /** GPU renderer of the on-screen proxy (null: CPU). */
+  private gpu: GpuBlur | null = null;
   private timer = 0;
   /** Bokeh highlights: bright spots in the blurred area light up like out-of-focus lights (0..100). */
   private bokeh = 0;
@@ -73,6 +81,7 @@ export class BlurGalleryTool extends Tool {
     const pc = createCanvas(Math.max(1, Math.round(s.w * k)), Math.max(1, Math.round(s.h * k)));
     const pg = ctx2d(pc); pg.imageSmoothingQuality = 'high'; pg.drawImage(this.srcCanvas, 0, 0, pc.width, pc.height);
     this.proxy = { k, canvas: pc, levels: [], R: -1, out: createCanvas(pc.width, pc.height) };
+    this.gpu = GpuBlur.create(pg.getImageData(0, 0, pc.width, pc.height));
     this.active = true;
     const l = s.target.layer;
     previews.set(l.id, g => {
@@ -143,10 +152,18 @@ export class BlurGalleryTool extends Tool {
     return out;
   }
 
+  private shape(): BlurShape { return { mode: this.mode, pins: this.pins, iris: this.iris, tilt: this.tilt, bokeh: this.bokeh }; }
+
   private renderProxy() {
     const p = this.proxy, s = this.s;
     if (!p || !s) return;
     const R = this.maxBlur();
+    if (this.gpu) {
+      const c = this.gpu.render(this.shape(), R, p.canvas.width / s.w, s.ox, s.oy, 'screen');
+      if (c) { p.out = c; s.target.layer.touch(); app.update('canvas'); return; }
+      this.gpu = null;
+      p.out = createCanvas(p.canvas.width, p.canvas.height);
+    }
     if (Math.abs(R - p.R) > 0.01 || !p.levels.length) { p.levels = this.levelsFor(p.canvas, R * p.k); p.R = R; }
     const w = p.canvas.width, h = p.canvas.height;
     const img = new ImageData(w, h);
@@ -167,9 +184,17 @@ export class BlurGalleryTool extends Tool {
     toast(t('adj.processing'), 'info', 1500);
     setTimeout(() => {
       const R = this.maxBlur();
-      const levels = this.levelsFor(this.srcCanvas!, R);
-      this.cleanup();
-      s.commit(this.nameKey, (_src, dst) => this.composite(levels, R, s.w, s.h, 1, s.ox, s.oy, dst));
+      const label = this.nameKey;
+      // full size on the GPU when it fits, else the CPU levels
+      const full = GpuBlur.create(s.orig);
+      const data = full?.render(this.shape(), R, 1, s.ox, s.oy, 'pixels') ?? null;
+      full?.dispose();
+      if (data) { this.cleanup(); s.commit(label, (_src, dst) => dst.set(data)); }
+      else {
+        const levels = this.levelsFor(this.srcCanvas!, R);
+        this.cleanup();
+        s.commit(label, (_src, dst) => this.composite(levels, R, s.w, s.h, 1, s.ox, s.oy, dst));
+      }
       app.popTool();
     }, 30);
   }
@@ -178,6 +203,9 @@ export class BlurGalleryTool extends Tool {
     if (this.s) previews.delete(this.s.target.layer.id);
     this.active = false;
     this.proxy = null;
+    this.gpu?.dispose();
+    this.gpu = null;
+    this.ringHover = null;
   }
 
   cancel() {
@@ -215,14 +243,39 @@ export class BlurGalleryTool extends Tool {
   }
 
   private hit(e: PEvent) {
-    for (const h of this.handles()) { const s = this.scr(h.x, h.y); if (Math.hypot(s.x - e.sx, s.y - e.sy) < 10) return h.id; }
+    const hs = this.handles();
+    for (const h of hs) { const s = this.scr(h.x, h.y); if (Math.hypot(s.x - e.sx, s.y - e.sy) < 10) return h.id; }
+    // the ring around a pin / the centre: drag along it to change the blur
+    for (const h of hs) {
+      if (h.id !== 'center' && !h.id.startsWith('pin')) continue;
+      const s = this.scr(h.x, h.y), d = Math.hypot(s.x - e.sx, s.y - e.sy);
+      if (d >= 10 && d <= 20) return 'ring:' + h.id;
+    }
     return null;
+  }
+
+  private getBlur(id: string) {
+    if (id.startsWith('pin')) return this.pins[parseInt(id.slice(3))]?.blur ?? 0;
+    return this.mode === 'iris' ? this.iris.blur : this.tilt.blur;
+  }
+  private setBlur(id: string, v: number) {
+    if (id.startsWith('pin')) { const p = this.pins[parseInt(id.slice(3))]; if (p) p.blur = v; }
+    else if (this.mode === 'iris') this.iris.blur = v; else this.tilt.blur = v;
+  }
+  /** Angle of the pointer around a handle, clockwise from the top (screen). */
+  private ringAngle(id: string, e: PEvent) {
+    const h = this.handles().find(x => x.id === id);
+    if (!h) return 0;
+    const s = this.scr(h.x, h.y);
+    return Math.atan2(e.sx - s.x, -(e.sy - s.y));
   }
 
   hover(e: PEvent) {
     if (!this.active) return;
     const h = this.hit(e);
-    const c = h ? (h === 'center' || h.startsWith('pin') ? 'move' : 'pointer') : this.mode === 'field' ? 'copy' : 'default';
+    const ring = h?.startsWith('ring:') ? h.slice(5) : null;
+    if (ring !== this.ringHover) { this.ringHover = ring; app.update('overlay'); }
+    const c = h ? (ring ? 'grab' : h === 'center' || h.startsWith('pin') ? 'move' : 'pointer') : this.mode === 'field' ? 'copy' : 'default';
     if (c !== this.cursor) { this.cursor = c; app.viewport.updateCursor(); }
   }
 
@@ -237,6 +290,13 @@ export class BlurGalleryTool extends Tool {
       app.update('options');
     }
     if (!h) return;
+    if (h.startsWith('ring:')) {
+      const id = h.slice(5);
+      if (id.startsWith('pin')) { this.selPin = parseInt(id.slice(3)); app.update('options'); }
+      this.drag = { what: h, start: { x: e.x, y: e.y }, snap: null, angle: this.ringAngle(id, e), turned: 0, blur0: this.getBlur(id) };
+      this.cursor = 'grabbing'; app.viewport.updateCursor();
+      return;
+    }
     if (h.startsWith('pin')) { this.selPin = parseInt(h.slice(3)); app.update('options'); }
     this.drag = { what: h, start: { x: e.x, y: e.y }, snap: JSON.parse(JSON.stringify({ iris: this.iris, tilt: this.tilt, pins: this.pins })) };
   }
@@ -244,6 +304,18 @@ export class BlurGalleryTool extends Tool {
   move(e: PEvent) {
     const dr = this.drag;
     if (!dr) return;
+    if (dr.what.startsWith('ring:')) {
+      // turning along the ring: clockwise adds blur, a full turn is RING_TURN px
+      const id = dr.what.slice(5);
+      const a = this.ringAngle(id, e);
+      let da = a - dr.angle!;
+      if (da > Math.PI) da -= Math.PI * 2; else if (da < -Math.PI) da += Math.PI * 2;
+      dr.angle = a; dr.turned! += da;
+      this.setBlur(id, Math.round(clamp(dr.blur0! + (dr.turned! / (Math.PI * 2)) * RING_TURN, 0, 500)));
+      this.schedule();
+      app.update('overlay', 'options');
+      return;
+    }
     const dx = e.x - dr.start.x, dy = e.y - dr.start.y;
     if (this.mode === 'iris') {
       const ir = this.iris, s0 = dr.snap.iris;
@@ -266,7 +338,10 @@ export class BlurGalleryTool extends Tool {
     this.schedule();
   }
 
-  up() { this.drag = null; }
+  up() {
+    if (this.drag?.what.startsWith('ring:')) { this.cursor = 'grab'; app.viewport.updateCursor(); }
+    this.drag = null;
+  }
 
   keydown(e: KeyboardEvent) {
     if (!this.active) return false;
@@ -306,11 +381,24 @@ export class BlurGalleryTool extends Tool {
       g.fillStyle = h.id.startsWith('pin') && h.id === 'pin' + this.selPin ? '#fff' : 'rgba(20,20,20,.65)';
       g.fill(); g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.stroke();
       if (big) {
-        // blur ring like Photoshop pins
-        const blur = h.id.startsWith('pin') ? this.pins[parseInt(h.id.slice(3))].blur : this.maxBlur();
-        const maxB = 200;
-        g.beginPath(); g.arc(s.x, s.y, 14, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, blur / maxB));
-        g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2.5; g.stroke();
+        // the blur ring, as on Photoshop pins: drag along it to change the blur
+        const blur = this.getBlur(h.id);
+        const active = this.ringHover === h.id || this.drag?.what === 'ring:' + h.id;
+        const end = -Math.PI / 2 + Math.PI * 2 * Math.min(1, blur / RING_TURN);
+        g.beginPath(); g.arc(s.x, s.y, 14, 0, Math.PI * 2);
+        g.strokeStyle = active ? 'rgba(255,255,255,.45)' : 'rgba(255,255,255,.25)'; g.lineWidth = 4; g.stroke();
+        g.beginPath(); g.arc(s.x, s.y, 14, -Math.PI / 2, end);
+        g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 5; g.stroke();
+        g.strokeStyle = '#fff'; g.lineWidth = 3; g.stroke();
+        g.beginPath(); g.arc(s.x + Math.cos(end) * 14, s.y + Math.sin(end) * 14, active ? 4 : 3, 0, Math.PI * 2);
+        g.fillStyle = '#fff'; g.fill();
+        if (active) {
+          const text = Math.round(blur) + ' px';
+          g.font = '600 11px system-ui, sans-serif'; g.textBaseline = 'middle';
+          const tw = g.measureText(text).width + 12;
+          g.fillStyle = 'rgba(20,20,20,.75)'; g.beginPath(); g.roundRect(s.x + 22, s.y - 10, tw, 20, 10); g.fill();
+          g.fillStyle = '#fff'; g.fillText(text, s.x + 28, s.y + 0.5);
+        }
       }
     }
     g.restore();

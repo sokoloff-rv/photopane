@@ -491,10 +491,11 @@ export class Viewport {
       return;
     }
     if (e.button !== 0) return;
-    if (this.locked()) { nudgeSideDialog(); return; }
     const pe = this.ev(e);
     const d = this.doc;
+    // the colour picker's eyedropper reads the image, so it works from Gradient Map and Layer Style too
     if (app.colorPick) { this.dragging = 'pick'; this.pickAt(pe); return; }
+    if (this.locked()) { nudgeSideDialog(); return; }
     // new guide dragged out of a ruler
     if (app.settings.rulers && (pe.sy < RB || pe.sx < RB) && !(pe.sy < RB && pe.sx < RB)) {
       const axis = pe.sy < RB ? 'h' : 'v';
@@ -566,7 +567,7 @@ export class Viewport {
 
   private onWheel(e: WheelEvent) {
     e.preventDefault();
-    if (!this.active && this.bound) app.activatePane(this);
+    if (!this.active && this.bound) { if (nudgeIfLocked()) return; app.activatePane(this); }
     const d = this.doc;
     if (!d) return;
     const r = this.overlay.getBoundingClientRect();

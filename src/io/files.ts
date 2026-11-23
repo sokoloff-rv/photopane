@@ -3,7 +3,7 @@ import { Doc } from '../core/document';
 import { newRasterLayer } from '../core/layer';
 import { createCanvas, ctx2d, canvasToBlob, el, debounce } from '../core/util';
 import { t } from '../i18n';
-import { openDialog, toast } from '../ui/dialog';
+import { openDialog, toast, dialogOpen, sideDialogOpen, nudgeSideDialog } from '../ui/dialog';
 import { numberField, select, checkbox } from '../ui/controls';
 import { psdToDoc, psdComposite, docToPsd } from './psd';
 import { extractExif, insertExif } from './exif';
@@ -85,6 +85,8 @@ export function placeImage(img: CanvasImageSource & { width: number; height: num
 export async function handlePaste(e: ClipboardEvent) {
   const tgt = e.target as HTMLElement;
   if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA')) return;
+  // a window is open (a correction previews on the current layer): nothing is pasted behind it
+  if (dialogOpen()) { if (sideDialogOpen()) nudgeSideDialog(); return; }
   const items = [...(e.clipboardData?.items || [])];
   const imgItem = items.find(i => i.type.startsWith('image/'));
   e.preventDefault();

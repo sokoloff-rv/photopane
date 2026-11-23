@@ -9,7 +9,8 @@ export interface DialogOptions {
   cancelLabel?: string | null;
   width?: number;
   onOk?: () => boolean | void | Promise<boolean | void>;
-  onCancel?: () => void;
+  /** May return a promise: the window stays open (and blocks the editor) until it settles. */
+  onCancel?: () => void | Promise<void>;
   extraButtons?: HTMLElement[];
   /** Non-dimming dialog placed beside the image (adjustments with live preview). */
   side?: boolean;
@@ -55,6 +56,12 @@ function placeCard(card: HTMLElement, x: number, y: number) {
 
 let openCount = 0;
 export const dialogOpen = () => openCount > 0;
+/** Something modal that is not a dialog (a busy overlay): the editor's shortcuts wait as for a dialog. */
+export function holdDialog(): () => void {
+  openCount++;
+  let held = true;
+  return () => { if (held) { held = false; openCount--; } };
+}
 
 /**
  * Open side windows (Adjust, Levels, filters, Layer Style). They preview on the layer, so while any is open
@@ -141,17 +148,33 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
     setTimeout(() => overlay.remove(), 120);
     window.removeEventListener('keydown', onKey, true);
   };
-  const doCancel = () => { o.onCancel?.(); close(); };
+  // OK or Cancel still working (a filter being written into the layer): further clicks and keys wait
+  let pending = false;
+  const settleWith = async (fn: () => unknown) => {
+    if (pending || closed) return undefined;
+    pending = true;
+    try { return await fn(); } finally { pending = false; }
+  };
+  const doCancel = async () => {
+    if (pending || closed) return;
+    await settleWith(() => o.onCancel?.());
+    close();
+  };
   const doOk = async () => {
-    const r = await o.onOk?.();
+    if (pending || closed) return;
+    const r = await settleWith(() => o.onOk?.());
     if (r !== false) close();
   };
   const onKey = (e: KeyboardEvent) => {
     if (stack[stack.length - 1] !== card) return;   // another dialog is on top
     if (document.body.dataset.popup) return;          // a popup menu of the dialog handles its own keys
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); doCancel(); }
+    // typing in a field outside the window (the zoom value in the navigator or status bar) is that field's own
+    const tgt = e.target as HTMLElement | null;
+    if (tgt && tgt !== document.body && !card.contains(tgt) && tgt.matches?.('input, select, textarea, [contenteditable]')) return;
+    // stopImmediatePropagation: the window below, now on top, must not take the same key and close too
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); void doCancel(); }
     else if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
-      e.preventDefault(); e.stopPropagation();
+      e.preventDefault(); e.stopImmediatePropagation();
       (document.activeElement as HTMLElement)?.blur?.();
       setTimeout(doOk, 0);
     } else e.stopPropagation();

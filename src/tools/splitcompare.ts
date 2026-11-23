@@ -29,7 +29,8 @@ export class SplitCompareTool extends Tool {
     s.split = Math.round((Math.max(0, a) + Math.min(d.width, b)) / 2);
   }
 
-  detach() { if (this.session) this.session.split = null; this.session = null; }
+  /** Forget the chain (its refresh would keep its large buffers alive). */
+  detach() { if (this.session) this.session.split = null; this.session = null; this.refresh = () => {}; }
 
   private moveTo(e: PEvent) {
     if (!this.session) return;

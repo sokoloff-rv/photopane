@@ -218,10 +218,18 @@ function textFrom(l: PsdLayer): TextData | null {
   return td;
 }
 
+const WEIGHT_NAMES: Record<number, string> = { 100: 'Thin', 200: 'ExtraLight', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'SemiBold', 700: 'Bold', 800: 'ExtraBold', 900: 'Black' };
+/** PostScript-style name for a family, weight and slant (read back by weightFromName on import). */
+function psFontName(s: CharStyle): string {
+  const w = Math.min(900, Math.max(100, Math.round((s.weight ?? (s.bold ? 700 : 400)) / 100) * 100));
+  const style = (w === 400 && s.italic ? '' : WEIGHT_NAMES[w]) + (s.italic ? 'Italic' : '');
+  return s.font.replace(/\s+/g, '') + '-' + style;
+}
+
 function psStyle(s: CharStyle) {
   return {
-    font: { name: s.psName || s.font.replace(/\s+/g, '') }, fontSize: s.size,
-    fauxBold: s.psName ? !!s.fauxBold : s.bold, fauxItalic: s.psName ? (s.italic && !/italic|oblique/i.test(s.psName)) : s.italic, underline: s.underline,
+    font: { name: s.psName || psFontName(s) }, fontSize: s.size,
+    fauxBold: s.psName ? !!s.fauxBold : false, fauxItalic: s.psName ? (s.italic && !/italic|oblique/i.test(s.psName)) : false, underline: s.underline,
     tracking: s.tracking, autoLeading: false, leading: s.size * s.leading, fillColor: colorTo(s.color), verticalScale: s.vScale,
     strikethrough: !!s.strike, fontCaps: s.caps ? 2 : 0,
   };

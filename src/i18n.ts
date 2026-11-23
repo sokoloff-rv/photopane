@@ -185,6 +185,7 @@ const D: Record<string, [string, string]> = {
   'batch.finishing': ['Завершение…', 'Finishing…'],
   'batch.done': ['Готово: обработано изображений — {0}', 'Done: {0} images processed'],
   'batch.stopped': ['Остановлено: обработано изображений — {0}', 'Stopped: {0} images processed'],
+  'batch.noOverwrite': ['GIF и BMP сохраняются как PNG и не могут заменить оригинал: выберите отдельную папку', 'GIF and BMP are saved as PNG and cannot replace the original: choose a separate folder'],
   'batch.doneErrors': ['Обработано: {0}. Не удалось: {1}.', 'Processed: {0}. Failed: {1}.'],
   'opt.font': ['Шрифт', 'Font'],
   'gf.google': ['Google Fonts', 'Google Fonts'],

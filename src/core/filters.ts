@@ -157,3 +157,15 @@ export const smoothstep = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a || 1e-6)));
   return t * t * (3 - 2 * t);
 };
+
+/** Unsharp mask: src + (src − blurred)·amount where the difference passes the threshold. */
+export function unsharp(src: Uint8ClampedArray, dst: Uint8ClampedArray, blurred: Uint8ClampedArray, amount: number, threshold: number) {
+  const k = amount / 100;
+  for (let i = 0; i < src.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const d = src[i + c] - blurred[i + c];
+      dst[i + c] = Math.abs(d) * 2 < threshold ? src[i + c] : src[i + c] + d * k;
+    }
+    dst[i + 3] = src[i + 3];
+  }
+}

@@ -10,6 +10,7 @@ import { GpuChain } from '../core/gpuchain';
 import { findAdjustPreset } from '../core/presets';
 import { resampleSharp } from '../ui/resample';
 import { extractExif, insertExif } from './exif';
+import { t } from '../i18n';
 
 export type BatchFormat = 'same' | 'jpeg' | 'png' | 'webp';
 export interface BatchOps {
@@ -192,6 +193,11 @@ export async function processImage(bytes: Uint8Array, name: string, ops: BatchOp
       g.putImageData(new ImageData(res as Uint8ClampedArray<ArrayBuffer>, w, h), 0, 0);
     }
   }
+  // JPEG has no transparency: white behind it (as Export does), not black
+  if (fmt === 'jpeg') {
+    const g = c.getContext('2d')!;
+    g.save(); g.globalCompositeOperation = 'destination-over'; g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.restore();
+  }
   let blob = await new Promise<Blob>((res, rej) => c.toBlob(b => (b ? res(b) : rej(new Error('encode'))), MIME[fmt], ops.quality / 100));
   if (fmt === 'jpeg' && ops.keepExif && srcFmt === 'jpeg') {
     const exif = extractExif(bytes.slice().buffer);
@@ -206,13 +212,24 @@ export async function processImage(bytes: Uint8Array, name: string, ops: BatchOp
 export async function runBatch(src: BatchSource, ops: BatchOps, progress: (done: number, total: number, name: string) => void, cancelled: () => boolean): Promise<{ done: number; errors: { name: string; message: string }[] }> {
   const errors: { name: string; message: string }[] = [];
   const write = ops.overwrite ? null : await src.openOutput();
+  /** names written into the separate folder (a.jpg and a.png both as JPEG must not overwrite each other) */
+  const used = new Set<string>();
+  const unique = (name: string) => {
+    const dot = name.lastIndexOf('.'), stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '';
+    let n = name;
+    for (let k = 2; used.has(n.toLowerCase()); k++) n = `${stem} (${k})${ext}`;
+    used.add(n.toLowerCase());
+    return n;
+  };
   let done = 0;
   for (const it of src.items) {
     if (cancelled()) break;
     progress(done, src.items.length, it.name);
     try {
+      // over the originals a file keeps its name; GIF and BMP are saved as PNG, which would be a new file
+      if (!write && /\.(gif|bmp)$/i.test(it.name)) throw new Error(t('batch.noOverwrite'));
       const r = await processImage(await it.read(), it.name, ops);
-      if (write) await write(r.data, r.name); else await it.write(r.data, r.name);
+      if (write) await write(r.data, unique(r.name)); else await it.write(r.data, r.name);
       done++;
     } catch (e: any) {
       console.error(e);

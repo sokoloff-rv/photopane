@@ -7,9 +7,9 @@ import { icon } from './icons';
 import { adjustPresets, saveAdjustPreset, deleteAdjustPreset } from '../core/presets';
 import { checkbox, select } from './controls';
 import {
-  DetailCache, enhance, EnhanceParams, ENHANCE_DEFAULTS, autoEnhanceParams, applyLUTs, unsharp, addNoise,
+  DetailCache, enhance, EnhanceParams, ENHANCE_DEFAULTS, autoEnhanceParams, applyLUTs, addNoise,
 } from '../core/adjust';
-import { histogram, levelsLUT, curveLUT, composeLUT, gaussianBlur, clipPoints, Histogram } from '../core/filters';
+import { histogram, levelsLUT, curveLUT, composeLUT, gaussianBlur, clipPoints, Histogram, unsharp } from '../core/filters';
 import { FxJob } from '../core/fxjobs';
 import { AdjustChain, PixelFn, StageCtx } from '../core/adjustchain';
 import { GpuStageDesc } from '../core/gpuchain';
@@ -52,7 +52,9 @@ export function adjustDialog(opts: {
 }) {
   const key = opts.label.replace(/^cmd\./, '');
   let keepA = opts.alpha ? !!app.settings.fltKeepAlpha : false;
-  const joined = AdjustChain.join({ key, label: opts.label, cpu: opts.compute, gpu: opts.gpu, job: opts.job, keepAlpha: opts.alpha ? () => keepA : undefined });
+  // the window's own option, or the layer's "lock transparency"
+  const layer = app.doc?.active;
+  const joined = AdjustChain.join({ key, label: opts.label, cpu: opts.compute, gpu: opts.gpu, job: opts.job, keepAlpha: () => keepA || !!layer?.lockAlpha });
   if (!joined) return null;
   const { chain, stage } = joined;
   const refresh = () => chain.changed(stage);
@@ -73,9 +75,10 @@ export function adjustDialog(opts: {
       opts.onClose?.();
       await chain.ok(stage);
     },
-    onCancel: () => { unsub(); opts.onClose?.(); chain.cancel(stage); },
+    // the window stays until windows after it that already had OK are written
+    onCancel: () => { unsub(); opts.onClose?.(); return chain.cancel(stage); },
   });
-  return { refresh, chain, stage, sel: chain.sel, input: () => chain.inputOf(stage) };
+  return { refresh, chain, stage, sel: chain.sel, input: (use: (data: Uint8ClampedArray) => void) => chain.inputOf(stage, use) };
 }
 
 /* ---------------- Enhance / Vignette ---------------- */
@@ -157,12 +160,17 @@ export function enhanceDialog(vignetteOnly = false) {
   const auto = el('button', { class: 'btn sm' }, t('adj.auto'));
   let res: ReturnType<typeof adjustDialog> = null;
   auto.addEventListener('click', () => {
-    if (!res) return;
-    Object.assign(p, autoEnhanceParams(res.input(), res.chain.w, res.chain.h, res.sel, p));
-    rows.forEach(r => r.row.set((p as any)[r.spec.key]));
-    refresh();
+    const r0 = res;
+    r0?.input(data => {
+      Object.assign(p, autoEnhanceParams(data, r0.chain.w, r0.chain.h, r0.sel, p));
+      rows.forEach(r => r.row.set((p as any)[r.spec.key]));
+      refresh();
+      forgetPreset();
+    });
   });
   const cache = new DetailCache();
+  // the presets picker in the options bar while this window is open (its title follows the language)
+  const presetsBar = { icon: 'sliders', get title() { return t('cmd.enhance'); }, items: presetBar };
   res = adjustDialog({
     title: vignetteOnly ? t('cmd.vignette') : t('cmd.enhance'), body, width: 320,
     label: vignetteOnly ? 'cmd.vignette' : 'cmd.enhance',
@@ -170,12 +178,12 @@ export function enhanceDialog(vignetteOnly = false) {
     // the same maths on the GPU: smooth sliders even on large photos (the CPU stays as the fallback)
     gpu: () => ({ kind: 'enhance', p: { ...p } }),
     extra: vignetteOnly ? [el('div', { style: { flex: '1' } }), reset] : [el('div', { style: { flex: '1' } }), auto, reset],
-    onClose: () => { if (app.sideOptions?.title === t('cmd.enhance')) { app.sideOptions = null; app.update('options'); } },
+    onClose: () => { if (app.sideOptions === presetsBar) { app.sideOptions = null; app.update('options'); } },
   });
   if (res) {
     refresh = res.refresh;
     if (vignetteOnly) refresh();
-    else { app.sideOptions = { icon: 'sliders', title: t('cmd.enhance'), items: presetBar }; app.update('options'); }
+    else { app.sideOptions = presetsBar; app.update('options'); }
   }
 }
 
@@ -213,7 +221,7 @@ export function levelsDialog() {
   const outTrack = el('canvas', { class: 'lv-track' }) as HTMLCanvasElement;
   const info = el('div', { class: 'curve-info' });
   const outInfo = el('div', { class: 'curve-info' });
-  let hist: Histogram;
+  let hist: Histogram = histogram(new Uint8ClampedArray(0));
   let refresh = () => {};
   const L = () => chs[ch];
   const drawTrack = (c: HTMLCanvasElement, handles: { v: number; color: string }[], gradient: boolean) => {
@@ -275,7 +283,7 @@ export function levelsDialog() {
   });
   if (!res) return;
   refresh = res.refresh;
-  hist = histogram(res.input(), res.sel);
+  res.input(data => { hist = histogram(data, res.sel); redraw(); });
   autoBtn.addEventListener('click', () => {
     for (const c of ['r', 'g', 'b'] as const) { const [lo, hi] = clipPoints(hist[c], hist.total, 0.001); chs[c] = { ...def(), inB: lo, inW: hi }; }
     chs.rgb = def();
@@ -293,7 +301,7 @@ export function curvesDialog() {
   let sel = -1;
   const cv = el('canvas', { class: 'curves-canvas' }) as HTMLCanvasElement;
   const info = el('div', { class: 'curve-info' });
-  let hist: Histogram;
+  let hist: Histogram = histogram(new Uint8ClampedArray(0));
   let refresh = () => {};
   const SZ = 280;
   const toPx = (p: Pt) => ({ x: (p.x / 255) * SZ, y: SZ - (p.y / 255) * SZ });
@@ -378,8 +386,8 @@ export function curvesDialog() {
   });
   if (!res) return;
   refresh = res.refresh;
-  hist = histogram(res.input(), res.sel);
   redraw();
+  res.input(data => { hist = histogram(data, res.sel); redraw(); });
 }
 
 /* ---------------- Filters ---------------- */
@@ -397,7 +405,6 @@ export function gaussianDialog() {
 
 export function unsharpDialog() {
   const p = { amount: 100, radius: 1.5, threshold: 0 };
-  let blurred: Uint8ClampedArray | null = null, blurredR = -1, blurredSrc: Uint8ClampedArray | null = null;
   let refresh = () => {};
   const body = el('div', { class: 'adj' },
     sliderRow({ key: 'a', label: t('adj.amount'), min: 1, max: 500, def: 100, unit: '%' }, p.amount, v => { p.amount = v; refresh(); }),
@@ -405,11 +412,9 @@ export function unsharpDialog() {
     sliderRow({ key: 't', label: t('adj.threshold'), min: 0, max: 255, def: 0 }, p.threshold, v => { p.threshold = v; refresh(); }));
   const res = adjustDialog({
     title: t('cmd.unsharp'), body, label: 'cmd.unsharp',
-    compute: c => (src, dst) => {
-      const r = p.radius * c.k;
-      if (!blurred || blurredR !== r || blurredSrc !== src) { blurred = gaussianBlur(src, c.w, c.h, r); blurredR = r; blurredSrc = src; }
-      unsharp(src, dst, blurred, p.amount, p.threshold);
-    },
+    compute: c => (src, dst) => unsharp(src, dst, gaussianBlur(src, c.w, c.h, p.radius * c.k), p.amount, p.threshold),
+    // on large photos: a draft while the sliders move, the full result from the worker
+    job: c => ['unsharp', p.amount, p.radius * c.k, p.threshold],
   });
   if (res) { refresh = res.refresh; refresh(); }
 }

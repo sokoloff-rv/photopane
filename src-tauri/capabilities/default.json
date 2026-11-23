@@ -1,12 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: opening and saving files, batch processing of folders, and the cloud AI services",
+  "description": "Main window: asking before closing with unsaved work, opening and saving files, batch processing of folders, and the cloud AI services",
   "windows": [
     "main"
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-destroy",
     "dialog:allow-save",
     "dialog:allow-open",
     "fs:allow-write-file",

@@ -18,7 +18,7 @@ import { LayersPanel } from './ui/panels/layers';
 import { installPanelResizers } from './ui/panels/panel';
 import { installEffects } from './core/effects';
 import { registerCommands } from './commands';
-import { dialogOpen, toast, confirmDialog, sideDialogs, nudgeSideDialog } from './ui/dialog';
+import { dialogOpen, toast, confirmDialog, sideDialogs, sideDialogOpen, nudgeSideDialog } from './ui/dialog';
 import { handlePaste, openFiles } from './io/files';
 
 export interface Command {
@@ -121,6 +121,7 @@ export class App {
     window.addEventListener('keyup', e => this.onKeyUp(e));
     window.addEventListener('paste', e => handlePaste(e));
     window.addEventListener('beforeunload', e => { if (this.docs.some(d => d.dirty)) { e.preventDefault(); e.returnValue = ''; } });
+    if ((window as any).__TAURI_INTERNALS__) void this.guardWindowClose();
     window.addEventListener('blur', () => { if (this.spaceDown) { this.spaceDown = false; this.viewport.updateCursor(); } });
     // drag & drop files
     this.root.addEventListener('dragover', e => { e.preventDefault(); this.root.classList.add('dropping'); });
@@ -128,12 +129,31 @@ export class App {
     this.root.addEventListener('drop', e => {
       e.preventDefault();
       this.root.classList.remove('dropping');
+      // a correction window previews on the current layer: finish it first
+      if (sideDialogOpen()) { nudgeSideDialog(); return; }
       const files = [...(e.dataTransfer?.files || [])];
       if (files.length) openFiles(files, !!this.doc && e.altKey ? 'place' : 'open');
     });
 
     this.tool.activate();
     this.update('all');
+  }
+
+  /** Desktop app: the window's close button asks about unsaved work (the webview ignores beforeunload there). */
+  private async guardWindowClose() {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const win = getCurrentWindow();
+      let asking = false;
+      await win.onCloseRequested(async e => {
+        if (!this.docs.some(d => d.dirty)) return;   // nothing to lose: it just closes
+        e.preventDefault();
+        if (asking) return;
+        asking = true;
+        try { if (await confirmDialog(t('app.unsaved'), t('dlg.close'))) await win.destroy(); }
+        finally { asking = false; }
+      });
+    } catch (err) { console.error(err); }
   }
 
   /* ---------------- settings ---------------- */
@@ -291,9 +311,8 @@ export class App {
     this.update('canvas', 'layers', 'history', 'overlay', 'tabs');
   }
 
-  /** Record a history step for the current document. */
-  commit(label: string) {
-    const d = this.doc;
+  /** Record a history step for the current document (or the one a long operation started on). */
+  commit(label: string, d: Doc | null = this.doc) {
     if (!d) return;
     d.history.push(label);
     d.dirty = true;

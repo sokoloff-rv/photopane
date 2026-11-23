@@ -1,7 +1,7 @@
 import { app } from '../app';
 import { el, createCanvas, ctx2d } from '../core/util';
 import { t } from '../i18n';
-import { openDialog, toast, confirmDialog } from './dialog';
+import { openDialog, toast, confirmDialog, holdDialog } from './dialog';
 import { select } from './controls';
 import { Layer } from '../core/layer';
 import { Selection } from '../core/selection';
@@ -21,13 +21,15 @@ export function busy(text: string, onCancel?: () => void) {
   cancel?.addEventListener('click', () => onCancel?.());
   const root = el('div', { class: 'busy' }, el('div', { class: 'busy-card' }, el('div', { class: 'busy-spin' }), label, bar, cancel));
   document.body.append(root);
+  // shortcuts (Ctrl+N, Ctrl+Z…) wait too: the result is written when it arrives
+  const release = holdDialog();
   return {
     set(text: string, p?: number) {
       label.textContent = text;
       bar.style.visibility = p === undefined ? 'hidden' : 'visible';
       if (p !== undefined) (bar.firstChild as HTMLElement).style.width = Math.round(p * 100) + '%';
     },
-    close() { root.remove(); },
+    close() { root.remove(); release(); },
   };
 }
 
@@ -134,7 +136,7 @@ async function runUpscale(engine: 'local' | 'topaz' | 'stability', scale: 2 | 4)
   const ui = busy(t('ai.preparing'), () => { stop = true; });
   try {
     // cloud engines work on the whole picture: one call instead of one per layer
-    if (engine !== 'local' && d.layers.filter(l => !l.isGroup).length > 1) { flatten(d, t('layers.background')); app.commit('cmd.flatten'); }
+    if (engine !== 'local' && d.layers.filter(l => !l.isGroup).length > 1) { flatten(d, t('layers.background')); app.commit('cmd.flatten', d); }
     const rasters = d.layers.filter(l => !l.isGroup && l.kind !== 'text' && l.canvas.width > 0);
     const results: { l: Layer; c: HTMLCanvasElement; x: number; y: number }[] = [];
     for (let i = 0; i < rasters.length; i++) {
@@ -147,7 +149,7 @@ async function runUpscale(engine: 'local' | 'topaz' | 'stability', scale: 2 | 4)
     // text, masks and the selection are scaled exactly; raster layers get the AI result
     resizeDocument(d, d.width * scale, d.height * scale, 'bicubic');
     for (const r of results) { r.l.content.replace(r.c, Math.round(r.x * scale), Math.round(r.y * scale)); r.l.touch(); }
-    app.commit('cmd.upscale');
+    app.commit('cmd.upscale', d);
     app.viewport.fit(false);
     toast(t('ai.done'));
   } finally { ui.close(); }
@@ -195,7 +197,7 @@ export async function removeBackground() {
     m.ctx.drawImage(alpha, -m.x, -m.y);
     m.markDirty();
     l.touch();
-    app.commit('cmd.removeBg');
+    app.commit('cmd.removeBg', d);
   } finally { ui.close(); }
 }
 
@@ -247,7 +249,7 @@ export async function removeObject() {
     g.restore();
     l.content.markDirty();
     l.touch();
-    app.commit('cmd.removeObject');
+    app.commit('cmd.removeObject', d);
   } finally { ui.close(); }
 }
 
@@ -280,6 +282,6 @@ export async function outpaintAfterCrop(before: HTMLCanvasElement, r: { x: numbe
     d.root.children.unshift(l); l.parent = d.root;
     if (d.root.children[1]) d.root.children[1].clipped = false;
     l.touch();
-    app.commit('cmd.outpaint');
+    app.commit('cmd.outpaint', d);
   } finally { ui.close(); }
 }

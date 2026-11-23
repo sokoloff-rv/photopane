@@ -12,6 +12,7 @@
  * - Each stage is blended with the selection; the before/after line shows the layer as it was.
  */
 import { app, PaintTarget } from '../app';
+import type { Doc } from './document';
 import { createCanvas, ctx2d } from './util';
 import { t } from '../i18n';
 import { toast } from '../ui/dialog';
@@ -84,6 +85,8 @@ export class AdjustChain {
   }
 
   readonly target: PaintTarget;
+  /** The document the chain works on (history steps go there even if another one became active). */
+  readonly doc: Doc;
   readonly w: number; readonly h: number;
   /** document coordinates of the layer surface origin */
   readonly ox: number; readonly oy: number;
@@ -100,6 +103,9 @@ export class AdjustChain {
   private outs = new Map<number, { key: string; data: Uint8ClampedArray }>();
   private raf = 0;
   private fullTimer = 0;
+  /** a full-size result is being computed; another one is wanted after it */
+  private fullBusy = false;
+  private fullAgain = false;
   /** bumped on every change; async results for older states are dropped */
   private gen = 0;
   private last: { kind: 'gpu' } | { kind: 'full'; data: Uint8ClampedArray } | { kind: 'draft'; canvas: HTMLCanvasElement } | null = null;
@@ -117,10 +123,10 @@ export class AdjustChain {
 
   private constructor(target: PaintTarget) {
     this.target = target;
+    const d = this.doc = app.doc!;
     const s = target.surface;
     this.w = s.w; this.h = s.h; this.ox = s.x; this.oy = s.y;
     this.base = s.ctx.getImageData(0, 0, s.w, s.h).data;
-    const d = app.doc!;
     if (d.selection) {
       const c = createCanvas(s.w, s.h);
       ctx2d(c).drawImage(d.selection.mask, -s.x, -s.y);
@@ -146,20 +152,33 @@ export class AdjustChain {
     return this.settle();
   }
 
-  /** Cancel in a window: only its stage goes away. */
-  cancel(stage: Stage) {
+  /**
+   * Cancel in a window: only its stage goes away. Resolves once the windows after it that already had OK
+   * are written (the cancelled window stays open until then, so the editor stays locked meanwhile).
+   */
+  cancel(stage: Stage): Promise<void> {
     const i = this.stages.indexOf(stage);
-    if (i < 0) return;
+    if (i < 0) return Promise.resolve();
     this.stages.splice(i, 1);
     this.outs.delete(stage.id);
     this.gen++;
-    void this.settle();
+    return this.settle();
   }
 
-  /** Full-size input of a stage (what the earlier windows made of the layer), for Auto and histograms. */
-  inputOf(stage: Stage): Uint8ClampedArray {
-    const i = this.stages.indexOf(stage);
-    return this.computeSync(i < 0 ? this.stages.length : i);
+  /**
+   * Full-size input of a stage (what the earlier windows made of the layer), for Auto and histograms:
+   * given at once when that is quick, else when the worker has computed the heavy filters before it.
+   */
+  inputOf(stage: Stage, use: (data: Uint8ClampedArray) => void) {
+    const i = this.stages.indexOf(stage), n = i < 0 ? this.stages.length : i;
+    const heavy = this.w * this.h > DRAFT_PIXELS * 1.8 &&
+      this.stages.slice(0, n).some((s, j) => s.spec.job && this.outs.get(s.id)?.key !== this.keyAt(j));
+    if (!heavy || !this.startWorker()) { use(this.computeSync(n)); return; }
+    document.body.classList.add('busy-cursor');
+    void this.computeAsync(n).then(d => {
+      document.body.classList.remove('busy-cursor');
+      if (d && AdjustChain.current === this) use(d);
+    });
   }
 
   /** Before/after line on or off (shared by all windows). */
@@ -194,8 +213,14 @@ export class AdjustChain {
       this.gpu = GpuChain.create(this.w, this.h, this.ox, this.oy, this.sel);
       this.gpu?.setBase(this.base);
     }
-    if (this.gpu && !this.gpu.ok) this.gpu = null;
+    if (this.gpu && !this.gpu.ok) this.dropGpu();
     return this.gpu;
+  }
+
+  /** The GPU gave up (lost context, buffer too small): free it and go on with the CPU. */
+  private dropGpu() {
+    this.gpu?.dispose();
+    this.gpu = null;
   }
 
   private splitCut(): number | null {
@@ -205,12 +230,12 @@ export class AdjustChain {
   private render() {
     if (AdjustChain.current !== this) return;
     if (!this.stages.length) { this.showData(this.base); return; }
-    const doc = app.doc!;
+    const doc = this.doc;
     // Adjust, Levels and Curves only: everything on the GPU
     if (this.stages.every(s => s.spec.gpu) && this.getGpu()) {
       const c = this.gpu!.display(this.stages.map((s, i) => ({ d: s.spec.gpu!(), key: this.keyAt(i) })), this.baseKey, this.splitCut(), doc.width, doc.height);
       if (c) { this.drawCanvas(c); this.last = { kind: 'gpu' }; return; }
-      this.gpu = null;
+      this.dropGpu();
     }
     const lastSt = this.stages[this.stages.length - 1];
     const hit = this.outs.get(lastSt.id);
@@ -219,13 +244,27 @@ export class AdjustChain {
     if (this.stages.some(s => s.spec.job) && this.w * this.h > DRAFT_PIXELS * 1.8) {
       this.showDraft();
       clearTimeout(this.fullTimer);
-      const gen = this.gen;
-      this.fullTimer = window.setTimeout(() => {
-        void this.computeAsync(this.stages.length, gen).then(data => { if (data && gen === this.gen && AdjustChain.current === this) this.showFull(data); });
-      }, 250);
+      this.fullTimer = window.setTimeout(() => void this.runFull(), 250);
       return;
     }
     this.showFull(this.computeSync(this.stages.length));
+  }
+
+  /**
+   * The full-size result once the sliders rest. Worker jobs cannot be stopped, so only one runs at a time:
+   * a change meanwhile asks for one more run after it with the latest settings (not a queue of stale ones).
+   */
+  private async runFull() {
+    if (this.fullBusy) { this.fullAgain = true; return; }
+    this.fullBusy = true;
+    try {
+      do {
+        this.fullAgain = false;
+        const gen = this.gen;
+        const data = await this.computeAsync(this.stages.length, gen);
+        if (data && gen === this.gen && AdjustChain.current === this) this.showFull(data);
+      } while (this.fullAgain && AdjustChain.current === this);
+    } finally { this.fullBusy = false; }
   }
 
   /** Redraw after the before/after line moved, without recomputing. */
@@ -338,10 +377,9 @@ export class AdjustChain {
   /** One stage at full size on the main thread (GPU when it has a GPU form). */
   private stageSync(st: Stage, input: Uint8ClampedArray): Uint8ClampedArray {
     if (st.spec.gpu && this.getGpu()) {
-      const doc = app.doc!;
-      const r = this.gpu!.run(st.spec.gpu(), input, doc.width, doc.height);
+      const r = this.gpu!.run(st.spec.gpu(), input, this.doc.width, this.doc.height);
       if (r) return r;
-      this.gpu = null;
+      this.dropGpu();
     }
     const out = new Uint8ClampedArray(input.length);
     const c = this.ctx();
@@ -378,8 +416,11 @@ export class AdjustChain {
       let out: Uint8ClampedArray | null = null;
       if (st.spec.job && this.startWorker()) {
         const raw = await this.inWorker(st.spec.job(this.ctx()), input);
-        if ((gen !== undefined && gen !== this.gen) || AdjustChain.current !== this || this.stages[i] !== st || this.keyAt(i) !== key) return null;
+        if (AdjustChain.current !== this || this.stages[i] !== st || this.keyAt(i) !== key) return null;
         if (raw) out = this.finish(st, input, raw);
+        // still valid for this stage even if a later window moved meanwhile: kept, not computed again
+        if (out) this.outs.set(st.id, { key, data: out });
+        if (gen !== undefined && gen !== this.gen) return null;
       }
       input = out ?? this.stageSync(st, input);
       this.outs.set(st.id, { key, data: input });
@@ -422,13 +463,16 @@ export class AdjustChain {
       while (this.stages.length && this.stages[0].frozen) {
         const st = this.stages[0];
         document.body.classList.add('busy-cursor');
-        const data = (await this.computeAsync(1)) ?? this.computeSync(1);
-        document.body.classList.remove('busy-cursor');
+        let data: Uint8ClampedArray | null;
+        try { data = await this.computeAsync(1); }
+        finally { document.body.classList.remove('busy-cursor'); }
+        if (this.stages[0] !== st) continue;   // the chain changed while it was computed
+        data ??= this.computeSync(1);
         const s = this.target.surface;
         s.ctx.putImageData(new ImageData(new Uint8ClampedArray(data), this.w, this.h), 0, 0);
         this.target.layer.touch();
         s.markDirty();
-        app.commit(st.spec.label);
+        app.commit(st.spec.label, this.doc);
         // the chain now starts from the committed layer; later stages keep their cached results
         this.baseKey = this.keyAt(0);
         this.base = data;
@@ -439,6 +483,10 @@ export class AdjustChain {
       }
       if (!this.stages.length) this.end();
       else { this.gen++; this.request(); }
+    }).catch(err => {
+      // keep the chain usable (later OK and Cancel still work) and say what went wrong
+      console.error(err);
+      toast(`${t('app.error')}: ${err?.message || err}`, 'error', 5000);
     });
     return this.settling;
   }

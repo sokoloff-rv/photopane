@@ -44,6 +44,8 @@ export class BlurGalleryTool extends Tool {
   mode: Mode = 'iris';
   private s: AdjustSession | null = null;
   private srcCanvas: HTMLCanvasElement | null = null;
+  /** reused for the preview with a selection (not a new document-sized canvas every frame) */
+  private selTmp: HTMLCanvasElement | null = null;
   private proxy: { k: number; canvas: HTMLCanvasElement; levels: Uint8ClampedArray[]; R: number; out: HTMLCanvasElement } | null = null;
   private pins: Pin[] = [];
   private selPin = 0;
@@ -85,16 +87,25 @@ export class BlurGalleryTool extends Tool {
     this.active = true;
     const l = s.target.layer;
     previews.set(l.id, g => {
-      const p = this.proxy;
-      if (!p || !this.s) { g.drawImage(l.canvas, l.x, l.y); return; }
-      g.drawImage(l.canvas, l.x, l.y);
+      const p = this.proxy, s = this.s;
+      if (!p || !s) { g.drawImage(l.canvas, l.x, l.y); return; }
       const sel = app.doc?.selection;
-      if (sel) {
-        const tmp = createCanvas(g.canvas.width, g.canvas.height), tg = ctx2d(tmp);
-        tg.drawImage(p.out, this.s.ox, this.s.oy, this.s.w, this.s.h);
-        tg.globalCompositeOperation = 'destination-in'; tg.drawImage(sel.mask, 0, 0);
-        g.drawImage(tmp, 0, 0);
-      } else g.drawImage(p.out, this.s.ox, this.s.oy, this.s.w, this.s.h);
+      // only the blurred layer (its soft edges on transparency look as they will after Apply)
+      if (!sel) { g.drawImage(p.out, s.ox, s.oy, s.w, s.h); return; }
+      // with a selection: the layer as it is outside, the blur inside
+      const W = g.canvas.width, H = g.canvas.height;
+      if (!this.selTmp || this.selTmp.width !== W || this.selTmp.height !== H) this.selTmp = createCanvas(W, H);
+      const tg = ctx2d(this.selTmp);
+      tg.clearRect(0, 0, W, H);
+      tg.drawImage(l.canvas, l.x, l.y);
+      tg.globalCompositeOperation = 'destination-out'; tg.drawImage(sel.mask, 0, 0);
+      tg.globalCompositeOperation = 'source-over';
+      g.drawImage(this.selTmp, 0, 0);
+      tg.clearRect(0, 0, W, H);
+      tg.drawImage(p.out, s.ox, s.oy, s.w, s.h);
+      tg.globalCompositeOperation = 'destination-in'; tg.drawImage(sel.mask, 0, 0);
+      tg.globalCompositeOperation = 'source-over';
+      g.drawImage(this.selTmp, 0, 0);
     });
     this.renderProxy();
     return true;
@@ -206,6 +217,10 @@ export class BlurGalleryTool extends Tool {
     this.gpu?.dispose();
     this.gpu = null;
     this.ringHover = null;
+    // the layer copy and the session are large on big photos: not kept after the tool is done
+    this.s = null;
+    this.srcCanvas = null;
+    this.selTmp = null;
   }
 
   cancel() {

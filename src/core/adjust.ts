@@ -429,17 +429,6 @@ export function enhance(p: EnhanceParams, s: { w: number; h: number; ox: number;
 }
 
 /* ---------------- Filters ---------------- */
-export function unsharp(src: Uint8ClampedArray, dst: Uint8ClampedArray, blurred: Uint8ClampedArray, amount: number, threshold: number) {
-  const k = amount / 100;
-  for (let i = 0; i < src.length; i += 4) {
-    for (let c = 0; c < 3; c++) {
-      const d = src[i + c] - blurred[i + c];
-      dst[i + c] = Math.abs(d) * 2 < threshold ? src[i + c] : src[i + c] + d * k;
-    }
-    dst[i + 3] = src[i + 3];
-  }
-}
-
 export function addNoise(src: Uint8ClampedArray, dst: Uint8ClampedArray, amount: number, gaussian: boolean, mono: boolean, seed = 1) {
   let x = seed * 2654435761 >>> 0;
   const rnd = () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return ((x >>> 0) / 4294967296); };

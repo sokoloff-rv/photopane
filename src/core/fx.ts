@@ -478,20 +478,37 @@ export function parseCube(text: string): Lut3D {
 
 /** Apply a 3D LUT (trilinear), mixed by strength. Red changes fastest in .cube data. */
 export function applyLut(src: Buf, dst: Buf, lut: Lut3D, strength: number) {
-  const N = lut.size, D = lut.data, s = strength / 100;
-  const at = (r: number, g: number, b: number, c: number) => D[((b * N + g) * N + r) * 3 + c];
+  const N = lut.size, D = lut.data, s = strength / 100, M = N - 1;
+  // per channel and byte value: the lower grid index (as an offset into the data), the step to the next one
+  // and the fraction between them (no per-pixel division or allocation: 24 MP stays well under a second)
+  const lo = [new Int32Array(256), new Int32Array(256), new Int32Array(256)];
+  const step = [new Int32Array(256), new Int32Array(256), new Int32Array(256)];
+  const fr = [new Float32Array(256), new Float32Array(256), new Float32Array(256)];
+  const stride = [3, N * 3, N * N * 3];
+  for (let c = 0; c < 3; c++) {
+    const span = lut.max[c] - lut.min[c] || 1;
+    for (let v = 0; v < 256; v++) {
+      const x = Math.min(M, Math.max(0, ((v / 255 - lut.min[c]) / span) * M));
+      const i0 = Math.floor(x);
+      lo[c][v] = i0 * stride[c];
+      step[c][v] = (i0 < M ? 1 : 0) * stride[c];
+      fr[c][v] = x - i0;
+    }
+  }
+  const [loR, loG, loB] = lo, [stR, stG, stB] = step, [frR, frG, frB] = fr;
   for (let i = 0; i < src.length; i += 4) {
-    const v = [0, 1, 2].map(c => Math.min(N - 1, Math.max(0, ((src[i + c] / 255 - lut.min[c]) / (lut.max[c] - lut.min[c])) * (N - 1))));
-    const r0 = Math.floor(v[0]), g0 = Math.floor(v[1]), b0 = Math.floor(v[2]);
-    const r1 = Math.min(N - 1, r0 + 1), g1 = Math.min(N - 1, g0 + 1), b1 = Math.min(N - 1, b0 + 1);
-    const fr = v[0] - r0, fg = v[1] - g0, fb = v[2] - b0;
+    const r = src[i], g = src[i + 1], b = src[i + 2];
+    const o000 = loR[r] + loG[g] + loB[b];
+    const dr = stR[r], dg = stG[g], db = stB[b];
+    const fR = frR[r], fG = frG[g], fB = frB[b];
     for (let c = 0; c < 3; c++) {
-      const c00 = at(r0, g0, b0, c) + (at(r1, g0, b0, c) - at(r0, g0, b0, c)) * fr;
-      const c10 = at(r0, g1, b0, c) + (at(r1, g1, b0, c) - at(r0, g1, b0, c)) * fr;
-      const c01 = at(r0, g0, b1, c) + (at(r1, g0, b1, c) - at(r0, g0, b1, c)) * fr;
-      const c11 = at(r0, g1, b1, c) + (at(r1, g1, b1, c) - at(r0, g1, b1, c)) * fr;
-      const c0 = c00 + (c10 - c00) * fg, c1 = c01 + (c11 - c01) * fg;
-      const out = (c0 + (c1 - c0) * fb) * 255;
+      const o = o000 + c;
+      const c00 = D[o] + (D[o + dr] - D[o]) * fR;
+      const c10 = D[o + dg] + (D[o + dg + dr] - D[o + dg]) * fR;
+      const c01 = D[o + db] + (D[o + db + dr] - D[o + db]) * fR;
+      const c11 = D[o + db + dg] + (D[o + db + dg + dr] - D[o + db + dg]) * fR;
+      const c0 = c00 + (c10 - c00) * fG, c1 = c01 + (c11 - c01) * fG;
+      const out = (c0 + (c1 - c0) * fB) * 255;
       dst[i + c] = src[i + c] + (out - src[i + c]) * s;
     }
     dst[i + 3] = src[i + 3];

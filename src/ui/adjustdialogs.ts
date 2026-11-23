@@ -47,6 +47,8 @@ export function adjustDialog(opts: {
   job?: (c: StageCtx) => FxJob;
   extra?: HTMLElement[];
   alpha?: boolean;
+  /** Called when the window closes (OK or Cancel). */
+  onClose?: () => void;
 }) {
   const key = opts.label.replace(/^cmd\./, '');
   let keepA = opts.alpha ? !!app.settings.fltKeepAlpha : false;
@@ -68,9 +70,10 @@ export function adjustDialog(opts: {
       if (closing) return false;
       closing = true;
       unsub();
+      opts.onClose?.();
       await chain.ok(stage);
     },
-    onCancel: () => { unsub(); chain.cancel(stage); },
+    onCancel: () => { unsub(); opts.onClose?.(); chain.cancel(stage); },
   });
   return { refresh, chain, stage, sel: chain.sel, input: () => chain.inputOf(stage) };
 }
@@ -82,10 +85,13 @@ export function enhanceDialog(vignetteOnly = false) {
   const body = el('div', { class: 'adj' });
   const rows: { spec: SliderSpec; row: HTMLElement & { set(v: number): void } }[] = [];
   let refresh = () => {};
+  /** Name of the preset the sliders show (until one is moved). */
+  let current: string | null = null;
+  const forgetPreset = () => { if (current) { current = null; app.update('options'); } };
   const section = (title: string, specs: SliderSpec[]) => {
     body.append(el('div', { class: 'adj-section' }, title));
     for (const spec of specs) {
-      const row = sliderRow(spec, (p as any)[spec.key], v => { (p as any)[spec.key] = v; refresh(); });
+      const row = sliderRow(spec, (p as any)[spec.key], v => { (p as any)[spec.key] = v; refresh(); forgetPreset(); });
       rows.push({ spec, row });
       body.append(row);
     }
@@ -110,16 +116,15 @@ export function enhanceDialog(vignetteOnly = false) {
     rows.forEach(r => r.row.set((p as any)[r.spec.key]));
     refresh();
   };
-  const presetBtn = el('button', { class: 'preset-pick' }, el('span', {}, t('adj.presets')), icon('chevronDown', 14));
-  const presetLabel = presetBtn.firstElementChild as HTMLElement;
-  const openPresets = () => {
+  // presets live in the options bar while Adjust is open, to keep the window itself compact
+  const openPresets = (presetBtn: HTMLElement) => {
     const menu = el('div', { class: 'menu-drop ctx-menu preset-menu' });
     const list = adjustPresets();
     if (!list.length) menu.append(el('div', { class: 'menu-item disabled' }, el('span', { class: 'mi-label' }, t('adj.noPresets'))));
     for (const pr of list) {
       const del = el('button', { class: 'icon-btn preset-del', title: t('adj.presetDeleteTip') }, icon('trash', 13));
       const row = el('div', { class: 'menu-item preset-item' }, el('span', { class: 'mi-label' }, pr.name), del);
-      row.addEventListener('click', () => { closeContextMenu(); applyAll(pr.p); presetLabel.textContent = pr.name; });
+      row.addEventListener('click', () => { closeContextMenu(); applyAll(pr.p); current = pr.name; app.update('options'); });
       del.addEventListener('click', async e => {
         e.stopPropagation();
         closeContextMenu();
@@ -134,16 +139,20 @@ export function enhanceDialog(vignetteOnly = false) {
       const name = await promptText(t('adj.presetNew'), t('adj.presetName'), t('adj.presetDefault', String(adjustPresets().length + 1)), t('adj.save'));
       if (!name) return;
       saveAdjustPreset(name, p);
-      presetLabel.textContent = name;
+      current = name;
+      app.update('options');
       toast(t('adj.presetSaved', name));
     });
     menu.append(save);
     const r = presetBtn.getBoundingClientRect();
-    menu.style.minWidth = r.width + 'px';
+    menu.style.minWidth = Math.max(220, r.width) + 'px';
     showPopup(menu, r.left, r.bottom + 4);
   };
-  presetBtn.addEventListener('click', openPresets);
-  if (!vignetteOnly) body.prepend(presetBtn);
+  const presetBar = () => {
+    const b = el('button', { class: 'preset-pick bar', title: t('adj.presets') }, el('span', {}, current ?? t('adj.presets')), icon('chevronDown', 14));
+    b.addEventListener('click', () => openPresets(b));
+    return [b];
+  };
   // Auto: moves the light and colour sliders at once, like Camera Raw (detail and vignette stay as they are)
   const auto = el('button', { class: 'btn sm' }, t('adj.auto'));
   let res: ReturnType<typeof adjustDialog> = null;
@@ -161,8 +170,13 @@ export function enhanceDialog(vignetteOnly = false) {
     // the same maths on the GPU: smooth sliders even on large photos (the CPU stays as the fallback)
     gpu: () => ({ kind: 'enhance', p: { ...p } }),
     extra: vignetteOnly ? [el('div', { style: { flex: '1' } }), reset] : [el('div', { style: { flex: '1' } }), auto, reset],
+    onClose: () => { if (app.sideOptions?.title === t('cmd.enhance')) { app.sideOptions = null; app.update('options'); } },
   });
-  if (res) { refresh = res.refresh; if (vignetteOnly) refresh(); }
+  if (res) {
+    refresh = res.refresh;
+    if (vignetteOnly) refresh();
+    else { app.sideOptions = { icon: 'sliders', title: t('cmd.enhance'), items: presetBar }; app.update('options'); }
+  }
 }
 
 /* ---------------- histogram drawing ---------------- */

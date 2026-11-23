@@ -7,13 +7,16 @@ import { openColorPicker } from './colorpicker';
 export function numberField(opts: {
   label?: string; value: number; min: number; max: number; step?: number; unit?: string; width?: number;
   title?: string; onChange: (v: number, final: boolean) => void;
+  /** Usual values to pick from (a list opens instead of the slider); typing any value still works. */
+  presets?: number[];
 }): HTMLElement & { set(v: number): void } {
   const step = opts.step ?? 1;
   let value = opts.value;
   const dec = step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0;
   const input = el('input', { class: 'num-input', type: 'text', value: value.toFixed(dec), style: { width: (opts.width ?? 44) + 'px' } }) as HTMLInputElement;
   const range = el('input', { class: 'range', type: 'range', min: opts.min, max: opts.max, step, value }) as HTMLInputElement;
-  const pop = el('div', { class: 'num-pop' }, range);
+  const list = opts.presets ? el('div', { class: 'num-presets' }) : null;
+  const pop = el('div', { class: 'num-pop' + (list ? ' list' : '') }, list ?? range);
   const arrow = el('button', { class: 'num-arrow', tabIndex: -1 }, icon('chevronDown', 12));
   const label = opts.label ? el('span', { class: 'num-label', title: opts.title || '' }, opts.label) : null;
   const root = el('div', { class: 'num-field' }, label, el('div', { class: 'num-box' }, input, opts.unit ? el('span', { class: 'num-unit' }, opts.unit) : null, arrow), pop) as any;
@@ -26,6 +29,18 @@ export function numberField(opts: {
     opts.onChange(v, final);
   };
   root.set = (v: number) => { value = v; input.value = v.toFixed(dec); range.value = String(v); };
+  if (list) {
+    const fill = () => {
+      list.innerHTML = '';
+      for (const pv of opts.presets!) {
+        const b = el('button', { class: 'num-preset' + (Math.abs(pv - value) < 1e-9 ? ' on' : '') }, pv.toFixed(dec) + (opts.unit ? ' ' + opts.unit : ''));
+        b.addEventListener('mousedown', e => e.preventDefault());   // keep the text selection of the text tool
+        b.addEventListener('click', e => { e.stopPropagation(); root.classList.remove('open'); apply(pv, true); });
+        list.append(b);
+      }
+    };
+    (root as any)._fill = fill;
+  }
 
   input.addEventListener('change', () => { const v = parseFloat(input.value.replace(',', '.')); if (!isNaN(v)) apply(v, true); else input.value = value.toFixed(dec); });
   input.addEventListener('keydown', e => {
@@ -43,6 +58,7 @@ export function numberField(opts: {
     const open = !root.classList.contains('open');
     document.querySelectorAll('.num-field.open').forEach(n => n.classList.remove('open'));
     if (open) {
+      (root as any)._fill?.();
       root.classList.add('open');
       const close = (ev: Event) => { if (!root.contains(ev.target as Node)) { root.classList.remove('open'); document.removeEventListener('pointerdown', close, true); } };
       document.addEventListener('pointerdown', close, true);

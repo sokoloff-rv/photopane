@@ -54,6 +54,8 @@ export class App {
   /** Set while the color picker is open: clicks on the canvas sample a color. */
   colorPick: ((c: RGB) => void) | null = null;
   settings: any = {};
+  /** Controls of an open correction window shown in the options bar instead of the tool's (Adjust presets). */
+  sideOptions: { icon: string; title: string; items: () => (HTMLElement | null)[] } | null = null;
   spaceDown = false;
 
   viewport!: Viewport;

@@ -63,7 +63,7 @@ export function nudgeSideDialog(key?: string): boolean {
 const LOCKED_WHILE_SIDE = '.tabs, .toolbar, .optionsbar, .panel.layers, .panel.hist';
 function sideGuard(e: Event) {
   const target = e.target as Element | null;
-  if (!sides.length || !target?.closest?.(LOCKED_WHILE_SIDE)) return;
+  if (!sides.length || !target?.closest?.(LOCKED_WHILE_SIDE) || target.closest('.side-opts')) return;
   e.preventDefault(); e.stopPropagation();
   if (e.type === 'pointerdown') nudgeSideDialog();
 }

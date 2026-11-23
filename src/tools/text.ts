@@ -392,8 +392,8 @@ export class TextTool extends Tool<TextOpts> {
         { value: 'center', icon: 'alignC', title: t('opt.alignCenter') },
         { value: 'right', icon: 'alignR', title: t('opt.alignRight') },
       ], td.align, v => this.setAlign(v)),
-      numberField({ label: t('opt.leading'), value: Math.round(td.leading * 100), min: 50, max: 2000, unit: '%', onChange: (v, fin) => { if (fin) this.setStyle({ leading: v / 100 }); } }),
-      numberField({ label: t('opt.tracking'), value: td.tracking, min: -200, max: 1000, onChange: (v, fin) => { if (fin) this.setStyle({ tracking: v }); } }),
+      numberField({ label: t('opt.leading'), value: Math.round(td.leading * 100), min: 50, max: 2000, unit: '%', presets: [80, 100, 115, 125, 150, 175, 200, 250, 300], onChange: (v, fin) => { if (fin) this.setStyle({ leading: v / 100 }); } }),
+      numberField({ label: t('opt.tracking'), value: td.tracking, min: -200, max: 1000, presets: [-100, -75, -50, -25, -10, 0, 10, 25, 50, 75, 100, 200], onChange: (v, fin) => { if (fin) this.setStyle({ tracking: v }); } }),
       ...(this.editing ? [spacer(), textButton(t('opt.apply'), () => this.commit(), true)] : []),
     ];
   }

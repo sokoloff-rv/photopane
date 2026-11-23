@@ -12,6 +12,7 @@ import { pickFiles, openFiles, saveDoc, exportDialog, readClipboardImage, writeC
 import { TransformTool } from './tools/transform';
 import { imageSizeDialog, canvasSizeDialog, rotateArbitraryDialog } from './ui/docdialogs';
 import { fillDialog, strokeDialog } from './ui/filldialogs';
+import { batchDialog } from './ui/batchdialog';
 import { aiSettingsDialog, upscaleDialog, removeBackground, selectSubject, removeObject } from './ui/aidialogs';
 import {
   motionBlurDialog, radialBlurDialog, surfaceBlurDialog, highPassDialog, dehazeDialog, denoiseDialog, glowDialog,
@@ -55,6 +56,7 @@ export function registerCommands(app: App) {
   R('save', () => saveDoc(false), ['Ctrl+S'], hasDoc);
   R('saveAs', () => saveDoc(true), ['Ctrl+Shift+S'], hasDoc);
   R('export', () => exportDialog(false), ['Ctrl+Alt+Shift+W'], hasDoc);
+  R('batch', () => batchDialog());
   R('close', () => app.closeDoc(D()), ['Ctrl+W'], hasDoc);
 
   /* ---------- Edit ---------- */

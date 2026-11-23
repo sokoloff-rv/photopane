@@ -344,7 +344,7 @@ export function vignetteFn(docW: number, docH: number, midpoint: number, roundne
 }
 
 /** `s`: size and layer offset of the pixels; k < 1 for a reduced draft (the vignette scales with it). */
-export function enhance(p: EnhanceParams, s: { w: number; h: number; ox: number; oy: number; k?: number }, cache: DetailCache, src: Uint8ClampedArray, dst: Uint8ClampedArray) {
+export function enhance(p: EnhanceParams, s: { w: number; h: number; ox: number; oy: number; k?: number; docW?: number; docH?: number }, cache: DetailCache, src: Uint8ClampedArray, dst: Uint8ClampedArray) {
   // per-channel tone LUT: brightness (gamma), contrast, whites/blacks
   const lut = new Float32Array(256);
   const gamma = Math.pow(2, -p.brightness / 100);
@@ -368,9 +368,10 @@ export function enhance(p: EnhanceParams, s: { w: number; h: number; ox: number;
   const grain = p.grain / 100 * 0.16;
   const small = sharp ? cache.getSmall(src, s.w, s.h) : null;
   const large = clar ? cache.getLarge(src, s.w, s.h) : null;
-  const doc = app.doc!;
+  const doc = app.doc;
   const k = s.k ?? 1;
-  const vig = p.vignette ? vignetteFn(doc.width * k, doc.height * k, p.vigMidpoint, p.vigRoundness, p.vigFeather) : null;
+  // the vignette is centred on the document (or on the image itself when there is none, e.g. batch processing)
+  const vig = p.vignette ? vignetteFn((s.docW ?? doc?.width ?? s.w) * k, (s.docH ?? doc?.height ?? s.h) * k, p.vigMidpoint, p.vigRoundness, p.vigFeather) : null;
   const vamt = p.vignette / 100;
   const W = s.w;
   for (let i = 0, px = 0; i < src.length; i += 4, px++) {

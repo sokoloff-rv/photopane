@@ -8,7 +8,7 @@ type Item = string | { sub: string; items: Item[] };
 // One obvious path per action: selection commands live in the canvas context menu, layer commands in the
 // Layers panel (buttons and right-click menu), language in the corner switch. Shortcuts keep working.
 const MENUS: { key: string; items: Item[] }[] = [
-  { key: 'menu.file', items: ['new', 'newFromClipboard', 'open', '-', 'place', '-', 'save', 'saveAs', 'export', '-', 'close'] },
+  { key: 'menu.file', items: ['new', 'newFromClipboard', 'open', '-', 'place', '-', 'save', 'saveAs', 'export', '-', 'batch', '-', 'close'] },
   { key: 'menu.edit', items: ['undo', 'redo', '-', 'cut', 'copy', 'copyMerged', 'paste', 'clear', '-', 'settings'] },
   { key: 'menu.image', items: [
     'enhance', 'levels', 'curves', '-',

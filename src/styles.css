@@ -436,3 +436,19 @@ body.busy-cursor, body.busy-cursor * { cursor: progress !important; }
 .font-empty { padding: 20px; text-align: center; color: var(--text2); }
 .font-foot { display: flex; justify-content: center; text-align: center; }
 .font-foot:empty { display: none; }
+/* batch processing */
+.batch { display: flex; flex-direction: column; gap: 8px; }
+.batch .adj-section { margin: 8px 0 0; }
+.batch .adj-section:first-child { margin-top: 0; }
+.batch-row { display: flex; align-items: center; gap: 12px; min-height: 28px; min-width: 0; }
+.batch-row > .check { width: 130px; flex: none; }
+.batch-label { width: 130px; flex: none; color: var(--text); }
+.batch-opts { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.batch-opts .select { max-width: 220px; }
+.batch-num { width: 72px; }
+.batch-quality { display: inline-flex; align-items: center; gap: 6px; }
+.batch-src { display: flex; gap: 6px; flex: none; }
+.batch-src-info { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.batch-note { font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.batch-note.warn { color: #ffb35c; }
+.batch-errors { max-height: 180px; overflow: auto; font-size: 11.5px; color: var(--text2); }

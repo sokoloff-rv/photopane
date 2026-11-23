@@ -20,6 +20,33 @@ export interface DialogOptions {
 let openCount = 0;
 export const dialogOpen = () => openCount > 0;
 
+/**
+ * The open side window (Adjust, Levels, a filter, Layer Style). It previews on the layer, so while it is
+ * open the rest of the editor must not change the document: one such window at a time, no tab switching,
+ * history jumps, layer changes or painting. Viewing (zoom, pan, the before/after line) stays available.
+ */
+let sideCard: HTMLElement | null = null;
+export const sideDialogOpen = () => !!sideCard;
+
+/** Briefly shake the open side window to show it has to be finished first. Returns false if there is none. */
+export function nudgeSideDialog(): boolean {
+  const c = sideCard;
+  if (!c) return false;
+  c.classList.remove('nudge');
+  void c.offsetWidth;
+  c.classList.add('nudge');
+  return true;
+}
+
+/** Parts of the window that change the document; the navigator panel only moves the view. */
+const LOCKED_WHILE_SIDE = '.tabs, .toolbar, .optionsbar, .panel.layers, .panel.hist';
+function sideGuard(e: Event) {
+  const target = e.target as Element | null;
+  if (!sideCard || !target?.closest?.(LOCKED_WHILE_SIDE)) return;
+  e.preventDefault(); e.stopPropagation();
+  if (e.type === 'pointerdown') nudgeSideDialog();
+}
+
 export function openDialog(o: DialogOptions): { close: () => void; root: HTMLElement } {
   openCount++;
   const ok = el('button', { class: 'btn primary' }, o.okLabel || t('dlg.ok'));
@@ -32,10 +59,18 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
     el('div', { class: 'dlg-foot' }, ...(o.extraButtons || []), el('div', { style: { flex: '1' } }), cancel, ok));
   const overlay = el('div', { class: 'dlg-overlay' + (o.side ? ' side' : '') + (o.passthrough ? ' pass' : '') }, card);
   document.body.append(overlay);
+  if (o.side) {
+    sideCard = card;
+    for (const type of ['pointerdown', 'click', 'dblclick', 'contextmenu']) window.addEventListener(type, sideGuard, { capture: true });
+  }
   let closed = false;
   const close = () => {
     if (closed) return;
     closed = true; openCount--;
+    if (o.side && sideCard === card) {
+      sideCard = null;
+      for (const type of ['pointerdown', 'click', 'dblclick', 'contextmenu']) window.removeEventListener(type, sideGuard, { capture: true });
+    }
     overlay.classList.add('closing');
     setTimeout(() => overlay.remove(), 120);
     window.removeEventListener('keydown', onKey, true);

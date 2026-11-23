@@ -88,7 +88,7 @@ export class MenuBar {
         continue;
       }
       const c = app.commands.get(it);
-      const enabled = !!c && (!c.enabled || c.enabled());
+      const enabled = !!c && (!c.enabled || c.enabled()) && !app.commandLocked(it);
       const checked = !!c?.checked?.();
       const row = el('div', { class: 'menu-item' + (enabled ? '' : ' disabled') },
         el('span', { class: 'mi-check' }, checked ? icon('check', 13) : ''),

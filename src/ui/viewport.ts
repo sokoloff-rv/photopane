@@ -1,3 +1,4 @@
+import { sideDialogOpen, nudgeSideDialog } from './dialog';
 import { app } from '../app';
 import { el, clamp } from '../core/util';
 import { t } from '../i18n';
@@ -56,11 +57,11 @@ export class Viewport {
     ov.addEventListener('pointermove', e => this.onMove(e));
     ov.addEventListener('pointerup', e => this.onUp(e));
     ov.addEventListener('pointercancel', e => this.onUp(e));
-    ov.addEventListener('dblclick', e => { if (this.doc && this.active && !app.spaceDown) (this.isPanTool() ? this.fit(false) : app.tool.dblclick(this.ev(e))); });
+    ov.addEventListener('dblclick', e => { if (this.doc && this.active && !app.spaceDown && !this.locked()) (this.isPanTool() ? this.fit(false) : app.tool.dblclick(this.ev(e))); });
     ov.addEventListener('pointerenter', () => { this.pointer.inside = true; });
     ov.addEventListener('pointerleave', () => { this.pointer.inside = false; this.renderOverlay(); app.statusbar.setCursor(null); });
     ov.addEventListener('wheel', e => this.onWheel(e), { passive: false });
-    ov.addEventListener('contextmenu', e => { e.preventDefault(); if (this.doc && this.active && !app.spaceDown) openCanvasContextMenu(e, this.ev(e)); });
+    ov.addEventListener('contextmenu', e => { e.preventDefault(); if (this.locked()) { nudgeSideDialog(); return; } if (this.doc && this.active && !app.spaceDown) openCanvasContextMenu(e, this.ev(e)); });
 
     setInterval(() => {
       if (this.doc?.selection || (this.active && app.tool.id === 'lasso')) { this.antsPhase = (this.antsPhase + 1) % 1e6; this.renderOverlay(); }
@@ -441,9 +442,12 @@ export class Viewport {
     };
   }
 
+  /** An Adjust/filter window is open: the canvas only pans, zooms and moves its before/after line. */
+  private locked() { return sideDialogOpen() && app.tool.id !== 'splitCompare'; }
+
   private onDown(e: PointerEvent) {
     if (!this.doc) return;
-    if (!this.active) { if (this.bound) app.activatePane(this); return; }
+    if (!this.active) { if (this.bound && !nudgeIfLocked()) app.activatePane(this); return; }
     (document.activeElement as HTMLElement)?.blur?.();
     this.overlay.setPointerCapture(e.pointerId);
     if (this.isPanTool() || e.button === 1) {
@@ -454,6 +458,7 @@ export class Viewport {
       return;
     }
     if (e.button !== 0) return;
+    if (this.locked()) { nudgeSideDialog(); return; }
     const pe = this.ev(e);
     const d = this.doc;
     if (app.colorPick) { this.dragging = 'pick'; this.pickAt(pe); return; }
@@ -546,3 +551,6 @@ export class Viewport {
     }
   }
 }
+
+/** True (and the open side window shakes) when an Adjust/filter window blocks switching panes. */
+function nudgeIfLocked(): boolean { return sideDialogOpen() && nudgeSideDialog(); }

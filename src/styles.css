@@ -315,6 +315,8 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 /* ---------- stage 3: adjustments ---------- */
 .dlg-overlay.side { background: transparent; justify-content: flex-end; align-items: flex-start; padding: 90px calc(var(--panels-w, 280px) + 16px) 0 0; pointer-events: none; animation: none; }
 .dlg-overlay.side .dlg { pointer-events: auto; max-height: calc(100vh - 120px); }
+.dlg.nudge { animation: nudge 0.32s ease-in-out; }
+@keyframes nudge { 0%, 100% { transform: none; } 20% { transform: translateX(-6px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
 .adj { display: flex; flex-direction: column; gap: 4px; }
 .adj-section { color: var(--text2); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; margin: 10px 0 2px; }
 .adj-section:first-child { margin-top: 0; }
@@ -387,3 +389,4 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .ai-label { color: var(--text2); margin-top: 4px; }
 .ai-key { display: flex; gap: 6px; }
 .ai-key .text-input { flex: 1; font-family: ui-monospace, monospace; }
+body.busy-cursor, body.busy-cursor * { cursor: progress !important; }

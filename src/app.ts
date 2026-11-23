@@ -18,7 +18,7 @@ import { LayersPanel } from './ui/panels/layers';
 import { installPanelResizers } from './ui/panels/panel';
 import { installEffects } from './core/effects';
 import { registerCommands } from './commands';
-import { dialogOpen, toast, confirmDialog } from './ui/dialog';
+import { dialogOpen, toast, confirmDialog, sideDialogOpen, nudgeSideDialog } from './ui/dialog';
 import { handlePaste, openFiles } from './io/files';
 
 export interface Command {
@@ -378,9 +378,15 @@ export class App {
   /* ---------------- commands & keys ---------------- */
   register(c: Command) { this.commands.set(c.id, c); }
 
+  /** Commands that only change the view; the rest wait until an open Adjust/filter window is closed. */
+  static readonly VIEW_COMMANDS = new Set(['zoomIn', 'zoomOut', 'fit', 'actual', 'rulers', 'showGuides', 'snap', 'clearGuides', 'shortcuts', 'about']);
+  commandLocked(id: string) { return sideDialogOpen() && !App.VIEW_COMMANDS.has(id); }
+
   run(id: string) {
     const c = this.commands.get(id);
     if (!c) { toast(t('app.soon')); return; }
+    // a second Adjust, Levels or filter window (or any edit) while one is open: point at the open one
+    if (this.commandLocked(id)) { nudgeSideDialog(); return; }
     if (c.enabled && !c.enabled()) return;
     if (this.tool.busy() && !['undo', 'redo', 'zoomIn', 'zoomOut', 'fit', 'actual'].includes(id)) this.tool.cancel();
     this.startingCmd = id;

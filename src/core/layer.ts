@@ -73,6 +73,10 @@ export interface CharStyle {
   psName?: string;
   /** Photoshop synthetic bold flag from PSD */
   fauxBold?: boolean;
+  /** Strikethrough line */
+  strike?: boolean;
+  /** Shown in capitals (the text itself keeps its case) */
+  caps?: boolean;
 }
 export interface StyleRun { len: number; s: CharStyle }
 
@@ -102,6 +106,8 @@ export interface TextData {
   weight?: number;
   psName?: string;
   fauxBold?: boolean;
+  strike?: boolean;
+  caps?: boolean;
   /** Per-character styles (absent = the whole layer uses the base fields above) */
   runs?: StyleRun[];
   /** Linear transform of the text (rotation / skew / non-uniform scale, as in Photoshop) applied around a pivot:

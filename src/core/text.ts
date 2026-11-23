@@ -10,13 +10,15 @@ export const COMMON_FONTS = [
 ];
 
 /* ---------------- character styles ---------------- */
-export const STYLE_KEYS: (keyof CharStyle)[] = ['font', 'size', 'color', 'bold', 'italic', 'underline', 'tracking', 'vScale', 'leading'];
+export const STYLE_KEYS: (keyof CharStyle)[] = ['font', 'size', 'color', 'bold', 'italic', 'underline', 'strike', 'caps', 'tracking', 'vScale', 'leading'];
 
 export function baseStyle(t: TextData): CharStyle {
   const s: CharStyle = { font: t.font, size: t.size, color: { ...t.color }, bold: t.bold, italic: t.italic, underline: t.underline, tracking: t.tracking, vScale: t.vScale ?? 1, leading: t.leading };
   if (t.weight !== undefined) s.weight = t.weight;
   if (t.psName !== undefined) s.psName = t.psName;
   if (t.fauxBold !== undefined) s.fauxBold = t.fauxBold;
+  if (t.strike) s.strike = true;
+  if (t.caps) s.caps = true;
   return s;
 }
 
@@ -46,7 +48,7 @@ export function setRuns(t: TextData, runs: StyleRun[]) {
     if (last && sameStyle(last.s, r.s)) last.len += r.len; else merged.push({ len: r.len, s: { ...r.s } });
   }
   const first = merged[0]?.s ?? (t.runs?.[0]?.s) ?? baseStyle(t);
-  Object.assign(t, { font: first.font, size: first.size, color: { ...first.color }, bold: first.bold, italic: first.italic, underline: first.underline, tracking: first.tracking, vScale: first.vScale, leading: first.leading, weight: first.weight, psName: first.psName, fauxBold: first.fauxBold });
+  Object.assign(t, { font: first.font, size: first.size, color: { ...first.color }, bold: first.bold, italic: first.italic, underline: first.underline, tracking: first.tracking, vScale: first.vScale, leading: first.leading, weight: first.weight, psName: first.psName, fauxBold: first.fauxBold, strike: first.strike, caps: first.caps });
   t.runs = merged.length > 1 ? merged : undefined;
 }
 
@@ -121,8 +123,16 @@ export function styleFont(s: CharStyle, scale = 1): string {
 
 /** Effective CSS weight of a style. */
 export function fontWeight(s: CharStyle): number {
-  const w = s.weight ?? (s.bold ? 700 : 400);
-  return s.bold && w < 700 ? 700 : w;
+  return s.weight ?? (s.bold ? 700 : 400);
+}
+
+/** Text as drawn: capitals when the style asks for them (one character stays one character, so the caret and
+ * selection keep their positions; letters whose capital form is longer, like ß, stay as they are). */
+export function shownText(s: CharStyle, text: string): string {
+  if (!s.caps) return text;
+  let out = '';
+  for (const ch of text) { const u = ch.toUpperCase(); out += u.length === ch.length ? u : ch; }
+  return out;
 }
 export function fontString(t: TextData, scale = 1): string { return styleFont(baseStyle(t), scale); }
 
@@ -133,7 +143,7 @@ function mctx(s: CharStyle) {
   (measureCtx as any).letterSpacing = `${(s.tracking / 1000) * s.size}px`;
   return measureCtx;
 }
-export function measure(s: CharStyle, text: string) { return text ? mctx(s).measureText(text).width : 0; }
+export function measure(s: CharStyle, text: string) { return text ? mctx(s).measureText(shownText(s, text)).width : 0; }
 
 const metricsCache = new Map<string, { asc: number; desc: number }>();
 export function styleMetrics(s: CharStyle): { asc: number; desc: number } {
@@ -362,9 +372,12 @@ export function renderTextLayer(l: Layer) {
         g.font = styleFont(s);
         (g as any).letterSpacing = `${(s.tracking / 1000) * s.size}px`;
         g.fillStyle = css(s.color);
-        if (s.vScale !== 1) { g.save(); g.translate(x, y); g.scale(1, s.vScale); g.fillText(sg.text, 0, 0); g.restore(); }
-        else g.fillText(sg.text, x, y);
-        if (s.underline && sg.text.trim()) g.fillRect(x, y + s.size * 0.1, sg.w, Math.max(1, s.size / 16));
+        const shown = shownText(s, sg.text);
+        if (s.vScale !== 1) { g.save(); g.translate(x, y); g.scale(1, s.vScale); g.fillText(shown, 0, 0); g.restore(); }
+        else g.fillText(shown, x, y);
+        const line = Math.max(1, s.size / 16);
+        if (s.underline && sg.text.trim()) g.fillRect(x, y + s.size * 0.1, sg.w, line);
+        if (s.strike && sg.text.trim()) g.fillRect(x, y - s.size * 0.3 * s.vScale - line / 2, sg.w, line);
         x += sg.w;
       }
     }

@@ -186,6 +186,7 @@ function textFrom(l: PsdLayer): TextData | null {
       font: f.family, size: fs * scale, color: colorFrom(st.fillColor, { r: 0, g: 0, b: 0 }),
       bold: !!st.fauxBold || f.weight >= 600, italic: !!st.fauxItalic || f.italic, underline: !!st.underline,
       weight: st.fauxBold ? Math.max(f.weight, 700) : f.weight, psName: st.font?.name, fauxBold: !!st.fauxBold,
+      strike: !!st.strikethrough || undefined, caps: st.fontCaps === 2 || undefined,
       tracking: st.tracking ?? 0, vScale: st.verticalScale ?? 1,
       leading: st.autoLeading === false && st.leading ? st.leading / fs : (ps.autoLeading ?? 1.2),
     };
@@ -197,7 +198,7 @@ function textFrom(l: PsdLayer): TextData | null {
     ...defaultText(), text: tx.text.replace(/\r/g, '\n').replace(/\n$/, ''),
     font: first.font, size: first.size, color: first.color, bold: first.bold, italic: first.italic, underline: first.underline,
     align, leading: first.leading, tracking: first.tracking, vScale: first.vScale, box: null, psdPixels: true,
-    weight: first.weight, psName: first.psName, fauxBold: first.fauxBold,
+    weight: first.weight, psName: first.psName, fauxBold: first.fauxBold, strike: first.strike, caps: first.caps,
   };
   if (psRuns.length > 1) setRuns(td, psRuns.map(r => ({ len: r.length, s: charStyle(r.style) })));
   if (tx.shapeType === 'box' && tx.boxBounds) {
@@ -222,6 +223,7 @@ function psStyle(s: CharStyle) {
     font: { name: s.psName || s.font.replace(/\s+/g, '') }, fontSize: s.size,
     fauxBold: s.psName ? !!s.fauxBold : s.bold, fauxItalic: s.psName ? (s.italic && !/italic|oblique/i.test(s.psName)) : s.italic, underline: s.underline,
     tracking: s.tracking, autoLeading: false, leading: s.size * s.leading, fillColor: colorTo(s.color), verticalScale: s.vScale,
+    strikethrough: !!s.strike, fontCaps: s.caps ? 2 : 0,
   };
 }
 

@@ -4,8 +4,9 @@ import { Tool, PEvent } from './tool';
 import { Layer, TextData, defaultText, CharStyle } from '../core/layer';
 import {
   layoutText, renderTextLayer, COMMON_FONTS, baselineOffset, styleAt, applyStyle, applyStyleAll, textEdited,
-  caretPos, hitIndex, selectionRects, baseStyle, toLocalPoint, toDocPoint, textQuad, textMatrix,
+  caretPos, hitIndex, selectionRects, baseStyle, toLocalPoint, toDocPoint, textQuad, textMatrix, fontWeight,
 } from '../core/text';
+import { icon } from '../ui/icons';
 import { pointInPoly } from '../core/geom';
 import { css, RGB } from '../core/color';
 import { el, normRect } from '../core/util';
@@ -15,7 +16,7 @@ import { toast } from '../ui/dialog';
 import { loadLocalFontList, localFamilies, registerFamily } from '../core/fonts';
 import { clearFontCaches } from '../core/text';
 
-interface TextOpts { font: string; size: number; bold: boolean; italic: boolean; underline: boolean; align: 'left' | 'center' | 'right'; leading: number; tracking: number }
+interface TextOpts { font: string; size: number; bold: boolean; italic: boolean; underline: boolean; align: 'left' | 'center' | 'right'; leading: number; tracking: number; weight: number; strike: boolean; caps: boolean }
 
 let systemFonts: string[] | null = null;
 let textCounter = 1;
@@ -42,7 +43,7 @@ export class TextTool extends Tool<TextOpts> {
   private blinkTimer = 0;
   private lastClick = { time: 0, idx: -1, count: 0 };
 
-  constructor() { super({ font: 'Arial', size: 48, bold: false, italic: false, underline: false, align: 'left', leading: 1.2, tracking: 0 }); }
+  constructor() { super({ font: 'Arial', size: 48, bold: false, italic: false, underline: false, align: 'left', leading: 1.2, tracking: 0, weight: 400, strike: false, caps: false }); }
 
   /** Text layer under a document point. */
   private hitText(x: number, y: number): Layer | null {
@@ -357,24 +358,34 @@ export class TextTool extends Tool<TextOpts> {
       if (systemFonts?.includes(v)) { await registerFamily(v); clearFontCaches(); }
       this.setStyle({ font: v, psName: undefined });
     }, 'font-select');
-    const toggle = (k: 'bold' | 'italic' | 'underline', label: string, style: Partial<CSSStyleDeclaration>) => {
-      const b = el('button', { class: 'seg-btn' + (td[k] ? ' on' : ''), title: t('opt.' + k) + (k === 'bold' && (td as any).weight && (td as any).weight !== 700 && (td as any).weight !== 400 ? ` (${(td as any).weight})` : '') }, el('span', { style }, label));
+    // style toggles as icons of one size (letters in different faces looked uneven)
+    const toggle = (k: 'italic' | 'underline' | 'strike' | 'caps', ico: string) => {
+      const on = !!(td as any)[k];
+      const b = el('button', { class: 'seg-btn' + (on ? ' on' : ''), title: t('opt.' + k) }, icon(ico, 15));
       b.addEventListener('mousedown', e => e.preventDefault()); // keep text selection
       b.addEventListener('click', () => {
-        const on = !td[k];
-        const patch: Partial<CharStyle> = { [k]: on };
-        // a manual change leaves the exact PSD face: weight follows the B button
-        if (k === 'bold') Object.assign(patch, { weight: on ? Math.max(700, (td as any).weight ?? 700) : 400, psName: undefined, fauxBold: undefined });
-        if (k === 'italic') Object.assign(patch, { psName: undefined });
+        const patch: Partial<CharStyle> = { [k]: !on };
+        if (k === 'italic') Object.assign(patch, { psName: undefined });   // a manual change leaves the exact PSD face
         this.setStyle(patch);
       });
       return b;
     };
+    // weight: the whole range instead of a bold on/off button
+    const w = fontWeight(td as CharStyle);
+    const weights = [100, 200, 300, 400, 500, 600, 700, 800, 900];
+    const weightSel = select(weights.map(v => ({ value: String(v), label: t('opt.weight' + v) })), String(weights.includes(w) ? w : Math.round(w / 100) * 100), v => {
+      const n = +v;
+      this.setStyle({ weight: n, bold: n >= 600, psName: undefined, fauxBold: undefined });
+    }, 'weight-select');
+    weightSel.title = t('opt.weight');
+    weightSel.addEventListener('mousedown', e => e.stopPropagation());
     return [
       fontSel,
-      el('div', { class: 'seg' }, toggle('bold', 'B', { fontWeight: '700' }), toggle('italic', 'I', { fontStyle: 'italic', fontFamily: 'Georgia, serif' }), toggle('underline', 'U', { textDecoration: 'underline' })),
+      weightSel,
       numberField({ label: t('opt.size'), value: Math.round(td.size * 10) / 10, min: 1, max: 2000, step: 0.5, unit: 'px', onChange: (v, fin) => { if (fin) this.setStyle({ size: v }); } }),
       colorSwatch(td.color as RGB, t('opt.textColor'), c => { if (this.targetLayer()) this.setStyle({ color: c }); else app.setColor('fg', c); }),
+      sep(),
+      el('div', { class: 'seg' }, toggle('italic', 'italic'), toggle('underline', 'underline'), toggle('strike', 'strike'), toggle('caps', 'caps')),
       sep(),
       segmented<'left' | 'center' | 'right'>([
         { value: 'left', icon: 'alignL', title: t('opt.alignLeft') },

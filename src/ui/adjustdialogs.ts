@@ -56,7 +56,8 @@ export function adjustDialog(opts: {
   const unsub = chain.onSplit(on => { splitInput.checked = on; });
   const rows: HTMLElement[] = [split];
   if (opts.alpha) rows.push(checkbox(t('adj.keepAlpha'), keepA, v => { keepA = v; app.settings.fltKeepAlpha = v; app.saveSettings(); refresh(); }));
-  opts.body.append(el('div', { class: 'adj-foot adj-foot-wrap' }, ...rows, ...(opts.extra || [])));
+  // before/after and the window's own buttons (Auto, Reset) first: they are what you reach for at the start
+  opts.body.prepend(el('div', { class: 'adj-foot adj-foot-wrap adj-top' }, ...rows, ...(opts.extra || [])));
   let closing = false;
   openDialog({
     title: opts.title, body: opts.body, width: opts.width || 340, side: true, sideKey: key, chain: true,

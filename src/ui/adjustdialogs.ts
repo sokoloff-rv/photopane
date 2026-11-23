@@ -106,7 +106,7 @@ export function enhanceDialog(vignetteOnly = false) {
   let res: ReturnType<typeof adjustDialog> = null;
   auto.addEventListener('click', () => {
     if (!res) return;
-    Object.assign(p, autoEnhanceParams(res.input(), res.sel));
+    Object.assign(p, autoEnhanceParams(res.input(), res.chain.w, res.chain.h, res.sel, p));
     rows.forEach(r => r.row.set((p as any)[r.spec.key]));
     refresh();
   });

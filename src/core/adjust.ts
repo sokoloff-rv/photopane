@@ -221,57 +221,97 @@ export const ENHANCE_DEFAULTS: EnhanceParams = {
 };
 
 /**
- * Automatic settings for the Adjust sliders (like Camera Raw's Auto): exposure from the median,
- * white/black points from the histogram tails, contrast from the spread, highlight/shadow recovery
- * when the ends are crowded, a gentle grey-world white balance and some vibrance for flat colours.
+ * Automatic settings for the Adjust sliders, like Auto in Camera Raw: tone only (white balance, hue and the
+ * detail sliders stay as they are), predictable rather than dramatic. Each value is found by running this
+ * very Adjust on a reduced copy and measuring the result, step by step, so the sliders account for each
+ * other instead of stacking up:
+ *  1. Brightness: the median brightness moves half of the way to mid-grey, within limits (a dark scene
+ *     stays dark, a bright one bright).
+ *  2. Highlights / Shadows: recover them when many pixels crowd near white or black.
+ *  3. Whites / Blacks: the brightest and darkest few pixels move most of the way to white and black.
+ *  4. Contrast, with the range set: half of the way to the spread of a typical photo, without clipping.
+ *  5. Midtones back on target, some Vibrance for flat colours.
  */
-export function autoEnhanceParams(src: Uint8ClampedArray, sel: Uint8Array | null): Partial<EnhanceParams> {
-  const hist = new Float64Array(256);
-  let n = 0, sr = 0, sg = 0, sb = 0, mw = 0, satSum = 0;
-  const step = Math.max(1, Math.floor(src.length / 4 / 400000)) * 4;   // sample up to ~400k pixels
-  for (let i = 0, px = 0; i < src.length; i += step, px += step / 4) {
-    if (src[i + 3] < 128 || (sel && sel[px] < 128)) continue;
-    const r = src[i], g = src[i + 1], b = src[i + 2];
-    const L = 0.299 * r + 0.587 * g + 0.114 * b;
-    hist[Math.round(L)]++; n++;
-    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
-    satSum += mx ? (mx - mn) / mx : 0;
-    // white balance from midtones that are not strongly coloured
-    if (L > 40 && L < 220 && mx - mn < 90) { sr += r; sg += g; sb += b; mw++; }
+export function autoEnhanceParams(src: Uint8ClampedArray, w: number, h: number, sel: Uint8Array | null, current: EnhanceParams = ENHANCE_DEFAULTS): Partial<EnhanceParams> {
+  // reduced copy (~100k px) of single sampled pixels: averaging blocks would shrink the histogram tails and
+  // push Whites/Blacks too far; pixels outside the selection or mostly transparent are not measured
+  const f = Math.max(1, Math.sqrt((w * h) / 100000));
+  const pw = Math.max(1, Math.floor(w / f)), ph = Math.max(1, Math.floor(h / f));
+  const proxy = new Uint8ClampedArray(pw * ph * 4);
+  const mask = new Uint8Array(pw * ph);
+  let used = 0;
+  for (let py = 0; py < ph; py++) {
+    const y = Math.min(h - 1, Math.floor((py + 0.5) * h / ph));
+    for (let px = 0; px < pw; px++) {
+      const x = Math.min(w - 1, Math.floor((px + 0.5) * w / pw));
+      const i = (y * w + x) * 4, o = (py * pw + px) * 4;
+      proxy[o] = src[i]; proxy[o + 1] = src[i + 1]; proxy[o + 2] = src[i + 2]; proxy[o + 3] = 255;
+      if (src[i + 3] >= 128 && (!sel || sel[y * w + x] >= 128)) { mask[py * pw + px] = 1; used++; }
+    }
   }
-  if (!n) return {};
-  const pct = (q: number) => { let acc = 0; const lim = q * n; for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc >= lim) return i / 255; } return 1; };
-  const lo = pct(0.005), hi = pct(0.995), med = pct(0.5);
-  let mean = 0, sq = 0;
-  for (let i = 0; i < 256; i++) { const v = i / 255; mean += v * hist[i]; sq += v * v * hist[i]; }
-  mean /= n; const sd = Math.sqrt(Math.max(0, sq / n - mean * mean));
-  const clamp = (v: number, a: number, b: number) => Math.round(Math.max(a, Math.min(b, v)));
-  const p: Partial<EnhanceParams> = {};
-  // white / black points (see enhance(): wp = 1 − whites·0.15, bp = −blacks·0.15)
-  p.whites = clamp((1 - Math.max(hi, 0.6)) / 0.15 * 100 * 0.8, 0, 60);
-  p.blacks = clamp(-Math.min(lo, 0.25) / 0.15 * 100 * 0.8, -60, 0);
-  // exposure: bring the median towards the middle (gamma = 2^(−brightness/100))
-  const m = Math.min(0.95, Math.max(0.05, med));
-  const gamma = Math.log(0.46) / Math.log(m);
-  p.brightness = clamp(-100 * Math.log2(gamma) * 0.7, -50, 50);
-  // contrast from the spread
-  p.contrast = clamp((0.2 / Math.max(0.05, sd) - 1) / 1.2 * 100 * 0.5, -25, 30);
-  // recover crowded ends
-  const fracHi = hist.slice(235).reduce((a, b) => a + b, 0) / n, fracLo = hist.slice(0, 25).reduce((a, b) => a + b, 0) / n;
-  p.highlights = clamp(-fracHi * 300, -45, 0);
-  p.shadows = clamp(fracLo * 250, 0, 40);
-  // gentle grey-world white balance (half strength)
-  if (mw > n * 0.05) {
-    const ar = sr / mw, ag = sg / mw, ab = sb / mw;
-    const qrb = ab / Math.max(1, ar), k = (qrb - 1) / (qrb + 1);
-    p.warmth = clamp(k / 0.12 * 100 * 0.5, -30, 30);
-    const tg = ((ar + ab) / 2) / Math.max(1, ag);
-    p.tint = clamp((1 - tg) / 0.1 * 100 * 0.5, -25, 25);
+  if (used < 16) return {};
+
+  const out = new Uint8ClampedArray(proxy.length);
+  const cache = new DetailCache();
+  const hist = new Uint32Array(256);
+  // tone-only simulation: the colour settings stay, detail and vignette do not change the measurements
+  const base: EnhanceParams = { ...current, brightness: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0, vibrance: 0, sharpness: 0, clarity: 0, grain: 0, vignette: 0 };
+  const stats = (p: EnhanceParams) => {
+    enhance(p, { w: pw, h: ph, ox: 0, oy: 0 }, cache, proxy, out);
+    hist.fill(0);
+    let n = 0, sum = 0, sq = 0, satSum = 0, satN = 0;
+    for (let i = 0, q = 0; q < mask.length; i += 4, q++) {
+      if (!mask[q]) continue;
+      const r = out[i], g = out[i + 1], b = out[i + 2];
+      const L = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      hist[Math.round(L * 255)]++;
+      sum += L; sq += L * L; n++;
+      if (L > 0.1 && L < 0.95) { const mx = Math.max(r, g, b); satSum += mx ? (mx - Math.min(r, g, b)) / mx : 0; satN++; }
+    }
+    const mean = sum / n;
+    const pct = (qq: number) => { let acc = 0; const lim = qq * n; for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc >= lim) return i / 255; } return 1; };
+    const frac = (a: number, b: number) => { let c = 0; for (let i = Math.round(a * 255); i <= Math.round(b * 255); i++) c += hist[i]; return c / n; };
+    return { med: pct(0.5), lo: pct(0.003), hi: pct(0.997), sd: Math.sqrt(Math.max(0, sq / n - mean * mean)), frac, sat: satN ? satSum / satN : 0 };
+  };
+  /** Value of `key` in [lo, hi] at which the measurement (increasing with it) reaches `target`. */
+  const solve = (p: EnhanceParams, key: keyof EnhanceParams, lo: number, hi: number, target: number, measure: (s: ReturnType<typeof stats>) => number) => {
+    let a = lo, b = hi;
+    for (let it = 0; it < 9; it++) {
+      const m = (a + b) / 2;
+      (p as any)[key] = m;
+      if (measure(stats(p)) < target) a = m; else b = m;
+    }
+    (p as any)[key] = Math.round((a + b) / 2);
+  };
+
+  const p = { ...base };
+  const s0 = stats(p);
+  // 1. brightness: half of the way to mid-grey, by at most −0.12…+0.15 (high-key and low-key pictures stay so)
+  const medTarget = s0.med + Math.max(-0.12, Math.min(0.15, (0.46 - s0.med) * 0.5));
+  solve(p, 'brightness', -70, 70, medTarget, s => s.med);
+  // 2. recovery of crowded ends (after the exposure moved them)
+  const s1 = stats(p);
+  p.highlights = -Math.round(Math.min(50, Math.max(0, (s1.frac(0.92, 1) - 0.02) * 400)));
+  p.shadows = Math.round(Math.min(40, Math.max(0, (s1.frac(0, 0.08) - 0.02) * 300)));
+  // 3. white and black points: the extremes move most of the way to white and black
+  const s2 = stats(p);
+  solve(p, 'whites', -30, 70, s2.hi >= 0.97 ? 0.97 : s2.hi + (0.97 - s2.hi) * 0.6, s => s.hi);
+  const s3 = stats(p);
+  solve(p, 'blacks', -70, 20, s3.lo <= 0.03 ? 0.03 : s3.lo - (s3.lo - 0.03) * 0.6, s => s.lo);
+  // 4. contrast with the range set: half of the way to the spread of a typical photo, but never so much
+  //    that it clips (this contrast stretches linearly around the middle and would push the ends out)
+  const s4 = stats(p);
+  solve(p, 'contrast', -15, 30, s4.sd + (0.21 - s4.sd) * 0.5, s => s.sd);
+  const clean = () => { const st = stats(p); return st.hi <= 0.985 && st.lo >= 0.015; };
+  if (p.contrast > 0 && !clean()) {
+    let lo = 0, hi = p.contrast;
+    for (let it = 0; it < 8; it++) { const m = (lo + hi) / 2; p.contrast = m; if (clean()) lo = m; else hi = m; }
+    p.contrast = Math.round(lo);
   }
-  // flat colours get some vibrance
-  const sat = satSum / n;
-  p.vibrance = clamp((0.35 - sat) * 80, 0, 25);
-  return p;
+  // 5. midtones back on target, vibrance for flat colours
+  if (Math.abs(stats(p).med - medTarget) > 0.02) solve(p, 'brightness', -70, 70, medTarget, s => s.med);
+  p.vibrance = Math.round(Math.min(25, Math.max(0, (0.32 - stats(p).sat) * 100)));
+  return { brightness: p.brightness, contrast: p.contrast, highlights: p.highlights, shadows: p.shadows, whites: p.whites, blacks: p.blacks, vibrance: p.vibrance };
 }
 
 /** Blurred copies of an input used by sharpness/clarity, kept while the same input comes back. */

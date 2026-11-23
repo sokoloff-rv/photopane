@@ -399,3 +399,12 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .ai-key { display: flex; gap: 6px; }
 .ai-key .text-input { flex: 1; font-family: ui-monospace, monospace; }
 body.busy-cursor, body.busy-cursor * { cursor: progress !important; }
+/* Adjust presets */
+.preset-pick { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 28px; padding: 0 8px 0 10px; margin: 0 0 4px; border: 0; border-radius: 6px; background: var(--fill); color: var(--text); text-align: left; }
+.preset-pick:hover { background: var(--fill-hover); }
+.preset-pick > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset-item { display: flex; align-items: center; }
+.preset-item .mi-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset-del { width: 22px; height: 22px; opacity: 0; }
+.preset-item:hover .preset-del { opacity: 0.75; }
+.preset-del:hover { opacity: 1 !important; }

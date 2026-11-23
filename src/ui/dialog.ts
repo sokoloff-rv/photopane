@@ -112,6 +112,7 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
   };
   const onKey = (e: KeyboardEvent) => {
     if (stack[stack.length - 1] !== card) return;   // another dialog is on top
+    if (document.body.dataset.popup) return;          // a popup menu of the dialog handles its own keys
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); doCancel(); }
     else if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
       e.preventDefault(); e.stopPropagation();
@@ -143,6 +144,19 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
 export function confirmDialog(text: string, okLabel?: string): Promise<boolean> {
   return new Promise(res => {
     openDialog({ title: 'PhotoPane', body: el('p', { class: 'dlg-text' }, text), okLabel, width: 380, onOk: () => res(true), onCancel: () => res(false) });
+  });
+}
+
+/** Ask for a short text (a name); null when cancelled or empty. */
+export function promptText(title: string, label: string, value: string, okLabel?: string): Promise<string | null> {
+  return new Promise(res => {
+    const input = el('input', { class: 'text-input', type: 'text', value, maxlength: 60 }) as HTMLInputElement;
+    const body = el('div', { class: 'form-row' }, el('label', {}, label), input);
+    openDialog({
+      title, body, width: 380, okLabel,
+      onOk: () => { const v = input.value.trim(); res(v || null); },
+      onCancel: () => res(null),
+    });
   });
 }
 

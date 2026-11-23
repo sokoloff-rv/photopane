@@ -12,6 +12,7 @@ let current: HTMLElement | null = null;
 export function closeContextMenu() {
   current?.remove();
   current = null;
+  delete document.body.dataset.popup;
   document.removeEventListener('pointerdown', onOutside, true);
   window.removeEventListener('keydown', onKey, true);
   window.removeEventListener('blur', closeContextMenu);
@@ -25,11 +26,19 @@ function place(node: HTMLElement, x: number, y: number) {
   node.style.left = clamp(x, 4, window.innerWidth - r.width - 4) + 'px';
   node.style.top = (y + r.height > window.innerHeight - 4 ? Math.max(4, y - r.height) : y) + 'px';
   current = node;
+  // dialogs leave Esc to an open popup
+  document.body.dataset.popup = '1';
   setTimeout(() => {
     document.addEventListener('pointerdown', onOutside, true);
     window.addEventListener('keydown', onKey, true);
     window.addEventListener('blur', closeContextMenu);
   }, 0);
+}
+
+/** Show a ready-made popup (a menu-drop element) at x, y; it closes on an outside click or Esc. */
+export function showPopup(node: HTMLElement, x: number, y: number) {
+  closeContextMenu();
+  place(node, x, y);
 }
 
 export function showContextMenu(x: number, y: number, items: CtxItem[]) {

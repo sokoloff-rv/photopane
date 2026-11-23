@@ -1,7 +1,10 @@
 import { app } from '../app';
 import { el, clamp } from '../core/util';
 import { t } from '../i18n';
-import { openDialog } from './dialog';
+import { openDialog, promptText, confirmDialog, toast } from './dialog';
+import { showPopup, closeContextMenu } from './contextmenu';
+import { icon } from './icons';
+import { adjustPresets, saveAdjustPreset, deleteAdjustPreset } from '../core/presets';
 import { checkbox, select } from './controls';
 import {
   DetailCache, enhance, EnhanceParams, ENHANCE_DEFAULTS, autoEnhanceParams, applyLUTs, unsharp, addNoise,
@@ -101,6 +104,46 @@ export function enhanceDialog(vignetteOnly = false) {
     rows.forEach(r => r.row.set((p as any)[r.spec.key]));
     refresh();
   });
+  // presets: saved sets of all the sliders, applied in one click
+  const applyAll = (q: Partial<EnhanceParams>) => {
+    Object.assign(p, ENHANCE_DEFAULTS, q);
+    rows.forEach(r => r.row.set((p as any)[r.spec.key]));
+    refresh();
+  };
+  const presetBtn = el('button', { class: 'preset-pick' }, el('span', {}, t('adj.presets')), icon('chevronDown', 14));
+  const presetLabel = presetBtn.firstElementChild as HTMLElement;
+  const openPresets = () => {
+    const menu = el('div', { class: 'menu-drop ctx-menu preset-menu' });
+    const list = adjustPresets();
+    if (!list.length) menu.append(el('div', { class: 'menu-item disabled' }, el('span', { class: 'mi-label' }, t('adj.noPresets'))));
+    for (const pr of list) {
+      const del = el('button', { class: 'icon-btn preset-del', title: t('adj.presetDeleteTip') }, icon('trash', 13));
+      const row = el('div', { class: 'menu-item preset-item' }, el('span', { class: 'mi-label' }, pr.name), del);
+      row.addEventListener('click', () => { closeContextMenu(); applyAll(pr.p); presetLabel.textContent = pr.name; });
+      del.addEventListener('click', async e => {
+        e.stopPropagation();
+        closeContextMenu();
+        if (await confirmDialog(t('adj.presetDelete', pr.name), t('adj.delete'))) deleteAdjustPreset(pr.name);
+      });
+      menu.append(row);
+    }
+    menu.append(el('div', { class: 'menu-sep' }));
+    const save = el('div', { class: 'menu-item' }, el('span', { class: 'mi-label' }, t('adj.presetSave')));
+    save.addEventListener('click', async () => {
+      closeContextMenu();
+      const name = await promptText(t('adj.presetNew'), t('adj.presetName'), t('adj.presetDefault', String(adjustPresets().length + 1)), t('adj.save'));
+      if (!name) return;
+      saveAdjustPreset(name, p);
+      presetLabel.textContent = name;
+      toast(t('adj.presetSaved', name));
+    });
+    menu.append(save);
+    const r = presetBtn.getBoundingClientRect();
+    menu.style.minWidth = r.width + 'px';
+    showPopup(menu, r.left, r.bottom + 4);
+  };
+  presetBtn.addEventListener('click', openPresets);
+  if (!vignetteOnly) body.prepend(presetBtn);
   // Auto: moves the light and colour sliders at once, like Camera Raw (detail and vignette stay as they are)
   const auto = el('button', { class: 'btn sm' }, t('adj.auto'));
   let res: ReturnType<typeof adjustDialog> = null;

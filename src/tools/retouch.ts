@@ -41,6 +41,7 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
     this.path = new DabPath(() => Math.max(1, this.o.size * this.spacing()));
     this.start(e);
     for (const p of this.path.to(e.x, e.y, e.pressure, true)) this.dab(p.x, p.y);
+    this.endMove();
     this.flush();
   }
 
@@ -50,8 +51,12 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
   move(e: PEvent) {
     if (!this.target) return;
     for (const p of this.path!.to(e.x, e.y, e.pressure)) this.dab(p.x, p.y);
+    this.endMove();
     this.flush();
   }
+
+  /** After the dabs of one pointer event (tools that work on the whole stroke at once). */
+  protected endMove() {}
 
   up() {
     if (!this.target) return;
@@ -217,46 +222,91 @@ export class DodgeTool extends PixelBrush<DBOpts> {
   /** Stroke coverage per surface pixel (0..1, already scaled by exposure). */
   private cov: Float32Array | null = null;
   private covW = 0;
+  /** Area whose coverage changed since the pixels were last updated (surface coordinates). */
+  private dirty: { x0: number; y0: number; x1: number; y1: number } | null = null;
   constructor() { super({ size: 80, hardness: 0, strength: 50, range: 'midtones' }); }
   protected start() {
     const s = this.target!.surface;
     this.covW = s.w;
     this.cov = new Float32Array(s.w * s.h);
+    this.dirty = null;
   }
+
   /**
    * Like Photoshop, one stroke changes a pixel by at most the exposure: overlapping dabs only extend the
-   * stroke's coverage, and the result is always computed from the pixels as they were before the stroke
-   * (re-applying per dab used to run the pixels to pure white / black in a single pass).
+   * stroke's coverage, and the result is always computed from the pixels as they were before the stroke.
+   * So a dab only updates the coverage; the pixels of all dabs of a pointer move are computed once.
    */
-  protected op(img: ImageData, wt: Float32Array, w: number, h: number, x0: number, y0: number) {
-    const d = img.data;
-    const orig = this.backup!.getContext('2d')!.getImageData(x0, y0, w, h).data;
-    const cov = this.cov!, CW = this.covW;
-    const range = this.o.range;
-    for (let p = 0, i = 0, j = 0; j < h; j++) for (let x = 0; x < w; x++, i++, p += 4) {
-      const k0 = wt[i];
-      if (!k0) continue;
-      const ci = (y0 + j) * CW + x0 + x;
-      if (k0 > cov[ci]) cov[ci] = k0;
-      const r = orig[p] / 255, g = orig[p + 1] / 255, b = orig[p + 2] / 255;
-      const L = 0.299 * r + 0.587 * g + 0.114 * b;
-      // tone curve on luminance (Photoshop-like strength: one stroke at 50% exposure lifts mid-grey 128 to ~146)
-      const a = cov[ci] * 0.5;
-      let L2: number;
-      if (range === 'midtones') L2 = this.dir > 0 ? Math.pow(L, 1 / (1 + a)) : Math.pow(L, 1 + a);
-      else {
-        const tw = range === 'shadows' ? (1 - L) * (1 - L) : L * L;
-        L2 = this.dir > 0 ? L + (1 - L) * a * tw * 0.8 : L - L * a * tw * 0.8;
+  protected dab(x: number, y: number) {
+    const s = this.target!.surface;
+    const d = app.doc!;
+    const r = this.o.size / 2, ir = 1 / r;
+    const lx = x - s.x, ly = y - s.y;
+    const x0 = Math.max(0, Math.floor(lx - r)), y0 = Math.max(0, Math.floor(ly - r));
+    const x1 = Math.min(s.w, Math.ceil(lx + r)), y1 = Math.min(s.h, Math.ceil(ly + r));
+    if (x1 <= x0 || y1 <= y0) return;
+    const hard = this.o.hardness / 100, str = this.o.strength / 100;
+    const cov = this.cov!, CW = this.covW, sel = this.sel;
+    for (let py = y0; py < y1; py++) {
+      const dy = (py + 0.5 - ly) * ir, docY = py + s.y;
+      if (docY < 0 || docY >= d.height) continue;
+      for (let px = x0; px < x1; px++) {
+        const dx = (px + 0.5 - lx) * ir;
+        const dist2 = dx * dx + dy * dy;
+        if (dist2 >= 1) continue;
+        const docX = px + s.x;
+        if (docX < 0 || docX >= d.width) continue;
+        let wt = falloff(Math.sqrt(dist2), hard) * str;
+        if (sel) wt *= sel[docY * d.width + docX] / 255;
+        const ci = py * CW + px;
+        if (wt > cov[ci]) cov[ci] = wt;
       }
-      // protect tones: scale the colour with the luminance so hue and saturation stay
-      let R: number, G: number, B: number;
-      if (L > 1e-4) { const k = L2 / L; R = r * k; G = g * k; B = b * k; }
-      else R = G = B = L2;
-      const mx = Math.max(R, G, B);
-      if (mx > 1) { const t = (mx - 1) / (mx - L2 || 1); R += (L2 - R) * t; G += (L2 - G) * t; B += (L2 - B) * t; }
-      d[p] = R * 255; d[p + 1] = G * 255; d[p + 2] = B * 255;
     }
+    const dr = this.dirty;
+    this.dirty = dr ? { x0: Math.min(dr.x0, x0), y0: Math.min(dr.y0, y0), x1: Math.max(dr.x1, x1), y1: Math.max(dr.y1, y1) } : { x0, y0, x1, y1 };
   }
+
+  protected endMove() {
+    const dr = this.dirty;
+    if (!dr || !this.target) return;
+    this.dirty = null;
+    const s = this.target.surface;
+    const w = dr.x1 - dr.x0, h = dr.y1 - dr.y0;
+    const img = s.ctx.getImageData(dr.x0, dr.y0, w, h);
+    const orig = this.backup!.getContext('2d')!.getImageData(dr.x0, dr.y0, w, h).data;
+    const d = img.data, cov = this.cov!, CW = this.covW;
+    const range = this.o.range, dodge = this.dir > 0;
+    for (let j = 0, p = 0; j < h; j++) {
+      const row = (dr.y0 + j) * CW + dr.x0;
+      for (let i = 0; i < w; i++, p += 4) {
+        const c = cov[row + i];
+        if (!c) continue;
+        const r = orig[p] / 255, g = orig[p + 1] / 255, b = orig[p + 2] / 255;
+        const L = 0.299 * r + 0.587 * g + 0.114 * b;
+        const a = c * 0.5;
+        let L2: number;
+        if (range === 'midtones') {
+          // dodge lifts with a gamma curve; burn uses its mirror image, which darkens the midtones as much
+          // but the shadows far less (L^(1+a) ran dark areas to black within a couple of strokes)
+          L2 = dodge ? Math.pow(L, 1 / (1 + a)) : 1 - Math.pow(1 - L, 1 / (1 + a * 0.8));
+        } else {
+          const tw = range === 'shadows' ? (1 - L) * (1 - L) : L * L;
+          L2 = dodge ? L + (1 - L) * a * tw * 0.8 : L - L * a * tw * 0.8;
+        }
+        // protect tones: scale the colour with the luminance so hue and saturation stay
+        let R: number, G: number, B: number;
+        if (L > 1e-4) { const k = L2 / L; R = r * k; G = g * k; B = b * k; }
+        else R = G = B = L2;
+        const mx = Math.max(R, G, B);
+        if (mx > 1) { const t = (mx - 1) / (mx - L2 || 1); R += (L2 - R) * t; G += (L2 - G) * t; B += (L2 - B) * t; }
+        d[p] = R * 255; d[p + 1] = G * 255; d[p + 2] = B * 255;
+      }
+    }
+    s.ctx.putImageData(img, dr.x0, dr.y0);
+    this.total = rectUnion(this.total, { x: dr.x0, y: dr.y0, w, h });
+  }
+
+  protected op() { /* pixels are computed per pointer move in endMove() */ }
   up() { super.up(); this.cov = null; }
   options() {
     return [

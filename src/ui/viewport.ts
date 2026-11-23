@@ -103,10 +103,20 @@ export class Viewport {
       if (c.height !== Math.max(1, dh)) c.height = Math.max(1, dh);
     }
     const d = this.doc;
-    if (d && (!d.fitted || d.autoFit)) this.fit(true);
-    else if (d) this.snapPan();
+    if (d) this.relayout(d);
     this.render();
     this.renderOverlay();
+  }
+
+  /**
+   * A document keeps its pan for the pane size it was set in. Shown in a pane of another size (Compare
+   * ended, another tab, window resized) it keeps the same point in the middle, or refits if it is auto-fitted.
+   */
+  private relayout(d: Doc) {
+    if (this.w < 10 || this.h < 10 || (d.viewW === this.w && d.viewH === this.h && d.fitted)) return;
+    if (!d.fitted || d.autoFit) { this.fit(true); return; }
+    if (d.viewW && d.viewH) { d.panX += (this.w - d.viewW) / 2; d.panY += (this.h - d.viewH) / 2; }
+    this.snapPan();
   }
 
   /* ---------- coordinates ---------- */
@@ -161,6 +171,7 @@ export class Viewport {
     this.constrainPan();
     d.panX = Math.round(d.panX * this.dpr) / this.dpr;
     d.panY = Math.round(d.panY * this.dpr) / this.dpr;
+    if (this.w >= 10 && this.h >= 10) { d.viewW = this.w; d.viewH = this.h; }
   }
 
   /** Keep the document point `p` in the middle of the view (after the pane size changed). */
@@ -204,6 +215,7 @@ export class Viewport {
     g.clearRect(0, 0, this.w, this.h);
     const d = this.doc;
     if (!d) return;
+    this.relayout(d);
     const comp = d.displayComposite();
     const x = d.panX, y = d.panY, w = d.width * d.zoom, h = d.height * d.zoom;
     // shadow

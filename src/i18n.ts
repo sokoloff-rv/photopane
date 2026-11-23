@@ -421,7 +421,7 @@ const D: Record<string, [string, string]> = {
   'ai.selectFirst': ['Сначала выделите объект — например, лассо', 'Select the object first, for example with the lasso'],
   'ai.removingObject': ['Удаление объекта…', 'Removing the object…'],
   'ai.outpainting': ['Дорисовка…', 'Generating…'],
-  'cmd.compare': ['Сравнить', 'Compare'],
+  'cmd.compare': ['Дублировать холст', 'Duplicate Canvas'],
   'app.compareCopy': ['{0} (копия)', '{0} (copy)'],
   'cmd.actual': ['100%', '100%'],
   'cmd.rulers': ['Линейки', 'Rulers'],

@@ -269,6 +269,7 @@ export class App {
     const d = this.doc, od = other.doc;
     if (d && od && (d === s.a || d === s.b)) {
       od.zoom = d.zoom; od.panX = d.panX; od.panY = d.panY; od.autoFit = d.autoFit; od.fitted = true;
+      od.viewW = d.viewW; od.viewH = d.viewH;
     }
     other.render();
     other.renderOverlay();

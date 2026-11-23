@@ -22,6 +22,9 @@ export class Doc {
   fitted = false;
   /** View still follows the window size (until the user zooms or pans). */
   autoFit = false;
+  /** Size of the view the pan was set for (another pane size keeps the same point in the middle). */
+  viewW = 0;
+  viewH = 0;
   fileHandle: any = null;
   fileName: string | null = null;
   /** EXIF segment of the original JPEG (orientation reset), kept for export. */
@@ -190,6 +193,7 @@ export function cloneDoc(src: Doc, name: string): Doc {
   const d = new Doc(name, src.width, src.height);
   d.history.adopt(src.history);
   d.zoom = src.zoom; d.panX = src.panX; d.panY = src.panY; d.fitted = src.fitted; d.autoFit = src.autoFit;
+  d.viewW = src.viewW; d.viewH = src.viewH;
   d.exif = src.exif;
   d.missingFonts = src.missingFonts.map(f => ({ ...f }));
   d.guides = { h: [...src.guides.h], v: [...src.guides.v] };

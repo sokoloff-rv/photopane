@@ -482,3 +482,8 @@ body.busy-cursor, body.busy-cursor * { cursor: progress !important; }
 .dlg.computing .dlg-head { position: relative; }
 .dlg.computing .dlg-head::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; border-radius: 1px; background: linear-gradient(90deg, transparent, var(--accent), transparent) no-repeat; background-size: 35% 100%; animation: computing 1.1s linear infinite; }
 @keyframes computing { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+
+/* Image → Show Metadata */
+.meta-table { display: grid; gap: 7px; }
+.meta-row { display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: baseline; }
+.meta-val { color: var(--text); user-select: text; overflow-wrap: anywhere; }

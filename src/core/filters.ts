@@ -169,3 +169,44 @@ export function unsharp(src: Uint8ClampedArray, dst: Uint8ClampedArray, blurred:
     dst[i + 3] = src[i + 3];
   }
 }
+
+/** Noise values (−1…1 uniform and unit gaussian), made once; a pixel picks its values by a hash of its index. */
+let noiseTables: { u: Float32Array; g: Float32Array } | null = null;
+function tables() {
+  if (noiseTables) return noiseTables;
+  const N = 1 << 16;
+  const u = new Float32Array(N), g = new Float32Array(N);
+  let x = 2654435761 >>> 0;
+  const rnd = () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) / 4294967296; };
+  for (let i = 0; i < N; i++) {
+    u[i] = rnd() * 2 - 1;
+    let s = 0; for (let k = 0; k < 4; k++) s += rnd();
+    g[i] = (s - 2) * 1.73;
+  }
+  return (noiseTables = { u, g });
+}
+
+/**
+ * Add noise (uniform or gaussian, colour or mono); always the same grain for the same picture size. The values
+ * come from a table through a per-pixel hash: drawing four random numbers per channel took seconds on 24 MP.
+ */
+export function addNoise(src: Uint8ClampedArray, dst: Uint8ClampedArray, amount: number, gaussian: boolean, mono: boolean, seed = 1) {
+  const T = gaussian ? tables().g : tables().u;
+  const amp = amount / 100 * 255 * (gaussian ? 0.5 : 1);
+  const s0 = Math.imul(seed, 0x9e3779b1);
+  for (let i = 0, p = 0; i < src.length; i += 4, p++) {
+    let hsh = Math.imul(p ^ s0, 0x85ebca6b); hsh ^= hsh >>> 13; hsh = Math.imul(hsh, 0xc2b2ae35); hsh ^= hsh >>> 16;
+    if (mono) {
+      const n = T[hsh & 0xffff] * amp;
+      dst[i] = src[i] + n; dst[i + 1] = src[i + 1] + n; dst[i + 2] = src[i + 2] + n;
+    } else {
+      // three independent values: the hash mixed again for each channel
+      let h2 = Math.imul(hsh ^ (hsh >>> 15), 0x2c1b3c6d); h2 ^= h2 >>> 12;
+      let h3 = Math.imul(h2 ^ (h2 >>> 15), 0x297a2d39); h3 ^= h3 >>> 12;
+      dst[i] = src[i] + T[hsh & 0xffff] * amp;
+      dst[i + 1] = src[i + 1] + T[h2 & 0xffff] * amp;
+      dst[i + 2] = src[i + 2] + T[h3 & 0xffff] * amp;
+    }
+    dst[i + 3] = src[i + 3];
+  }
+}

@@ -51,8 +51,13 @@ export class Stage {
   get tag() { return `${this.id}.${this.version}`; }
 }
 
-/** Draft size for heavy filters (pixels): about what the screen shows of a whole photo. */
+/** Layers above about this size (× 1.8) compute heavy filters in the worker, smaller ones at once. */
 const DRAFT_PIXELS = 0.6e6;
+
+/** The correction and filter windows show a thin running bar while a full-size result is being computed. */
+function setComputing(on: boolean) {
+  document.querySelectorAll('.dlg-overlay.side .dlg').forEach(c => c.classList.toggle('computing', on));
+}
 
 /** dst = src + (dst − src)·selection (a stage only acts inside the selection). */
 function blendSel(src: Uint8ClampedArray, dst: Uint8ClampedArray, sel: Uint8Array | null) {
@@ -108,12 +113,9 @@ export class AdjustChain {
   private fullAgain = false;
   /** bumped on every change; async results for older states are dropped */
   private gen = 0;
-  private last: { kind: 'gpu' } | { kind: 'full'; data: Uint8ClampedArray } | { kind: 'draft'; canvas: HTMLCanvasElement } | null = null;
+  private last: { kind: 'gpu' } | { kind: 'full'; data: Uint8ClampedArray } | null = null;
   private outImg: ImageData | null = null;
   private baseCanvas: HTMLCanvasElement | null = null;
-  private draftPx = DRAFT_PIXELS;
-  private draftBase: { key: string; w: number; h: number; data: Uint8ClampedArray; sel: Uint8Array | null } | null = null;
-  private draftCanvas: HTMLCanvasElement | null = null;
   private worker: Worker | null = null;
   private workerFailed = false;
   private jobs = new Map<number, (d: Uint8ClampedArray | null) => void>();
@@ -240,11 +242,13 @@ export class AdjustChain {
     const lastSt = this.stages[this.stages.length - 1];
     const hit = this.outs.get(lastSt.id);
     if (hit && hit.key === this.keyAt(this.stages.length - 1)) { this.showFull(hit.data); return; }
-    // a heavy filter on a large layer: a draft now, the full result when the sliders rest
+    // A heavy filter on a large layer: computed at full size in the worker. Meanwhile the picture keeps the
+    // last full result (never a reduced draft, which looked like the filter's own result) and the windows
+    // show that it is being computed.
     if (this.stages.some(s => s.spec.job) && this.w * this.h > DRAFT_PIXELS * 1.8) {
-      this.showDraft();
+      setComputing(true);
       clearTimeout(this.fullTimer);
-      this.fullTimer = window.setTimeout(() => void this.runFull(), 250);
+      this.fullTimer = window.setTimeout(() => void this.runFull(), 60);
       return;
     }
     this.showFull(this.computeSync(this.stages.length));
@@ -264,25 +268,26 @@ export class AdjustChain {
         const data = await this.computeAsync(this.stages.length, gen);
         if (data && gen === this.gen && AdjustChain.current === this) this.showFull(data);
       } while (this.fullAgain && AdjustChain.current === this);
-    } finally { this.fullBusy = false; }
+    } finally {
+      this.fullBusy = false;
+      if (!this.fullAgain) setComputing(false);
+    }
   }
 
   /** Redraw after the before/after line moved, without recomputing. */
   private refreshView() {
     const l = this.last;
     if (!l || l.kind === 'gpu') this.request();
-    else if (l.kind === 'full') this.showFull(l.data);
-    else this.drawDraft(l.canvas);
+    else this.showFull(l.data);
   }
 
-  private drawCanvas(c: HTMLCanvasElement, scaled = false) {
+  private drawCanvas(c: HTMLCanvasElement, split = false) {
     const g = this.target.surface.ctx;
     g.save();
     g.globalCompositeOperation = 'copy';
-    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
     g.drawImage(c, 0, 0, this.w, this.h);
     g.restore();
-    if (scaled) this.drawSplitFromBase();
+    if (split) this.drawSplitFromBase();
     this.target.layer.touch();
     app.update('canvas');
   }
@@ -308,69 +313,23 @@ export class AdjustChain {
     app.update('canvas');
   }
 
+  /**
+   * Show a full result. It is put into a canvas once; moving the before/after line then only redraws that
+   * canvas and the original left of the line (copying 24 MP of pixels on every move made the line lag).
+   */
   private showFull(data: Uint8ClampedArray) {
-    const out = (this.outImg ??= new ImageData(this.w, this.h));
-    out.data.set(data);
-    const cut = this.splitCut();
-    if (cut) {
-      const b = this.base, d = out.data;
-      for (let y = 0; y < this.h; y++) { const r = y * this.w * 4; d.set(b.subarray(r, r + cut * 4), r); }
+    if (this.resultOf !== data || !this.resultCanvas) {
+      const c = (this.resultCanvas ??= createCanvas(this.w, this.h));
+      const out = (this.outImg ??= new ImageData(this.w, this.h));
+      out.data.set(data);
+      ctx2d(c).putImageData(out, 0, 0);
+      this.resultOf = data;
     }
-    this.target.surface.ctx.putImageData(out, 0, 0);
-    this.target.layer.touch();
-    app.update('canvas');
+    this.drawCanvas(this.resultCanvas, true);
     this.last = { kind: 'full', data };
   }
-
-  /* ---------------- draft ---------------- */
-
-  private showDraft() {
-    const t0 = performance.now();
-    const k = Math.min(1, Math.sqrt(this.draftPx / (this.w * this.h)));
-    const sw = Math.max(1, Math.round(this.w * k)), sh = Math.max(1, Math.round(this.h * k));
-    let db = this.draftBase;
-    if (!db || db.key !== this.baseKey || db.w !== sw || db.h !== sh) {
-      const big = createCanvas(this.w, this.h);
-      ctx2d(big).putImageData(new ImageData(new Uint8ClampedArray(this.base), this.w, this.h), 0, 0);
-      const small = createCanvas(sw, sh), g = ctx2d(small);
-      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-      g.drawImage(big, 0, 0, sw, sh);
-      let sel: Uint8Array | null = null;
-      if (this.sel) {
-        const m = new ImageData(this.w, this.h);
-        for (let i = 0; i < this.sel.length; i++) m.data[i * 4 + 3] = this.sel[i];
-        ctx2d(big).putImageData(m, 0, 0);
-        const sc = createCanvas(sw, sh), sg = ctx2d(sc);
-        sg.imageSmoothingEnabled = true; sg.imageSmoothingQuality = 'high';
-        sg.drawImage(big, 0, 0, sw, sh);
-        const a = sg.getImageData(0, 0, sw, sh).data;
-        sel = new Uint8Array(sw * sh);
-        for (let i = 0; i < sel.length; i++) sel[i] = a[i * 4 + 3];
-      }
-      db = this.draftBase = { key: this.baseKey, w: sw, h: sh, data: g.getImageData(0, 0, sw, sh).data, sel };
-    }
-    const c = this.ctx(sw / this.w, sw, sh);
-    let cur = db.data;
-    for (const st of this.stages) {
-      const out = new Uint8ClampedArray(cur.length);
-      if (st.spec.job) runJob(st.spec.job(c), cur, out, sw, sh); else st.spec.cpu(c)(cur, out);
-      if (st.spec.keepAlpha?.()) keepAlpha(cur, out);
-      blendSel(cur, out, db.sel);
-      cur = out;
-    }
-    const canvas = (this.draftCanvas = createCanvas(sw, sh));
-    ctx2d(canvas).putImageData(new ImageData(cur as Uint8ClampedArray<ArrayBuffer>, sw, sh), 0, 0);
-    this.drawDraft(canvas);
-    // keep drafts near 50 ms whatever the filters cost
-    const ms = performance.now() - t0;
-    const next = ms > 50 ? this.draftPx * 50 / ms : ms < 15 ? this.draftPx * 1.5 : this.draftPx;
-    this.draftPx = Math.max(0.12e6, Math.min(DRAFT_PIXELS, next));
-  }
-
-  private drawDraft(canvas: HTMLCanvasElement) {
-    this.drawCanvas(canvas, true);
-    this.last = { kind: 'draft', canvas };
-  }
+  private resultCanvas: HTMLCanvasElement | null = null;
+  private resultOf: Uint8ClampedArray | null = null;
 
   /* ---------------- full-size computation ---------------- */
 
@@ -500,6 +459,7 @@ export class AdjustChain {
   private end() {
     if (AdjustChain.current !== this) return;
     AdjustChain.current = null;
+    setComputing(false);
     cancelAnimationFrame(this.raf);
     clearTimeout(this.fullTimer);
     if (this.split != null) this.endSplit();

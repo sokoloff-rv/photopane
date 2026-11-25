@@ -429,16 +429,5 @@ export function enhance(p: EnhanceParams, s: { w: number; h: number; ox: number;
 }
 
 /* ---------------- Filters ---------------- */
-export function addNoise(src: Uint8ClampedArray, dst: Uint8ClampedArray, amount: number, gaussian: boolean, mono: boolean, seed = 1) {
-  let x = seed * 2654435761 >>> 0;
-  const rnd = () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return ((x >>> 0) / 4294967296); };
-  const gauss = () => { let s = 0; for (let k = 0; k < 4; k++) s += rnd(); return (s - 2) * 1.73; };
-  const amp = amount / 100 * 255 * (gaussian ? 0.5 : 1);
-  for (let i = 0; i < src.length; i += 4) {
-    if (mono) { const n = (gaussian ? gauss() : rnd() * 2 - 1) * amp; dst[i] = src[i] + n; dst[i + 1] = src[i + 1] + n; dst[i + 2] = src[i + 2] + n; }
-    else for (let c = 0; c < 3; c++) dst[i + c] = src[i + c] + (gaussian ? gauss() : rnd() * 2 - 1) * amp;
-    dst[i + 3] = src[i + 3];
-  }
-}
 
 export { identityLUT };

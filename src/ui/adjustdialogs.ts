@@ -7,9 +7,9 @@ import { icon } from './icons';
 import { adjustPresets, saveAdjustPreset, deleteAdjustPreset } from '../core/presets';
 import { checkbox, select } from './controls';
 import {
-  DetailCache, enhance, EnhanceParams, ENHANCE_DEFAULTS, autoEnhanceParams, applyLUTs, addNoise,
+  DetailCache, enhance, EnhanceParams, ENHANCE_DEFAULTS, autoEnhanceParams, applyLUTs,
 } from '../core/adjust';
-import { histogram, levelsLUT, curveLUT, composeLUT, gaussianBlur, clipPoints, Histogram, unsharp } from '../core/filters';
+import { histogram, levelsLUT, curveLUT, composeLUT, gaussianBlur, clipPoints, Histogram, unsharp, addNoise } from '../core/filters';
 import { FxJob } from '../core/fxjobs';
 import { AdjustChain, PixelFn, StageCtx } from '../core/adjustchain';
 import { GpuStageDesc } from '../core/gpuchain';
@@ -429,6 +429,8 @@ export function noiseDialog() {
   const res = adjustDialog({
     title: t('cmd.noise'), body, label: 'cmd.noise',
     compute: () => (src, dst) => addNoise(src, dst, p.amount, p.gaussian, p.mono),
+    // on large photos computed in the worker (it used to freeze the window on every slider move)
+    job: () => ['noise', p.amount, p.gaussian, p.mono],
   });
   if (res) { refresh = res.refresh; refresh(); }
 }

@@ -244,3 +244,23 @@ export function toast(text: string, kind: 'info' | 'error' = 'info', ms = 2600) 
   toastHost.append(tEl);
   setTimeout(() => { tEl.classList.add('out'); setTimeout(() => tEl.remove(), 250); }, ms);
 }
+
+/* ---------------- busy overlay with progress and cancel ---------------- */
+export function busy(text: string, onCancel?: () => void) {
+  const label = el('div', { class: 'busy-text' }, text);
+  const bar = el('div', { class: 'busy-bar' }, el('div', { class: 'busy-fill' }));
+  const cancel = onCancel ? el('button', { class: 'btn sm' }, t('dlg.cancel')) : null;
+  cancel?.addEventListener('click', () => onCancel?.());
+  const root = el('div', { class: 'busy' }, el('div', { class: 'busy-card' }, el('div', { class: 'busy-spin' }), label, bar, cancel));
+  document.body.append(root);
+  // shortcuts (Ctrl+N, Ctrl+Z…) wait too: the result is written when it arrives
+  const release = holdDialog();
+  return {
+    set(text: string, p?: number) {
+      label.textContent = text;
+      bar.style.visibility = p === undefined ? 'hidden' : 'visible';
+      if (p !== undefined) (bar.firstChild as HTMLElement).style.width = Math.round(p * 100) + '%';
+    },
+    close() { root.remove(); release(); },
+  };
+}

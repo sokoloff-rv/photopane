@@ -119,6 +119,34 @@ export function ensureGoogleFont(family: string): Promise<boolean> {
   return p;
 }
 
+/** Download a family into the cache (all its styles), without registering it: picking it later is instant and works offline. */
+async function cacheGoogleFont(g: GFamily): Promise<number> {
+  const css = await (await cached(cssUrl(g))).text();
+  const faces = parseCss(css).filter(f => SUBSETS.has(f.subset));
+  let bytes = 0;
+  for (const f of faces) bytes += (await (await cached(f.url)).arrayBuffer()).byteLength;
+  return bytes;
+}
+
+/**
+ * Download many families at once (the font picker's "Download all"), a few at a time. `progress(done, total)`
+ * after each family; `cancelled()` stops between families. Returns how many failed and how much was fetched.
+ */
+export async function downloadGoogleFonts(families: string[], progress: (done: number, total: number) => void, cancelled: () => boolean): Promise<{ failed: string[]; bytes: number }> {
+  const list = families.map(googleFamily).filter((g): g is GFamily => !!g);
+  const failed: string[] = [];
+  let next = 0, done = 0, bytes = 0;
+  const worker = async () => {
+    while (next < list.length && !cancelled()) {
+      const g = list[next++];
+      try { bytes += await cacheGoogleFont(g); } catch { failed.push(g.family); }
+      progress(++done, list.length);
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  return { failed, bytes };
+}
+
 /* ---------- previews for the font menu: only the letters of the name, a few KB each ---------- */
 const previews = new Map<string, Promise<string | null>>();
 

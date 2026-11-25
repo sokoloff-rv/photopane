@@ -1,7 +1,8 @@
 import { app } from '../app';
 import { el, createCanvas, ctx2d } from '../core/util';
 import { t } from '../i18n';
-import { openDialog, toast, confirmDialog, holdDialog } from './dialog';
+import { openDialog, toast, confirmDialog, busy } from './dialog';
+export { busy };
 import { select } from './controls';
 import { Layer } from '../core/layer';
 import { Selection } from '../core/selection';
@@ -12,26 +13,6 @@ import {
   aiSettings, hasKey, NeedKeyError, canvasBlob, blobCanvas, stabilityRemoveBg, stabilityErase, stabilityUpscale,
   topazUpscale, stabilityOutpaint, Service,
 } from '../ai/cloud';
-
-/* ---------------- busy overlay with progress and cancel ---------------- */
-export function busy(text: string, onCancel?: () => void) {
-  const label = el('div', { class: 'busy-text' }, text);
-  const bar = el('div', { class: 'busy-bar' }, el('div', { class: 'busy-fill' }));
-  const cancel = onCancel ? el('button', { class: 'btn sm' }, t('dlg.cancel')) : null;
-  cancel?.addEventListener('click', () => onCancel?.());
-  const root = el('div', { class: 'busy' }, el('div', { class: 'busy-card' }, el('div', { class: 'busy-spin' }), label, bar, cancel));
-  document.body.append(root);
-  // shortcuts (Ctrl+N, Ctrl+Z…) wait too: the result is written when it arrives
-  const release = holdDialog();
-  return {
-    set(text: string, p?: number) {
-      label.textContent = text;
-      bar.style.visibility = p === undefined ? 'hidden' : 'visible';
-      if (p !== undefined) (bar.firstChild as HTMLElement).style.width = Math.round(p * 100) + '%';
-    },
-    close() { root.remove(); release(); },
-  };
-}
 
 /** Run a cloud call; a missing key opens the settings, errors become a toast. */
 async function guarded<T>(fn: () => Promise<T>): Promise<T | null> {

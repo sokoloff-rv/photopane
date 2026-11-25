@@ -7,8 +7,8 @@ import { el } from '../core/util';
 import { t } from '../i18n';
 import { icon } from './icons';
 import { showPopup, closeContextMenu } from './contextmenu';
-import { toast } from './dialog';
-import { GOOGLE_FONTS, GFamily, googlePreview, ensureGoogleFont, isGoogleLoaded, isGoogleCached } from '../core/gfonts';
+import { toast, confirmDialog, busy } from './dialog';
+import { GOOGLE_FONTS, GFamily, googlePreview, ensureGoogleFont, isGoogleLoaded, isGoogleCached, downloadGoogleFonts } from '../core/gfonts';
 
 export interface SystemFonts {
   list: () => string[];
@@ -76,6 +76,19 @@ export function fontPicker(current: string, sys: SystemFonts, onPick: (family: s
       onPick(fam);
     };
 
+    const downloadAll = async (families: string[]) => {
+      if (!(await confirmDialog(t('gf.downloadAllAsk', families.length), t('gf.downloadAllOk')))) return;
+      let stop = false;
+      const ui = busy(t('gf.downloadingAll', 0, families.length), () => { stop = true; });
+      try {
+        const r = await downloadGoogleFonts(families, (done, total) => ui.set(t('gf.downloadingAll', done, total), done / total), () => stop);
+        const mb = (r.bytes / 1048576).toFixed(0);
+        if (r.failed.length) toast(t('gf.downloadAllFailed', families.length - r.failed.length, r.failed.length), 'error', 6000);
+        else if (!stop) toast(t('gf.downloadAllDone', families.length, mb), 'info', 4000);
+      } finally { ui.close(); }
+      render();
+    };
+
     const render = () => {
       [...tabs.children].forEach((b, i) => b.classList.toggle('on', (i === 0) === (tab === 'google')));
       cat.style.display = tab === 'google' ? '' : 'none';
@@ -96,6 +109,12 @@ export function fontPicker(current: string, sys: SystemFonts, onPick: (family: s
           io.observe(row);
         }
         if (!items.length) list.append(el('div', { class: 'font-empty' }, t('gf.empty')));
+        else {
+          // everything in the list (all, or the found / the chosen category) in one go, for offline work
+          const all = el('button', { class: 'btn sm' }, t('gf.downloadAll', items.length));
+          all.addEventListener('click', () => void downloadAll(items.map(g => g.family)));
+          foot.append(all);
+        }
       } else {
         const items = sys.list().filter(f => !q || f.toLowerCase().includes(q));
         for (const f of items) {

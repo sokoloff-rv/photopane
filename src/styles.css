@@ -487,3 +487,12 @@ body.busy-cursor, body.busy-cursor * { cursor: progress !important; }
 .meta-table { display: grid; gap: 7px; }
 .meta-row { display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: baseline; }
 .meta-val { color: var(--text); user-select: text; overflow-wrap: anywhere; }
+
+/* Save As / Export As */
+.save-name { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.save-name .text-input { flex: 1; min-width: 0; }
+.save-formats { flex: 1; }
+.save-formats .seg-btn { flex: 1; }
+.save-hint { flex: 1; line-height: 1.35; }
+.save-dims { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+.save-result { display: flex; gap: 10px; align-items: baseline; }

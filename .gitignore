@@ -15,6 +15,7 @@ AGENTS.md
 .windsurfrules
 .github/copilot-instructions.md
 .aider*
+.weeek.json
 docs/internal/
 *.internal.md
 notes/

@@ -142,6 +142,24 @@ export function sepiaDialog() {
   });
 }
 
+/**
+ * Desaturate, Invert and Find Edges from the Filter menu: like the other filters, a strength slider (100 %
+ * by default, not remembered) and before/after. Their shortcuts still apply them at once, at 100 %.
+ */
+function strengthFilter(cmd: 'desaturate' | 'invert' | 'findEdges') {
+  sliderFilter({
+    cmd, key: cmd, def: { amount: 100 },
+    sliders: [S('amount', 'adj.amount', 0, 100, 100, '%') as any],
+    job: p => [cmd, p.amount],
+  });
+  // always open at 100 %: the result is then the same as the shortcut's
+  const f = (app.settings.filters ||= {}) as any;
+  delete f[cmd];
+}
+export const desaturateDialog = () => strengthFilter('desaturate');
+export const invertDialog = () => strengthFilter('invert');
+export const findEdgesDialog = () => strengthFilter('findEdges');
+
 export function posterizeDialog() {
   sliderFilter({
     cmd: 'posterize', key: 'posterize', def: { levels: 4 },

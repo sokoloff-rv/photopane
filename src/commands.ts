@@ -20,11 +20,10 @@ import { aiSettingsDialog, upscaleDialog, removeBackground, selectSubject, remov
 import {
   motionBlurDialog, radialBlurDialog, surfaceBlurDialog, highPassDialog, dehazeDialog, denoiseDialog, glowDialog,
   chromaticDialog, pixelateDialog, halftoneDialog, gradientMapDialog, lutDialog,
-  sepiaDialog, posterizeDialog, thresholdDialog, embossDialog,
+  sepiaDialog, posterizeDialog, thresholdDialog, embossDialog, desaturateDialog, invertDialog, findEdgesDialog,
 } from './ui/filterdialogs';
 import { enhanceDialog, levelsDialog, curvesDialog, gaussianDialog, unsharpDialog, noiseDialog } from './ui/adjustdialogs';
 import { instantAdjust, invert, desaturate, autoTone, autoContrast, autoColor } from './core/adjust';
-import { findEdges } from './core/fx';
 import { blurGalleryTool } from './tools/blurgallery';
 import { layerStyleDialog, clearLayerStyle } from './ui/layerstyle';
 import { hasEffects } from './core/layer';
@@ -180,14 +179,17 @@ export function registerCommands(app: App) {
   R('posterize', () => posterizeDialog(), [], hasPixelLayer);
   R('threshold', () => thresholdDialog(), [], hasPixelLayer);
   R('emboss', () => embossDialog(), [], hasPixelLayer);
-  R('findEdges', () => instantAdjust('cmd.findEdges', (src, dst, s) => findEdges(src, dst, s.w, s.h)), [], hasPixelLayer);
+  R('findEdges', () => findEdgesDialog(), [], hasPixelLayer);
   R('lut', () => lutDialog(), [], hasPixelLayer);
   R('levels', () => levelsDialog(), ['Ctrl+L'], hasPixelLayer);
   R('curves', () => curvesDialog(), ['Ctrl+M'], hasPixelLayer);
   R('hslMixer', () => hslMixerDialog(), [], hasPixelLayer);
   R('toning', () => toningDialog(), [], hasPixelLayer);
-  R('invert', () => instantAdjust('cmd.invert', invert), ['Ctrl+I'], hasPixelLayer);
-  R('desaturate', () => instantAdjust('cmd.desaturate', desaturate), ['Ctrl+Shift+U'], hasPixelLayer);
+  // from the Filter menu: a window with a strength slider; the shortcuts apply them at once, at 100 %
+  R('invert', () => invertDialog(), [], hasPixelLayer);
+  R('desaturate', () => desaturateDialog(), [], hasPixelLayer);
+  R('invertNow', () => instantAdjust('cmd.invert', invert), ['Ctrl+I'], hasPixelLayer, { label: 'cmd.invert' });
+  R('desaturateNow', () => instantAdjust('cmd.desaturate', desaturate), ['Ctrl+Shift+U'], hasPixelLayer, { label: 'cmd.desaturate' });
   R('gaussian', () => gaussianDialog(), [], hasPixelLayer);
   R('unsharp', () => unsharpDialog(), [], hasPixelLayer);
   R('noise', () => noiseDialog(), [], hasPixelLayer);

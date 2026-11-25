@@ -454,6 +454,33 @@ export function findEdges(src: Buf, dst: Buf, w: number, h: number) {
   }
 }
 
+/** Mix a filtered result back towards the original: amount 100 = the filter alone. */
+function mixBack(src: Buf, dst: Buf, amount: number) {
+  if (amount >= 100) return;
+  const k = Math.max(0, amount) / 100;
+  for (let i = 0; i < src.length; i += 4) {
+    dst[i] = src[i] + (dst[i] - src[i]) * k; dst[i + 1] = src[i + 1] + (dst[i + 1] - src[i + 1]) * k; dst[i + 2] = src[i + 2] + (dst[i + 2] - src[i + 2]) * k;
+  }
+}
+
+/** Find Edges with a strength. */
+export function findEdgesMix(src: Buf, dst: Buf, w: number, h: number, amount: number) { findEdges(src, dst, w, h); mixBack(src, dst, amount); }
+
+/** Invert with a strength (100 % = the negative). */
+export function invertMix(src: Buf, dst: Buf, _w: number, _h: number, amount: number) {
+  for (let i = 0; i < src.length; i += 4) { dst[i] = 255 - src[i]; dst[i + 1] = 255 - src[i + 1]; dst[i + 2] = 255 - src[i + 2]; dst[i + 3] = src[i + 3]; }
+  mixBack(src, dst, amount);
+}
+
+/** Desaturate with a strength: Photoshop's lightness ((max + min) / 2), as the instant command. */
+export function desaturateMix(src: Buf, dst: Buf, _w: number, _h: number, amount: number) {
+  for (let i = 0; i < src.length; i += 4) {
+    const mx = Math.max(src[i], src[i + 1], src[i + 2]), mn = Math.min(src[i], src[i + 1], src[i + 2]);
+    dst[i] = dst[i + 1] = dst[i + 2] = (mx + mn) / 2; dst[i + 3] = src[i + 3];
+  }
+  mixBack(src, dst, amount);
+}
+
 /* ---------------- 3D LUT (.cube) ---------------- */
 export interface Lut3D { size: number; data: Float32Array; min: RGBc; max: RGBc; title: string }
 

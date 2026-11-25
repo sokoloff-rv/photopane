@@ -434,6 +434,7 @@ export class App {
   static readonly CHAIN_COMMANDS = new Set([
     'enhance', 'levels', 'curves', 'hslMixer', 'toning', 'gaussian', 'unsharp', 'noise', 'motionBlur', 'radialBlur', 'surfaceBlur', 'highPass', 'dehaze',
     'denoise', 'glow', 'chromatic', 'pixelate', 'halftone', 'sepia', 'posterize', 'threshold', 'emboss', 'gradientMap', 'lut',
+    'desaturate', 'invert', 'findEdges',
   ]);
   /** While side windows are open: only viewing, and other correction/filter windows (an open one is pointed at). */
   commandLocked(id: string) {

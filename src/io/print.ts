@@ -17,7 +17,8 @@ function prepare() {
   if (d) {
     // a canvas prints its pixels at once (an <img> from a data URL could still be loading)
     const c = createCanvas(d.width, d.height);
-    ctx2d(c).drawImage(d.composite(), 0, 0);
+    // converted to sRGB like the screen and the flattened exports (an Adobe RGB picture printed raw looked dull)
+    ctx2d(c).drawImage(d.displayComposite(), 0, 0);
     host.append(c);
   }
   document.body.append(host);

@@ -312,9 +312,10 @@ function fileDialog(saveAs: boolean) {
       // within what a browser canvas can hold (about 160 MP)
       const k = Math.min(1, Math.sqrt(1.6e8 / Math.max(1, w * h)));
       size = { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) };
-      if (from !== 'w') wf.set(size.w);
-      if (from !== 'h') hf.set(size.h);
-      if (from !== 'p') pf.set(Math.round(size.w / d.width * 1000) / 10);
+      // the field typed in keeps its value unless the size had to be limited
+      if (from !== 'w' || k < 1) wf.set(size.w);
+      if (from !== 'h' || k < 1) hf.set(size.h);
+      if (from !== 'p' || k < 1) pf.set(Math.round(size.w / d.width * 1000) / 10);
       updateSize();
     };
     wf = numberField({ value: d.width, min: 1, max: 30000, width: 48, onChange: (v, fin) => { if (fin) setSize(v, v / ratio, 'w'); } });

@@ -64,6 +64,13 @@ export function numberField(opts: {
     e.stopPropagation();
   });
   range.addEventListener('input', () => apply(fromPos(parseFloat(range.value)), false));
+  if (lg) range.addEventListener('keydown', e => {
+    const dir = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0;
+    if (!dir) return;
+    e.preventDefault(); e.stopPropagation();
+    // about 4 % per press (at least one step), so small and large sizes move alike
+    apply(value + dir * Math.max(step, Math.round(value * 0.04 / step) * step), true);
+  });
   range.addEventListener('change', () => apply(fromPos(parseFloat(range.value)), true));
   arrow.addEventListener('click', e => {
     e.stopPropagation();

@@ -231,7 +231,7 @@ export class Viewport {
 
   /* ---------- rendering ---------- */
   /** What the last full render() drew: a paint update may redraw just a part only while this still holds. */
-  private drawn: { doc: Doc; zoom: number; panX: number; panY: number; w: number; h: number; dpr: number } | null = null;
+  private drawn: { doc: number; zoom: number; panX: number; panY: number; w: number; h: number; dpr: number } | null = null;
   private paintPart: HTMLCanvasElement | null = null;
 
   /**
@@ -240,7 +240,7 @@ export class Viewport {
    */
   renderPaint(r: { x: number; y: number; w: number; h: number }) {
     const d = this.doc, s = this.drawn;
-    if (!d || !s || s.doc !== d || s.zoom !== d.zoom || s.panX !== d.panX || s.panY !== d.panY || s.w !== this.w || s.h !== this.h || s.dpr !== this.dpr || d.zoom * this.dpr > 1) {
+    if (!d || !s || s.doc !== d.id || s.zoom !== d.zoom || s.panX !== d.panX || s.panY !== d.panY || s.w !== this.w || s.h !== this.h || s.dpr !== this.dpr || d.zoom * this.dpr > 1) {
       this.render();
       return;
     }
@@ -294,7 +294,7 @@ export class Viewport {
     if (!d) return;
     this.relayout(d);
     const comp = d.displayComposite();
-    this.drawn = { doc: d, zoom: d.zoom, panX: d.panX, panY: d.panY, w: this.w, h: this.h, dpr: this.dpr };
+    this.drawn = { doc: d.id, zoom: d.zoom, panX: d.panX, panY: d.panY, w: this.w, h: this.h, dpr: this.dpr };
     const x = d.panX, y = d.panY, w = d.width * d.zoom, h = d.height * d.zoom;
     // shadow
     g.save();
@@ -676,7 +676,9 @@ function rasterAnts(sel: Selection, z: number, ox: number, oy: number, W: number
   g.drawImage(sel.mask, ox, oy, sel.width * z, sel.height * z);
   const src = g.getImageData(0, 0, W, H), a = src.data;
   const out = g.createImageData(W, H), o = out.data;
-  const inside = (i: number) => a[i * 4 + 3] >= 128;
+  // zoomed out, a small island becomes a faint pixel: any coverage counts, so it keeps an outline
+  const th = z < 1 ? 1 : 128;
+  const inside = (i: number) => a[i * 4 + 3] >= th;
   for (let y = 1; y < H - 1; y++) {
     for (let x = 1, i = y * W + 1; x < W - 1; x++, i++) {
       if (!inside(i) || (inside(i - 1) && inside(i + 1) && inside(i - W) && inside(i + W))) continue;

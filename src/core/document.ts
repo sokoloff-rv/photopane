@@ -276,6 +276,8 @@ export function cloneDoc(src: Doc, name: string): Doc {
 }
 
 let layerRead: { layer: Layer; canvas: HTMLCanvasElement; ver: number; x: number; y: number; img: ImageData } | null = null;
+/** A document closed: its layer copy for the magic wand (if any) must not keep the layers alive. */
+export function forgetLayerRead() { layerRead = null; }
 
 /** A layer's pixels placed in a document-sized image (read through a CPU copy, see readPixels). */
 function layerPixels(l: Layer, W: number, H: number): ImageData {

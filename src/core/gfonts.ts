@@ -50,14 +50,15 @@ async function openCache(): Promise<Cache | null> {
   try { return 'caches' in window ? await caches.open(CACHE) : null; } catch { return null; }
 }
 
-/** A response from the cache, else from the network (then kept). */
-async function cached(url: string): Promise<Response> {
+/** A response from the cache, else from the network (then kept). `strict`: failing to keep it is an error. */
+async function cached(url: string, strict = false): Promise<Response> {
   const cache = await openCache();
   const hit = await cache?.match(url);
   if (hit) return hit;
   const r = await fetch(url);
   if (!r.ok) throw new Error(`${r.status} ${url}`);
-  if (cache) await cache.put(url, r.clone()).catch(() => {});
+  if (cache) await cache.put(url, r.clone()).catch(e => { if (strict) throw e; });
+  else if (strict) throw new Error('no font cache');
   return r;
 }
 
@@ -121,10 +122,10 @@ export function ensureGoogleFont(family: string): Promise<boolean> {
 
 /** Download a family into the cache (all its styles), without registering it: picking it later is instant and works offline. */
 async function cacheGoogleFont(g: GFamily): Promise<number> {
-  const css = await (await cached(cssUrl(g))).text();
+  const css = await (await cached(cssUrl(g), true)).text();
   const faces = parseCss(css).filter(f => SUBSETS.has(f.subset));
   let bytes = 0;
-  for (const f of faces) bytes += (await (await cached(f.url)).arrayBuffer()).byteLength;
+  for (const f of faces) bytes += (await (await cached(f.url, true)).arrayBuffer()).byteLength;
   return bytes;
 }
 

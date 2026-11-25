@@ -1,4 +1,4 @@
-import { Doc, cloneDoc } from './core/document';
+import { Doc, cloneDoc, forgetLayerRead } from './core/document';
 import { RGB, BLACK, WHITE } from './core/color';
 import { Layer, Surface } from './core/layer';
 import { Selection } from './core/selection';
@@ -249,6 +249,7 @@ export class App {
 
   async closeDoc(doc: Doc) {
     if (doc.dirty && !(await confirmDialog(t('app.unsaved')))) return;
+    forgetLayerRead();
     if (this.split && (doc === this.split.a || doc === this.split.b)) this.endCompare();
     if (doc === this.doc) this.tool.cancel();
     const i = this.docs.indexOf(doc);

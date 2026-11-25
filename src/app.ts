@@ -120,6 +120,9 @@ export class App {
     window.addEventListener('keydown', e => this.onKeyDown(e));
     window.addEventListener('keyup', e => this.onKeyUp(e));
     window.addEventListener('paste', e => handlePaste(e));
+    // the browser's own menu (Reload, Save page as, Print the window, Share a link) makes no sense in the editor;
+    // text fields keep theirs (copy, paste)
+    window.addEventListener('contextmenu', e => { if (!(e.target as HTMLElement)?.closest?.('input, textarea, [contenteditable="true"]')) e.preventDefault(); });
     window.addEventListener('beforeunload', e => { if (this.docs.some(d => d.dirty)) { e.preventDefault(); e.returnValue = ''; } });
     if ((window as any).__TAURI_INTERNALS__) void this.guardWindowClose();
     window.addEventListener('blur', () => { if (this.spaceDown) { this.spaceDown = false; this.viewport.updateCursor(); } });

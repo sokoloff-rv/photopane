@@ -14,6 +14,7 @@ import { TransformTool } from './tools/transform';
 import { imageSizeDialog, canvasSizeDialog, rotateArbitraryDialog } from './ui/docdialogs';
 import { fillDialog, strokeDialog } from './ui/filldialogs';
 import { batchDialog } from './ui/batchdialog';
+import { printDoc } from './io/print';
 import { hslMixerDialog, toningDialog } from './ui/colordialogs';
 import { aiSettingsDialog, upscaleDialog, removeBackground, selectSubject, removeObject } from './ui/aidialogs';
 import {
@@ -59,6 +60,7 @@ export function registerCommands(app: App) {
   R('saveAs', () => saveDoc(true), ['Ctrl+Shift+S'], hasDoc);
   R('export', () => exportDialog(false), ['Ctrl+Alt+Shift+W'], hasDoc);
   R('batch', () => batchDialog());
+  R('print', () => printDoc(), ['Ctrl+P'], hasDoc);
   R('close', () => app.closeDoc(D()), ['Ctrl+W'], hasDoc);
 
   /* ---------- Edit ---------- */

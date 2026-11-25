@@ -152,6 +152,7 @@ const D: Record<string, [string, string]> = {
   'tone.balanceTitle': ['Баланс', 'Balance'],
   'tone.balance': ['Тени ← → Света', 'Shadows ← → Highlights'],
   'cmd.batch': ['Пакетная обработка', 'Batch Processing'],
+  'cmd.print': ['Печать…', 'Print…'],
   'batch.source': ['Изображения', 'Images'],
   'batch.pickFolder': ['Выбрать папку', 'Choose folder'],
   'batch.pickFiles': ['Выбрать файлы', 'Choose files'],
@@ -702,7 +703,39 @@ const D: Record<string, [string, string]> = {
 let lang: Lang = (localStorage.getItem('pp.lang') as Lang) || (navigator.language.startsWith('ru') ? 'ru' : 'en');
 
 export function getLang(): Lang { return lang; }
-export function setLang(l: Lang) { lang = l; try { localStorage.setItem('pp.lang', l); } catch {} document.documentElement.lang = l; }
+export function setLang(l: Lang) {
+  const from = lang;
+  lang = l; try { localStorage.setItem('pp.lang', l); } catch {} document.documentElement.lang = l;
+  if (from !== l) retranslateOpen(from, l);
+}
+
+/**
+ * Windows that are open while the language changes (Adjust, Levels, filters…) were built with the old texts.
+ * Every text and tooltip in them that is a known phrase is replaced by the same phrase in the new language,
+ * so the whole editor switches at once without closing the windows (their settings stay as they are).
+ */
+function retranslateOpen(from: Lang, to: Lang) {
+  const a = from === 'ru' ? 0 : 1, b = to === 'ru' ? 0 : 1;
+  const map = new Map<string, string>();
+  for (const e of Object.values(D)) if (!e[a].includes('{') && !map.has(e[a])) map.set(e[a], e[b]);
+  const swap = (s: string): string | null => {
+    const k = s.trim();
+    const v = k ? map.get(k) : undefined;
+    return v ? s.replace(k, v) : null;
+  };
+  for (const root of document.querySelectorAll<HTMLElement>('.dlg-overlay, .busy')) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) { const v = swap(n.nodeValue || ''); if (v != null) n.nodeValue = v; }
+    for (const elem of root.querySelectorAll<HTMLElement>('[title], [placeholder], [aria-label]')) {
+      for (const attr of ['title', 'placeholder', 'aria-label']) {
+        const cur = elem.getAttribute(attr);
+        const v = cur ? swap(cur) : null;
+        if (v != null) elem.setAttribute(attr, v);
+      }
+    }
+    // option texts of selects are text nodes too (covered above); a number field's unit and value stay
+  }
+}
 export function t(key: string, ...args: (string | number)[]): string {
   const e = D[key];
   let s = e ? e[lang === 'ru' ? 0 : 1] : key;

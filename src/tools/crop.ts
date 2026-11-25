@@ -165,23 +165,23 @@ export class CropTool extends Tool<CropOpts> {
     const d = app.doc!;
     const r = this.rect;
     if (!r || r.w < 1 || r.h < 1) return;
-    if (r.x === 0 && r.y === 0 && r.w === d.width && r.h === d.height) return;
+    // pixel preset: the result is scaled to the exact size (portrait swaps width and height)
+    const px = this.preset()?.px;
+    const W = px ? (this.o.portrait ? px.h : px.w) : d.width, H = px ? (this.o.portrait ? px.w : px.h) : d.height;
+    // the frame is the whole image: nothing to cut, but a pixel preset still changes the size (4K → Full HD)
+    const whole = r.x === 0 && r.y === 0 && r.w === d.width && r.h === d.height;
+    if (whole && d.width === W && d.height === H) return;
     const extends_ = r.x < 0 || r.y < 0 || r.x + r.w > d.width || r.y + r.h > d.height;
     const before = extends_ && this.o.fill === 'ai' ? cloneCanvas(d.composite()) : null;
     const rr = { ...r };
-    cropDocument(d, r, this.o.deletePixels);
+    if (!whole) cropDocument(d, r, this.o.deletePixels);
     if (extends_ && this.o.fill === 'bg') {
       const l = new Layer('raster', t('layers.background'), d.width, d.height);
       const g = l.content.ctx; g.fillStyle = css(app.bg); g.fillRect(0, 0, d.width, d.height);
       d.root.children.unshift(l); l.parent = d.root;
       if (d.root.children[1]) d.root.children[1].clipped = false;
     }
-    // pixel preset: scale the cropped image to the exact size (portrait swaps width and height)
-    const px = this.preset()?.px;
-    if (px) {
-      const W = this.o.portrait ? px.h : px.w, H = this.o.portrait ? px.w : px.h;
-      if (d.width !== W || d.height !== H) resizeDocument(d, W, H, 'auto');
-    }
+    if (px && (d.width !== W || d.height !== H)) resizeDocument(d, W, H, 'auto');
     app.commit('tool.crop');
     app.viewport.fit(false);
     this.reset();
@@ -197,26 +197,30 @@ export class CropTool extends Tool<CropOpts> {
     g.save();
     g.beginPath(); g.rect(0, 0, v.w, v.h); g.rect(a.x, a.y, b.x - a.x, b.y - a.y);
     g.fillStyle = 'rgba(0,0,0,0.55)'; g.fill('evenodd');
-    g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 1;
-    g.beginPath();
-    for (let i = 1; i < 3; i++) {
-      const x = a.x + (b.x - a.x) * i / 3, y = a.y + (b.y - a.y) * i / 3;
-      g.moveTo(x, a.y); g.lineTo(x, b.y); g.moveTo(a.x, y); g.lineTo(b.x, y);
-    }
-    g.stroke();
-    g.strokeStyle = '#fff'; g.strokeRect(a.x + 0.5, a.y + 0.5, b.x - a.x - 1, b.y - a.y - 1);
+    // every line has a dark edge under the white one: the frame stays visible on white and on black
+    const twice = (path: () => void, width: number, white: string) => {
+      g.beginPath(); path();
+      g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = width + 2; g.stroke();
+      g.strokeStyle = white; g.lineWidth = width; g.stroke();
+    };
+    twice(() => {
+      for (let i = 1; i < 3; i++) {
+        const x = Math.round(a.x + (b.x - a.x) * i / 3) + 0.5, y = Math.round(a.y + (b.y - a.y) * i / 3) + 0.5;
+        g.moveTo(x, a.y); g.lineTo(x, b.y); g.moveTo(a.x, y); g.lineTo(b.x, y);
+      }
+    }, 1, 'rgba(255,255,255,0.5)');
+    twice(() => g.rect(a.x + 0.5, a.y + 0.5, b.x - a.x - 1, b.y - a.y - 1), 1, '#fff');
     // corner brackets
-    g.lineWidth = 3;
     const L = 14;
     const corners: [number, number, number, number][] = [[a.x, a.y, 1, 1], [b.x, a.y, -1, 1], [b.x, b.y, -1, -1], [a.x, b.y, 1, -1]];
-    g.beginPath();
-    for (const [x, y, sx, sy] of corners) { g.moveTo(x + sx * L, y + sy * 1.5); g.lineTo(x + sx * 1.5, y + sy * 1.5); g.lineTo(x + sx * 1.5, y + sy * L); }
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-    g.moveTo(mx - L / 2, a.y + 1.5); g.lineTo(mx + L / 2, a.y + 1.5);
-    g.moveTo(mx - L / 2, b.y - 1.5); g.lineTo(mx + L / 2, b.y - 1.5);
-    g.moveTo(a.x + 1.5, my - L / 2); g.lineTo(a.x + 1.5, my + L / 2);
-    g.moveTo(b.x - 1.5, my - L / 2); g.lineTo(b.x - 1.5, my + L / 2);
-    g.stroke();
+    twice(() => {
+      for (const [x, y, sx, sy] of corners) { g.moveTo(x + sx * L, y + sy * 1.5); g.lineTo(x + sx * 1.5, y + sy * 1.5); g.lineTo(x + sx * 1.5, y + sy * L); }
+      g.moveTo(mx - L / 2, a.y + 1.5); g.lineTo(mx + L / 2, a.y + 1.5);
+      g.moveTo(mx - L / 2, b.y - 1.5); g.lineTo(mx + L / 2, b.y - 1.5);
+      g.moveTo(a.x + 1.5, my - L / 2); g.lineTo(a.x + 1.5, my + L / 2);
+      g.moveTo(b.x - 1.5, my - L / 2); g.lineTo(b.x - 1.5, my + L / 2);
+    }, 3, '#fff');
     g.restore();
   }
 
@@ -424,7 +428,8 @@ export class PerspCropTool extends Tool {
     d.invalidate();
     app.commit('tool.perspCrop');
     app.viewport.fit(false);
-    this.reset();
+    // done: show the result without a frame (a new one is dragged out to crop again)
+    this.clear();
   }
 
   overlay(g: CanvasRenderingContext2D) {

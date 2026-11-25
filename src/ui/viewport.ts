@@ -1,3 +1,4 @@
+import type { Selection } from '../core/selection';
 import { sideDialogOpen, nudgeSideDialog } from './dialog';
 import { app } from '../app';
 import { el, clamp } from '../core/util';
@@ -22,6 +23,8 @@ export class Viewport {
   w = 0; h = 0; dpr = 1;
   pointer: { sx: number; sy: number; inside: boolean } = { sx: 0, sy: 0, inside: false };
   private antsPhase = 0;
+  /** The marching ants' outline for the current selection and view (see renderOverlay). */
+  private ants: { sel: Selection; z: number; ox: number; oy: number; w: number; h: number; path: Path2D | null; img: HTMLCanvasElement | null; still: boolean } | null = null;
   private dragging: 'tool' | 'pan' | 'guide' | 'pick' | null = null;
   private guideDrag: { axis: 'h' | 'v'; index: number } | null = null;
   private panStart = { x: 0, y: 0, px: 0, py: 0 };
@@ -67,7 +70,7 @@ export class Viewport {
     ov.addEventListener('contextmenu', e => { e.preventDefault(); if (this.locked()) { nudgeSideDialog(); return; } if (this.doc && this.active && !app.spaceDown) openCanvasContextMenu(e, this.ev(e)); });
 
     setInterval(() => {
-      if (this.doc?.selection || (this.active && app.tool.id === 'lasso')) { this.antsPhase = (this.antsPhase + 1) % 1e6; this.renderOverlay(); }
+      if ((this.doc?.selection && !this.ants?.still) || (this.active && app.tool.id === 'lasso')) { this.antsPhase = (this.antsPhase + 1) % 1e6; this.renderOverlay(); }
     }, 90);
   }
 
@@ -383,24 +386,40 @@ export class Viewport {
       const k = this.dpr;
       const z = d.zoom * k;
       const ox = (d.panX + app.selOffset.x * d.zoom) * k, oy = (d.panY + app.selOffset.y * d.zoom) * k;
+      const sel = d.selection, W = g.canvas.width, H = g.canvas.height;
+      let ac = this.ants;
+      if (!ac || ac.sel !== sel || ac.z !== z || ac.ox !== ox || ac.oy !== oy || ac.w !== W || ac.h !== H) {
+        // A very complex edge (a speckled magic-wand selection, tens of thousands of islands): stroking it
+        // as dashed lines took about a second, on every animation step. It is drawn as screen pixels instead
+        // (edge pixels in a black and white pattern) and kept still; ordinary selections keep moving ants.
+        const raster = sel.complexity > 40000;
+        ac = this.ants = { sel, z, ox, oy, w: W, h: H, path: null, img: raster ? rasterAnts(sel, z, ox, oy, W, H) : null, still: raster };
+        if (!raster) {
+          // the outline path is built once per selection and view, not on every mouse move and animation step
+          const path = new Path2D();
+          for (const loop of sel.contours) {
+            for (let i = 0; i < loop.length; i += 2) {
+              const x = Math.round(loop[i] * z + ox) + 0.5, y = Math.round(loop[i + 1] * z + oy) + 0.5;
+              if (i) path.lineTo(x, y); else path.moveTo(x, y);
+            }
+            path.closePath();
+          }
+          ac.path = path;
+        }
+      }
       g.save();
       g.setTransform(1, 0, 0, 1, 0, 0);
-      g.beginPath();
-      for (const loop of d.selection.contours) {
-        for (let i = 0; i < loop.length; i += 2) {
-          const x = Math.round(loop[i] * z + ox) + 0.5, y = Math.round(loop[i + 1] * z + oy) + 0.5;
-          if (i) g.lineTo(x, y); else g.moveTo(x, y);
-        }
-        g.closePath();
+      if (ac.img) g.drawImage(ac.img, 0, 0);
+      else if (ac.path) {
+        const dash = Math.max(3, Math.round(4 * k));
+        g.lineWidth = k >= 1.5 ? 1.3 : 1;
+        g.strokeStyle = '#fff';
+        g.stroke(ac.path);
+        g.strokeStyle = '#000';
+        g.setLineDash([dash, dash]);
+        g.lineDashOffset = -((this.antsPhase * Math.max(1, Math.round(k))) % (dash * 2));
+        g.stroke(ac.path);
       }
-      const dash = Math.max(3, Math.round(4 * k));
-      g.lineWidth = k >= 1.5 ? 1.3 : 1;
-      g.strokeStyle = '#fff';
-      g.stroke();
-      g.strokeStyle = '#000';
-      g.setLineDash([dash, dash]);
-      g.lineDashOffset = -((this.antsPhase * Math.max(1, Math.round(k))) % (dash * 2));
-      g.stroke();
       g.restore();
     }
     if (this.active) app.tool.overlay(g);
@@ -643,3 +662,28 @@ export class Viewport {
 
 /** True (and the open side window shakes) when an Adjust/filter window blocks switching panes. */
 function nudgeIfLocked(): boolean { return sideDialogOpen() && nudgeSideDialog(); }
+
+/**
+ * The selection edge as screen pixels: the selection mask scaled to the view, and every inside pixel next to
+ * an outside one painted black or white in 4-pixel steps (still marching ants, at any number of islands).
+ */
+function rasterAnts(sel: Selection, z: number, ox: number, oy: number, W: number, H: number): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d', { willReadFrequently: true })!;
+  g.imageSmoothingEnabled = z < 1;
+  g.drawImage(sel.mask, ox, oy, sel.width * z, sel.height * z);
+  const src = g.getImageData(0, 0, W, H), a = src.data;
+  const out = g.createImageData(W, H), o = out.data;
+  const inside = (i: number) => a[i * 4 + 3] >= 128;
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1, i = y * W + 1; x < W - 1; x++, i++) {
+      if (!inside(i) || (inside(i - 1) && inside(i + 1) && inside(i - W) && inside(i + W))) continue;
+      const v = ((x + y) >> 2) & 1 ? 0 : 255;
+      const p = i * 4;
+      o[p] = o[p + 1] = o[p + 2] = v; o[p + 3] = 255;
+    }
+  }
+  g.putImageData(out, 0, 0);
+  return c;
+}

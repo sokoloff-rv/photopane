@@ -228,11 +228,14 @@ export class Doc {
 
   /** Layer rendered into a document-sized canvas (without effects, with mask). */
   layerImageData(l: Layer): ImageData {
-    const c = createCanvas(this.width, this.height);
-    const g = ctx2d(c);
-    g.drawImage(l.canvas, l.x, l.y);
-    return g.getImageData(0, 0, this.width, this.height);
+    // kept while the layer is unchanged: clicking with the magic wand several times reads it once
+    const k = this._layerRead;
+    if (k && k.id === l.id && k.ver === l.version && k.img.width === this.width && k.img.height === this.height) return k.img;
+    const img = layerPixels(l, this.width, this.height);
+    this._layerRead = { id: l.id, ver: l.version, img };
+    return img;
   }
+  private _layerRead: { id: number; ver: number; img: ImageData } | null = null;
 }
 
 /** Independent copy of a document including its whole history (used by Compare). */
@@ -248,4 +251,12 @@ export function cloneDoc(src: Doc, name: string): Doc {
   d.dirty = true;
   d.invalidate();
   return d;
+}
+
+/** A layer's pixels placed in a document-sized image (read through a CPU copy, see readPixels). */
+function layerPixels(l: Layer, W: number, H: number): ImageData {
+  const c = createCanvas(W, H);
+  const g = c.getContext('2d', { willReadFrequently: true })!;
+  g.drawImage(l.canvas, l.x, l.y);
+  return g.getImageData(0, 0, W, H);
 }

@@ -172,48 +172,76 @@ export class Selection {
     const w = this.width, h = this.height;
     const a = this.alpha();
     const b = this.bounds;
+    // Pixel-corner grid of the bounding box. Each corner has at most two outgoing edges (two only where two
+    // selected pixels touch diagonally): the first in a typed array, the rare second one in a small map.
+    // A Map of arrays for every corner took tens of seconds for a speckled selection (millions of islands).
+    const BW = b.w + 1, BH = b.h + 1;
+    const next = new Int32Array(BW * BH).fill(-1);
+    const extra = new Map<number, number>();
     const on = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && a[y * w + x] >= 128;
-    const W1 = w + 1;
-    const next = new Map<number, number[]>();
-    const add = (x0: number, y0: number, x1: number, y1: number) => {
-      const k = y0 * W1 + x0;
-      const v = y1 * W1 + x1;
-      const e = next.get(k);
-      if (e) e.push(v); else next.set(k, [v]);
-    };
+    const V = (x: number, y: number) => (y - b.y) * BW + (x - b.x);
+    const add = (v0: number, v1: number) => { if (next[v0] < 0) next[v0] = v1; else extra.set(v0, v1); };
     for (let y = b.y; y < b.y + b.h; y++) {
       for (let x = b.x; x < b.x + b.w; x++) {
         if (!on(x, y)) continue;
-        if (!on(x, y - 1)) add(x, y, x + 1, y);
-        if (!on(x + 1, y)) add(x + 1, y, x + 1, y + 1);
-        if (!on(x, y + 1)) add(x + 1, y + 1, x, y + 1);
-        if (!on(x - 1, y)) add(x, y + 1, x, y);
+        if (!on(x, y - 1)) add(V(x, y), V(x + 1, y));
+        if (!on(x + 1, y)) add(V(x + 1, y), V(x + 1, y + 1));
+        if (!on(x, y + 1)) add(V(x + 1, y + 1), V(x, y + 1));
+        if (!on(x - 1, y)) add(V(x, y + 1), V(x, y));
       }
     }
+    const take = (v: number) => {
+      const e = extra.get(v);
+      if (e !== undefined) { extra.delete(v); return e; }
+      const n = next[v];
+      if (n >= 0) next[v] = -1;
+      return n;
+    };
     const loops: Int32Array[] = [];
-    while (next.size) {
-      const start = next.keys().next().value as number;
-      const pts: number[] = [];
-      let cur = start;
-      let pdx = 0, pdy = 0;
-      for (let guard = 0; guard < 1e8; guard++) {
-        const outs = next.get(cur);
-        if (!outs) break;
-        const v = outs.pop()!;
-        if (!outs.length) next.delete(cur);
-        const cx = cur % W1, cy = (cur - cx) / W1;
-        const vx = v % W1, vy = (v - vx) / W1;
-        const dx = vx - cx, dy = vy - cy;
-        if (dx !== pdx || dy !== pdy) pts.push(cx, cy); // keep only corners
-        pdx = dx; pdy = dy;
-        cur = v;
-        if (cur === start) break;
+    const pts: number[] = [];
+    for (let start = 0; start < next.length; start++) {
+      while (next[start] >= 0 || extra.has(start)) {
+        pts.length = 0;
+        let cur = start, pdx = 0, pdy = 0;
+        for (let guard = 0; guard < 1e8; guard++) {
+          const v = take(cur);
+          if (v < 0) break;
+          const cx = cur % BW, cy = (cur - cx) / BW;
+          const vx = v % BW, vy = (v - vx) / BW;
+          const dx = vx - cx, dy = vy - cy;
+          if (dx !== pdx || dy !== pdy) pts.push(cx + b.x, cy + b.y); // keep only corners
+          pdx = dx; pdy = dy;
+          cur = v;
+          if (cur === start) break;
+        }
+        if (pts.length >= 6) loops.push(Int32Array.from(pts));
       }
-      if (pts.length >= 6) loops.push(Int32Array.from(pts));
     }
     this._contours = loops;
+    this._contourPoints = loops.reduce((n, l) => n + l.length / 2, 0);
     return loops;
   }
+
+  /**
+   * Rough length of the selection edge (edge crossings on every 4th row, × 4): a speckled magic-wand
+   * selection has hundreds of thousands, a rectangle or a lasso shape a few thousand at most. Cheap to get.
+   */
+  get complexity(): number {
+    if (this._complexity >= 0) return this._complexity;
+    const a = this.alpha(), w = this.width, b = this.bounds;
+    let n = 0;
+    for (let y = b.y; y < b.y + b.h; y += 4) {
+      let prev = false;
+      for (let x = b.x, i = y * w + b.x; x < b.x + b.w; x++, i++) { const on = a[i] >= 128; if (on !== prev) { n++; prev = on; } }
+    }
+    return (this._complexity = n * 4);
+  }
+  private _complexity = -1;
+
+  /** Number of corner points of all contours (a measure of how costly the marching ants are to draw). */
+  get contourPoints(): number { void this.contours; return this._contourPoints; }
+  private _contourPoints = 0;
+
 }
 
 /* ---------- Euclidean distance transform (Felzenszwalb & Huttenlocher) ---------- */

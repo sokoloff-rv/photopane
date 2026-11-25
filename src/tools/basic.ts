@@ -459,6 +459,7 @@ export class GradientTool extends Tool<GradOpts> {
       app.update('canvas');
     }
     this.a = null;
+    this.backup = this.buf = this.scratch = null;
   }
 
   busy() { return !!this.a; }

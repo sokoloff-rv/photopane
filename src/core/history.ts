@@ -100,24 +100,29 @@ export class History {
     } else {
       tiles = sameGeom ? prev!.tiles.slice() : new Array(cols * rows).fill(null);
       const indices = sameGeom ? [...(s.dirty as Set<number>)] : [...Array(cols * rows).keys()];
-      // one read of the area the changed tiles cover (through a CPU copy, so the layer stays on the GPU)
-      let bx0 = Infinity, by0 = Infinity, bx1 = 0, by1 = 0;
-      for (const idx of indices) {
-        const x = (idx % cols) * TILE, y = Math.floor(idx / cols) * TILE;
-        bx0 = Math.min(bx0, x); by0 = Math.min(by0, y);
-        bx1 = Math.max(bx1, Math.min(s.w, x + TILE)); by1 = Math.max(by1, Math.min(s.h, y + TILE));
+      // the changed tiles are read row by row: one strip per tile row, from its first to its last changed
+      // tile (through a CPU copy, so the layer stays on the GPU); one box around all of them could be the
+      // whole layer for a diagonal stroke
+      const rowsOf = new Map<number, number[]>();
+      for (const idx of indices) { const ty = Math.floor(idx / cols); const r = rowsOf.get(ty); if (r) r.push(idx); else rowsOf.set(ty, [idx]); }
+      const strips = new Map<number, { x0: number; w: number; data: Uint8ClampedArray }>();
+      for (const [ty, list] of rowsOf) {
+        const y = ty * TILE, h = Math.min(TILE, s.h - y);
+        let c0 = cols, c1 = -1;
+        for (const idx of list) { const tx = idx % cols; if (tx < c0) c0 = tx; if (tx > c1) c1 = tx; }
+        const x0 = c0 * TILE, x1 = Math.min(s.w, (c1 + 1) * TILE);
+        if (h > 0 && x1 > x0) strips.set(ty, { x0, w: x1 - x0, data: readPixels(s.canvas, x0, y, x1 - x0, h).data });
       }
-      const area = indices.length && bx1 > bx0 && by1 > by0 ? readPixels(s.canvas, bx0, by0, bx1 - bx0, by1 - by0) : null;
-      const AW = bx1 - bx0;
       for (const idx of indices) {
         const tx = idx % cols, ty = Math.floor(idx / cols);
         const x = tx * TILE, y = ty * TILE;
         const w = Math.min(TILE, s.w - x), h = Math.min(TILE, s.h - y);
-        if (w <= 0 || h <= 0 || !area) continue;
+        const strip = strips.get(ty);
+        if (w <= 0 || h <= 0 || !strip) continue;
         const img = new ImageData(w, h);
         for (let r = 0; r < h; r++) {
-          const o = ((y - by0 + r) * AW + (x - bx0)) * 4;
-          img.data.set(area.data.subarray(o, o + w * 4), r * w * 4);
+          const o = (r * strip.w + (x - strip.x0)) * 4;
+          img.data.set(strip.data.subarray(o, o + w * 4), r * w * 4);
         }
         const d = img.data;
         let empty = true;

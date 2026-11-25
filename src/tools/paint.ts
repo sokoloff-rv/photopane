@@ -2,17 +2,21 @@ import { app, PaintTarget } from '../app';
 import { RGB, css, gray } from '../core/color';
 import { cloneCanvas, createCanvas, ctx2d, Rect, rectUnion, rectIntersect, rectInt } from '../core/util';
 import { Selection } from '../core/selection';
+import { Layer, hasEffects } from '../core/layer';
 
 /* ---------- brush tip ---------- */
 const tipCache = new Map<string, HTMLCanvasElement>();
 
 /** Round brush tip. Diameter d, hardness 0..1, colored. */
 export function brushTip(d: number, hardness: number, color: RGB): HTMLCanvasElement {
+  // pen pressure changes the size on almost every dab: tips come in ~4 % steps (the dab scales the tip to
+  // the exact size), so a stroke reuses a few of them instead of computing a new one per dab
+  if (d > 12) d = Math.pow(1.04, Math.round(Math.log(d) / Math.log(1.04)));
   const size = Math.max(1, Math.ceil(d));
   const key = `${size}|${hardness.toFixed(2)}|${color.r},${color.g},${color.b}`;
   let c = tipCache.get(key);
   if (c) return c;
-  if (tipCache.size > 64) tipCache.clear();
+  if (tipCache.size > 160) tipCache.clear();
   const W = size + 2;
   c = createCanvas(W, W);
   const g = ctx2d(c);
@@ -24,7 +28,8 @@ export function brushTip(d: number, hardness: number, color: RGB): HTMLCanvasEle
   const h = Math.max(0, Math.min(0.98, hardness));
   for (let y = 0; y < W; y++) {
     for (let x = 0; x < W; x++) {
-      const dist = Math.hypot(x + 0.5 - cx, y + 0.5 - cx);
+      const dx = x + 0.5 - cx, dy = y + 0.5 - cx;
+      const dist = Math.sqrt(dx * dx + dy * dy);
       let a: number;
       if (hard) a = Math.min(1, Math.max(0, r - dist + 0.5));       // a clean anti-aliased edge
       else {
@@ -150,8 +155,12 @@ export class StrokeSession {
     compositeStroke(g, this.tint ? this.tinted(R) : this.stroke, this.target, this.mode, this.opacity, this.color);
     g.restore();
     this.target.layer.touch();
-    // only this part of the picture is composited and drawn again
-    app.paintDirty({ x: R.x + s.x, y: R.y + s.y, w: R.w, h: R.h });
+    // only this part of the picture is composited and drawn again; effects (a shadow, a glow) reach outside
+    // the painted area, so a layer that has any (or sits in a group that has) is redrawn as a whole
+    let fx = false;
+    for (let l: Layer | null = this.target.layer; l && !fx; l = l.parent) fx = hasEffects(l.effects);
+    if (fx) app.update('canvas');
+    else app.paintDirty({ x: R.x + s.x, y: R.y + s.y, w: R.w, h: R.h });
   }
 
   /** The stroke coverage in region R coloured with the brush colour (the rest of the buffer stays as it was). */

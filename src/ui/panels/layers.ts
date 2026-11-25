@@ -202,7 +202,7 @@ export class LayersPanel extends Panel {
       }
       this.activate(d, l, e, d.editMask && l.id === d.activeId);
     });
-    r.addEventListener('dragstart', e => { this.dragId = l.id; e.dataTransfer!.effectAllowed = 'move'; e.dataTransfer!.setData('text/x-layer', String(l.id)); });
+    r.addEventListener('dragstart', e => { this.dragId = l.id; e.dataTransfer!.effectAllowed = 'copyMove'; e.dataTransfer!.setData('text/x-layer', String(l.id)); });
     r.addEventListener('dragend', () => { this.dragId = -1; this.clearDrop(); });
     return r;
   }

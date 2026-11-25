@@ -382,6 +382,7 @@ export class Viewport {
     if (!d) return;
     // marching ants: thin black/white dashes flowing along continuous contours,
     // drawn in device pixels and snapped to the pixel grid so they stay crisp on HiDPI screens
+    if (!d.selection) this.ants = null;
     if (d.selection && !app.hideSelection) {
       const k = this.dpr;
       const z = d.zoom * k;

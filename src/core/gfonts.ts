@@ -134,6 +134,8 @@ async function cacheGoogleFont(g: GFamily): Promise<number> {
  */
 export async function downloadGoogleFonts(families: string[], progress: (done: number, total: number) => void, cancelled: () => boolean): Promise<{ failed: string[]; bytes: number }> {
   const list = families.map(googleFamily).filter((g): g is GFamily => !!g);
+  // without Cache Storage nothing would be kept: report every family as failed
+  if (!(await openCache())) return { failed: list.map(g => g.family), bytes: 0 };
   const failed: string[] = [];
   let next = 0, done = 0, bytes = 0;
   const worker = async () => {

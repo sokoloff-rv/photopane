@@ -10,6 +10,7 @@ import { extractExif, insertExif } from './exif';
 import { ensureDocFonts } from '../ui/fontprompt';
 import { convertToSRGB } from '../core/colormgmt';
 import { resampleSharp } from '../ui/resample';
+import { hasEffects } from '../core/layer';
 
 const IMAGE_ACCEPT = '.png,.jpg,.jpeg,.webp,.gif,.bmp,.avif,.psd';
 
@@ -154,7 +155,8 @@ export async function encode(d: Doc, fmt: Fmt, quality: number, keepExif: boolea
   let c = flattenedFor(d, fmt);
   if (size && (size.w !== c.width || size.h !== c.height)) {
     const out = createCanvas(size.w, size.h);
-    if (!resampleSharp(c, size.w, size.h, out)) { const g = ctx2d(out); g.imageSmoothingQuality = 'high'; g.drawImage(c, 0, 0, size.w, size.h); }
+    const down = size.w < c.width && size.h < c.height;
+    if (!down || !resampleSharp(c, size.w, size.h, out)) { const g = ctx2d(out); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high'; g.drawImage(c, 0, 0, size.w, size.h); }
     c = out;
   }
   if (fmt === 'pdf') return jpegToPdf(await canvasToBlob(c, 'image/jpeg', quality / 100), c.width, c.height);
@@ -255,7 +257,10 @@ function fileDialog(saveAs: boolean) {
   const d = app.doc;
   if (!d) return;
   const formats: Fmt[] = saveAs ? ['psd', 'jpeg', 'png', 'webp'] : ['jpeg', 'png', 'webp', 'pdf'];
-  let fmt: Fmt = saveAs ? ((app.settings.saveFmt as Fmt) || 'psd') : ((app.settings.exportFmt as Fmt) || 'jpeg');
+  // a document with layers, text, masks or effects is saved as PSD unless another format is picked here:
+  // a remembered JPEG would flatten it and mark it saved (layers lost on closing without a warning)
+  const layered = d.layers.length > 1 || d.layers.some(l => l.kind === 'text' || !!l.mask || hasEffects(l.effects));
+  let fmt: Fmt = saveAs ? (layered ? 'psd' : (app.settings.saveFmt as Fmt) || 'psd') : ((app.settings.exportFmt as Fmt) || 'jpeg');
   if (!formats.includes(fmt)) fmt = formats[0];
   let quality = app.settings.jpegQuality ?? 92;
   let keepExif = app.settings.keepExif ?? false;
@@ -304,7 +309,9 @@ function fileDialog(saveAs: boolean) {
     const ratio = d.width / d.height;
     let wf: HTMLElement & { set(v: number): void }, hf: HTMLElement & { set(v: number): void }, pf: HTMLElement & { set(v: number): void };
     const setSize = (w: number, h: number, from: 'w' | 'h' | 'p') => {
-      size = { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) };
+      // within what a browser canvas can hold (about 160 MP)
+      const k = Math.min(1, Math.sqrt(1.6e8 / Math.max(1, w * h)));
+      size = { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) };
       if (from !== 'w') wf.set(size.w);
       if (from !== 'h') hf.set(size.h);
       if (from !== 'p') pf.set(Math.round(size.w / d.width * 1000) / 10);
@@ -312,7 +319,7 @@ function fileDialog(saveAs: boolean) {
     };
     wf = numberField({ value: d.width, min: 1, max: 30000, width: 48, onChange: (v, fin) => { if (fin) setSize(v, v / ratio, 'w'); } });
     hf = numberField({ value: d.height, min: 1, max: 30000, width: 48, onChange: (v, fin) => { if (fin) setSize(v * ratio, v, 'h'); } });
-    pf = numberField({ value: 100, min: 1, max: 400, step: 0.1, unit: '%', width: 40, onChange: (v, fin) => { if (fin) setSize(d.width * v / 100, d.height * v / 100, 'p'); } });
+    pf = numberField({ value: 100, min: 1, max: Math.max(100, Math.floor(Math.min(400, Math.sqrt(1.6e8 / (d.width * d.height)) * 100))), step: 0.1, unit: '%', width: 40, onChange: (v, fin) => { if (fin) setSize(d.width * v / 100, d.height * v / 100, 'p'); } });
     sizeRow = el('div', { class: 'form-row' }, el('label', {}, t('dlg.exportSize')),
       el('div', { class: 'save-dims' }, wf, el('span', { class: 'muted' }, '×'), hf, el('span', { class: 'muted' }, t('dlg.px')), pf));
   }

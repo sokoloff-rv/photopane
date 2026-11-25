@@ -6,6 +6,7 @@ import { cloneCanvas, createCanvas, ctx2d, Rect, rectUnion } from '../core/util'
 import { rgbToHsl, hslToRgb } from '../core/color';
 import { numberField, checkbox, select, sep } from '../ui/controls';
 import { toast } from '../ui/dialog';
+import { Layer, hasEffects } from '../core/layer';
 
 const falloff = (d: number, h: number) => {
   if (d >= 1) return 0;
@@ -75,7 +76,7 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
     if (!this.target) return;
     if (this.total) this.target.surface.markDirty(this.total);
     this.target = null;
-    this.work = null;
+    this.work = null; this.backup = null;
     app.commit(this.label);
   }
 
@@ -87,6 +88,7 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
       app.update('canvas');
     }
     this.target = null;
+    this.work = null; this.backup = null;
   }
 
   busy() { return !!this.target; }
@@ -99,7 +101,9 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
     const s = tg.surface;
     s.ctx.putImageData(this.work.getImageData(r.x, r.y, r.w, r.h), r.x, r.y);
     tg.layer.touch();
-    app.paintDirty({ x: r.x + s.x, y: r.y + s.y, w: r.w, h: r.h });
+    let fx = false;
+    for (let l: Layer | null = tg.layer; l && !fx; l = l.parent) fx = hasEffects(l.effects);
+    if (fx) app.update('canvas'); else app.paintDirty({ x: r.x + s.x, y: r.y + s.y, w: r.w, h: r.h });
   }
 
   /** Process one dab: weights per pixel and the operation. */
@@ -270,6 +274,7 @@ export class DodgeTool extends PixelBrush<DBOpts> {
     if (x1 <= x0 || y1 <= y0) return;
     const hard = this.o.hardness / 100, str = this.o.strength / 100;
     const cov = this.cov!, CW = this.covW, sel = this.sel;
+    this.beginDab(x0, y0, x1, y1);
     for (let py = y0; py < y1; py++) {
       const dy = (py + 0.5 - ly) * ir, docY = py + s.y;
       if (docY < 0 || docY >= d.height) continue;
@@ -281,6 +286,7 @@ export class DodgeTool extends PixelBrush<DBOpts> {
         if (docX < 0 || docX >= d.width) continue;
         let wt = falloff(Math.sqrt(dist2), hard) * str;
         if (sel) wt *= sel[docY * d.width + docX] / 255;
+        wt = this.dabWeight(px, py, wt);
         const ci = py * CW + px;
         if (wt > cov[ci]) cov[ci] = wt;
       }
@@ -312,6 +318,11 @@ export class DodgeTool extends PixelBrush<DBOpts> {
   /** Settings read once per pointer move, before tone() runs for its pixels. */
   protected prepareTone() {}
 
+  /** Before a dab's coverage is computed (its area in surface coordinates). */
+  protected beginDab(_x0: number, _y0: number, _x1: number, _y1: number) {}
+  /** A dab's coverage at a pixel, before it joins the stroke's coverage (Color Replacement adds its tolerance). */
+  protected dabWeight(_px: number, _py: number, wt: number) { return wt; }
+
   /** One pixel: `orig` as before the stroke, `d` gets the result, `c` the stroke's coverage there. */
   protected tone(orig: Uint8ClampedArray, d: Uint8ClampedArray, p: number, c: number) {
     const range = this.o.range, dodge = this.dir > 0;
@@ -342,6 +353,7 @@ export class DodgeTool extends PixelBrush<DBOpts> {
 
   protected op() { /* pixels are computed per pointer move in endMove() */ }
   up() { super.up(); this.cov = null; }
+  cancel() { super.cancel(); this.cov = null; }
   options() {
     return [
       ...this.baseOptions(), sep(),
@@ -387,17 +399,32 @@ export class ReplaceTool extends DodgeTool {
     if ((this.o as any).sampling === 'continuous') this.sample = this.sampleAt(x, y) || this.sample;
     super.dab(x, y);
   }
+  /**
+   * The tolerance is decided per dab, with the sample under that dab, and kept in the stroke's coverage:
+   * deciding it per pointer move with the latest sample undid pixels recoloured under an earlier sample.
+   */
+  private dabOrig: { x0: number; y0: number; w: number; data: Uint8ClampedArray } | null = null;
+  protected beginDab(x0: number, y0: number, x1: number, y1: number) {
+    this.dabOrig = { x0, y0, w: x1 - x0, data: this.backup!.getContext('2d')!.getImageData(x0, y0, x1 - x0, y1 - y0).data };
+  }
+  protected dabWeight(px: number, py: number, wt: number) {
+    const smp = this.sample, o = this.dabOrig;
+    if (!smp || !o || wt <= 0) return 0;
+    const i = ((py - o.y0) * o.w + (px - o.x0)) * 4, a = o.data;
+    if (!a[i + 3]) return 0;
+    const tol = (this.o as any).tolerance * 2.55;
+    const diff = Math.max(Math.abs(a[i] - smp[0]), Math.abs(a[i + 1] - smp[1]), Math.abs(a[i + 2] - smp[2]));
+    if (diff > tol) return 0;
+    return wt * (tol > 0 ? Math.min(1, (tol - diff) / (tol * 0.35 + 1)) : 1);
+  }
   protected prepareTone() {
     const [fh, fs] = rgbToHsl(app.fg.r / 255, app.fg.g / 255, app.fg.b / 255);
-    this.toneArgs = { tol: (this.o as any).tolerance * 2.55, fh, fs };
+    this.toneArgs = { tol: 0, fh, fs };
   }
   protected tone(orig: Uint8ClampedArray, d: Uint8ClampedArray, p: number, c: number) {
-    const smp = this.sample;
-    if (!smp || !orig[p + 3]) return;
-    const { tol, fh, fs } = this.toneArgs;
-    const diff = Math.max(Math.abs(orig[p] - smp[0]), Math.abs(orig[p + 1] - smp[1]), Math.abs(orig[p + 2] - smp[2]));
-    if (diff > tol) { d[p] = orig[p]; d[p + 1] = orig[p + 1]; d[p + 2] = orig[p + 2]; return; }
-    const k = c * (tol > 0 ? Math.min(1, (tol - diff) / (tol * 0.35 + 1)) : 1);
+    if (!orig[p + 3]) return;
+    const { fh, fs } = this.toneArgs;
+    const k = c;
     const [, , l] = rgbToHsl(orig[p] / 255, orig[p + 1] / 255, orig[p + 2] / 255);
     const [r, g, b] = hslToRgb(fh, fs, l);
     d[p] = orig[p] + (r * 255 - orig[p]) * k; d[p + 1] = orig[p + 1] + (g * 255 - orig[p + 1]) * k; d[p + 2] = orig[p + 2] + (b * 255 - orig[p + 2]) * k;

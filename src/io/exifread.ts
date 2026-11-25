@@ -29,6 +29,7 @@ export function readExif(seg: Uint8Array | null): ExifInfo | null {
     const at = size * count > 4 ? T + u32(e + 8) : e + 8;
     if (at + size * count > seg.length) return undefined;
     switch (type) {
+      case 1: return seg[at];
       case 2: { // ASCII
         let s = '';
         for (let i = 0; i < count && seg[at + i]; i++) s += String.fromCharCode(seg[at + i]);

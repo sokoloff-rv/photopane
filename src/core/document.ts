@@ -141,7 +141,7 @@ export class Doc {
   /* ---------- composite ---------- */
   /** Bumped on every content change (caches keyed on the picture, e.g. the scaled view) */
   version = 0;
-  invalidate() { this._compositeValid = false; this._displayValid = false; this._dirty = null; this.version++; }
+  invalidate() { this._compositeValid = false; this._displayValid = false; this._dirty = null; this._displayDirty = null; this.version++; }
 
   /**
    * Only this rectangle changed (a brush dab): the next composite() redraws just that part instead of the
@@ -158,10 +158,21 @@ export class Doc {
           : { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
       }
     }
-    this._displayValid = false;
+    // a colour-managed picture: its screen copy is converted again only where the composite changed
+    const b = this._dirty;
+    if (this.colorProfile && this._displayValid && b) {
+      const a = this._displayDirty;
+      if (!a) this._displayDirty = { ...b };
+      else {
+        const x0 = Math.min(a.x, b.x), y0 = Math.min(a.y, b.y);
+        this._displayDirty = { x: x0, y: y0, w: Math.max(a.x + a.w, b.x + b.w) - x0, h: Math.max(a.y + a.h, b.y + b.h) - y0 };
+      }
+    } else { this._displayValid = false; this._displayDirty = null; }
     this.version++;
   }
   private _dirty: { x: number; y: number; w: number; h: number } | null = null;
+  /** Part of the screen copy of a colour-managed picture still to convert (see displayComposite). */
+  private _displayDirty: { x: number; y: number; w: number; h: number } | null = null;
 
   setIccProfile(bytes: Uint8Array | null | undefined) {
     this.iccProfile = bytes ? new Uint8Array(bytes) : null;
@@ -178,9 +189,21 @@ export class Doc {
       this._display = createCanvas(comp.width, comp.height);
       this._displayValid = false;
     }
+    const part = this._displayDirty;
+    this._displayDirty = null;
     if (!this._displayValid) {
       drawForDisplay(comp, this._display, this.colorProfile);
       this._displayValid = true;
+    } else if (part) {
+      // a brush changed a small part: convert just that, not the whole picture on every frame
+      const src = createCanvas(part.w, part.h), out = createCanvas(part.w, part.h);
+      ctx2d(src).drawImage(comp, part.x, part.y, part.w, part.h, 0, 0, part.w, part.h);
+      drawForDisplay(src, out, this.colorProfile);
+      const g = ctx2d(this._display);
+      g.save(); g.globalCompositeOperation = 'copy';
+      g.beginPath(); g.rect(part.x, part.y, part.w, part.h); g.clip();
+      g.drawImage(out, part.x, part.y);
+      g.restore();
     }
     return this._display;
   }
@@ -228,14 +251,13 @@ export class Doc {
 
   /** Layer rendered into a document-sized canvas (without effects, with mask). */
   layerImageData(l: Layer): ImageData {
-    // kept while the layer is unchanged: clicking with the magic wand several times reads it once
-    const k = this._layerRead;
-    if (k && k.id === l.id && k.ver === l.version && k.img.width === this.width && k.img.height === this.height) return k.img;
+    // kept while the layer is unchanged (several magic wand clicks read it once); one copy for all documents
+    const k = layerRead;
+    if (k && k.layer === l && k.canvas === l.canvas && k.ver === l.version && k.x === l.x && k.y === l.y && k.img.width === this.width && k.img.height === this.height) return k.img;
     const img = layerPixels(l, this.width, this.height);
-    this._layerRead = { id: l.id, ver: l.version, img };
+    layerRead = { layer: l, canvas: l.canvas, ver: l.version, x: l.x, y: l.y, img };
     return img;
   }
-  private _layerRead: { id: number; ver: number; img: ImageData } | null = null;
 }
 
 /** Independent copy of a document including its whole history (used by Compare). */
@@ -252,6 +274,8 @@ export function cloneDoc(src: Doc, name: string): Doc {
   d.invalidate();
   return d;
 }
+
+let layerRead: { layer: Layer; canvas: HTMLCanvasElement; ver: number; x: number; y: number; img: ImageData } | null = null;
 
 /** A layer's pixels placed in a document-sized image (read through a CPU copy, see readPixels). */
 function layerPixels(l: Layer, W: number, H: number): ImageData {

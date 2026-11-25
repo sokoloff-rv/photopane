@@ -234,13 +234,16 @@ function tinted(buf: HTMLCanvasElement, c: RGB): HTMLCanvasElement {
 }
 
 /** Apply a document-sized (or offset) colored buffer onto the paint target, honoring selection. Used by fill & gradient. */
-export function applyBuffer(target: PaintTarget, buf: HTMLCanvasElement, bx: number, by: number, opacity: number, color: RGB, backup?: HTMLCanvasElement) {
+export function applyBuffer(target: PaintTarget, buf: HTMLCanvasElement, bx: number, by: number, opacity: number, color: RGB, backup?: HTMLCanvasElement, scratch?: HTMLCanvasElement) {
   const d = app.doc!;
   const s = target.surface;
   s.ensureCovers({ x: 0, y: 0, w: d.width, h: d.height });
-  const tmp = createCanvas(buf.width, buf.height);
+  // `scratch`: a canvas of the buffer's size reused by a caller that applies many times (the gradient drag)
+  const tmp = scratch && scratch.width === buf.width && scratch.height === buf.height ? scratch : createCanvas(buf.width, buf.height);
   const tg = ctx2d(tmp);
+  tg.globalCompositeOperation = 'copy';
   tg.drawImage(buf, 0, 0);
+  tg.globalCompositeOperation = 'source-over';
   tg.globalCompositeOperation = 'destination-in';
   if (d.selection) tg.drawImage(d.selection.mask, -bx, -by);
   else { tg.fillStyle = '#000'; tg.fillRect(-bx, -by, d.width, d.height); }

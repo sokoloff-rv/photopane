@@ -375,6 +375,9 @@ export class GradientTool extends Tool<GradOpts> {
   private b: { x: number; y: number } | null = null;
   private backup: HTMLCanvasElement | null = null;
   private target: ReturnType<typeof app.paintTarget> = null;
+  /** document-sized canvases reused for every move of a drag (allocating two per move was most of its cost) */
+  private buf: HTMLCanvasElement | null = null;
+  private scratch: HTMLCanvasElement | null = null;
 
   constructor() { super({ type: 'linear', colors: 'fgbg', reverse: false, opacity: 100 }); }
 
@@ -397,8 +400,11 @@ export class GradientTool extends Tool<GradOpts> {
   private render() {
     const d = app.doc!, a = this.a!, b = this.b!, tg = this.target!;
     if (Math.hypot(b.x - a.x, b.y - a.y) < 1) return;
-    const buf = createCanvas(d.width, d.height);
+    if (!this.buf || this.buf.width !== d.width || this.buf.height !== d.height) { this.buf = createCanvas(d.width, d.height); this.scratch = createCanvas(d.width, d.height); }
+    const buf = this.buf;
     const g = ctx2d(buf);
+    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+    g.clearRect(0, 0, d.width, d.height);
     const gr = this.o.type === 'linear'
       ? g.createLinearGradient(a.x, a.y, b.x, b.y)
       : g.createRadialGradient(a.x, a.y, 0, a.x, a.y, Math.hypot(b.x - a.x, b.y - a.y));
@@ -427,7 +433,7 @@ export class GradientTool extends Tool<GradOpts> {
       sg.globalCompositeOperation = 'source-over'; sg.drawImage(buf, -s.x, -s.y);
       sg.globalAlpha = 1;
       tg.layer.touch();
-    } else applyBuffer(tg, buf, 0, 0, this.o.opacity / 100, app.fg, this.backup!);
+    } else applyBuffer(tg, buf, 0, 0, this.o.opacity / 100, app.fg, this.backup!, this.scratch!);
     app.update('canvas');
   }
 
@@ -441,6 +447,7 @@ export class GradientTool extends Tool<GradOpts> {
       app.commit('h.gradient');
     }
     this.backup = null;
+    this.buf = this.scratch = null;
     app.update('overlay');
   }
 

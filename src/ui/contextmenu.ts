@@ -2,7 +2,7 @@ import { app } from '../app';
 import { el, clamp } from '../core/util';
 import { t } from '../i18n';
 import { PEvent } from '../tools/tool';
-import { ctx2d } from '../core/util';
+import { ctx2d, readPixels } from '../core/util';
 import { prettyKey } from './menubar';
 
 export type CtxItem = '-' | { cmd: string; label?: string } | { label: string; run: () => void; checked?: boolean };
@@ -150,7 +150,7 @@ function layersAt(px: number, py: number) {
   return d.layers.filter(l => !l.isGroup && l.effectiveVisible).reverse().filter(l => {
     const lx = Math.floor(px - l.x), ly = Math.floor(py - l.y);
     if (lx < 0 || ly < 0 || lx >= l.canvas.width || ly >= l.canvas.height) return false;
-    return ctx2d(l.canvas).getImageData(lx, ly, 1, 1).data[3] > 0;
+    return readPixels(l.canvas, lx, ly, 1, 1).data[3] > 0;
   });
 }
 

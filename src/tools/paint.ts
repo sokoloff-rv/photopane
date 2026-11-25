@@ -82,7 +82,16 @@ export class StrokeSession {
   private pending: Rect | null = null;
   total: Rect | null = null;
 
-  constructor(target: PaintTarget, public mode: StrokeMode, public opacity: number, public color: RGB) {
+  /**
+   * `tint`: the stroke is one colour (the brush). Dabs are then collected as coverage only (white) and the
+   * colour is put on at output, once: kept in the buffer, a colour at low coverage is rounded to 8 bits on
+   * every dab, which made soft strokes look dirty.
+   */
+  private tint: RGB | null;
+  private tintBuf: HTMLCanvasElement | null = null;
+
+  constructor(target: PaintTarget, public mode: StrokeMode, public opacity: number, public color: RGB, tint = false) {
+    this.tint = tint && mode === 'paint' && !target.isMask ? color : null;
     const d = app.doc!;
     this.target = target;
     target.surface.ensureCovers({ x: 0, y: 0, w: d.width, h: d.height });
@@ -138,10 +147,27 @@ export class StrokeSession {
     g.beginPath(); g.rect(R.x, R.y, R.w, R.h); g.clip();
     g.globalCompositeOperation = 'copy';
     g.drawImage(this.backup, 0, 0);
-    compositeStroke(g, this.stroke, this.target, this.mode, this.opacity, this.color);
+    compositeStroke(g, this.tint ? this.tinted(R) : this.stroke, this.target, this.mode, this.opacity, this.color);
     g.restore();
     this.target.layer.touch();
-    app.update('canvas');
+    // only this part of the picture is composited and drawn again
+    app.paintDirty({ x: R.x + s.x, y: R.y + s.y, w: R.w, h: R.h });
+  }
+
+  /** The stroke coverage in region R coloured with the brush colour (the rest of the buffer stays as it was). */
+  private tinted(R: Rect): HTMLCanvasElement {
+    const st = this.stroke;
+    if (!this.tintBuf || this.tintBuf.width !== st.width || this.tintBuf.height !== st.height) this.tintBuf = createCanvas(st.width, st.height);
+    const g = ctx2d(this.tintBuf);
+    g.save();
+    g.beginPath(); g.rect(R.x, R.y, R.w, R.h); g.clip();
+    g.globalCompositeOperation = 'copy';
+    g.drawImage(st, 0, 0);
+    g.globalCompositeOperation = 'source-in';
+    g.fillStyle = css(this.tint!);
+    g.fillRect(R.x, R.y, R.w, R.h);
+    g.restore();
+    return this.tintBuf;
   }
 
   finish(label: string) {

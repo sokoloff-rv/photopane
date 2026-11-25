@@ -227,6 +227,60 @@ export class Viewport {
   }
 
   /* ---------- rendering ---------- */
+  /** What the last full render() drew: a paint update may redraw just a part only while this still holds. */
+  private drawn: { doc: Doc; zoom: number; panX: number; panY: number; w: number; h: number; dpr: number } | null = null;
+  private paintPart: HTMLCanvasElement | null = null;
+
+  /**
+   * Redraw only the part of the picture a brush changed (document rect `r`), on top of what is on screen.
+   * Falls back to a full render when the view itself changed or when zoomed in (then little is visible anyway).
+   */
+  renderPaint(r: { x: number; y: number; w: number; h: number }) {
+    const d = this.doc, s = this.drawn;
+    if (!d || !s || s.doc !== d || s.zoom !== d.zoom || s.panX !== d.panX || s.panY !== d.panY || s.w !== this.w || s.h !== this.h || s.dpr !== this.dpr || d.zoom * this.dpr > 1) {
+      this.render();
+      return;
+    }
+    if (this.active) app.tool.viewChanged();
+    const comp = d.displayComposite();
+    const k = this.dpr, dz = d.zoom * k;
+    const dx = Math.round(d.panX * k), dy = Math.round(d.panY * k);
+    const dw = Math.max(1, Math.round(d.width * dz)), dh = Math.max(1, Math.round(d.height * dz));
+    const sc = dw / d.width, sv = dh / d.height;
+    // the changed area in device pixels (whole pixels, a little margin for the filter), inside the picture
+    const x0 = Math.max(dx, Math.floor(dx + r.x * sc) - 2), y0 = Math.max(dy, Math.floor(dy + r.y * sv) - 2);
+    const x1 = Math.min(dx + dw, Math.ceil(dx + (r.x + r.w) * sc) + 2), y1 = Math.min(dy + dh, Math.ceil(dy + (r.y + r.h) * sv) + 2);
+    if (x1 <= x0 || y1 <= y0) return;
+    const g = this.main.getContext('2d')!;
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.beginPath(); g.rect(x0, y0, x1 - x0, y1 - y0); g.clip();
+    g.setTransform(k, 0, 0, k, 0, 0);
+    g.fillStyle = this.checker!;
+    g.fillRect(d.panX, d.panY, d.width * d.zoom, d.height * d.zoom);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    // The same mapping as the full draw (picture at dx, dy, dw × dh), only the changed part of it. The part is
+    // first copied 1:1 into a small canvas: scaling the large picture itself makes the browser rebuild its
+    // reduced copies of the whole picture (about 12 ms on 11 MP) on every change.
+    const sx = (x0 - dx) / sc, sy = (y0 - dy) / sv, sw = (x1 - x0) / sc, sh = (y1 - y0) / sv;
+    const m = Math.ceil(2 / Math.min(sc, sv));   // source margin, so the filter sees the neighbours
+    const rx = Math.max(0, Math.floor(sx) - m), ry = Math.max(0, Math.floor(sy) - m);
+    const rw = Math.min(d.width, Math.ceil(sx + sw) + m) - rx, rh = Math.min(d.height, Math.ceil(sy + sh) + m) - ry;
+    const part = this.paintPart ??= document.createElement('canvas');
+    // exactly the part's size: its reduced copies are what the browser builds for the scaled draw
+    if (part.width !== rw || part.height !== rh) { part.width = rw; part.height = rh; }
+    const pg = part.getContext('2d')!;
+    pg.globalCompositeOperation = 'copy';
+    pg.drawImage(comp, rx, ry, rw, rh, 0, 0, rw, rh);
+    g.drawImage(part, sx - rx, sy - ry, sw, sh, x0, y0, x1 - x0, y1 - y0);
+    g.restore();
+    // the sharp resampling of the whole picture follows once painting pauses
+    this.lastChange = performance.now();
+    clearTimeout(this.sharpTimer);
+    if (dz < 1) this.sharpTimer = window.setTimeout(() => this.render(), 260);
+  }
+
   render() {
     this.renderWelcome();
     if (this.active) app.tool.viewChanged();
@@ -237,6 +291,7 @@ export class Viewport {
     if (!d) return;
     this.relayout(d);
     const comp = d.displayComposite();
+    this.drawn = { doc: d, zoom: d.zoom, panX: d.panX, panY: d.panY, w: this.w, h: this.h, dpr: this.dpr };
     const x = d.panX, y = d.panY, w = d.width * d.zoom, h = d.height * d.zoom;
     // shadow
     g.save();

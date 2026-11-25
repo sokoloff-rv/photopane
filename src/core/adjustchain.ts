@@ -13,7 +13,7 @@
  */
 import { app, PaintTarget } from '../app';
 import type { Doc } from './document';
-import { createCanvas, ctx2d } from './util';
+import { createCanvas, ctx2d, readPixels } from './util';
 import { t } from '../i18n';
 import { toast } from '../ui/dialog';
 import { GpuChain, GpuStageDesc } from './gpuchain';
@@ -126,7 +126,7 @@ export class AdjustChain {
     const d = this.doc = app.doc!;
     const s = target.surface;
     this.w = s.w; this.h = s.h; this.ox = s.x; this.oy = s.y;
-    this.base = s.ctx.getImageData(0, 0, s.w, s.h).data;
+    this.base = readPixels(s.canvas, 0, 0, s.w, s.h).data;
     if (d.selection) {
       const c = createCanvas(s.w, s.h);
       ctx2d(c).drawImage(d.selection.mask, -s.x, -s.y);

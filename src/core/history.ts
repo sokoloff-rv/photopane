@@ -1,6 +1,6 @@
 import { Layer, Surface, TILE, LayerKind, BlendMode, LayerEffects, TextData } from './layer';
 import { Selection } from './selection';
-import { createCanvas, ctx2d, uid } from './util';
+import { createCanvas, ctx2d, uid, readPixels } from './util';
 import type { Doc } from './document';
 
 type Tile = ImageData | null;
@@ -99,14 +99,26 @@ export class History {
       tiles = prev!.tiles;
     } else {
       tiles = sameGeom ? prev!.tiles.slice() : new Array(cols * rows).fill(null);
-      const g = s.ctx;
       const indices = sameGeom ? [...(s.dirty as Set<number>)] : [...Array(cols * rows).keys()];
+      // one read of the area the changed tiles cover (through a CPU copy, so the layer stays on the GPU)
+      let bx0 = Infinity, by0 = Infinity, bx1 = 0, by1 = 0;
+      for (const idx of indices) {
+        const x = (idx % cols) * TILE, y = Math.floor(idx / cols) * TILE;
+        bx0 = Math.min(bx0, x); by0 = Math.min(by0, y);
+        bx1 = Math.max(bx1, Math.min(s.w, x + TILE)); by1 = Math.max(by1, Math.min(s.h, y + TILE));
+      }
+      const area = indices.length && bx1 > bx0 && by1 > by0 ? readPixels(s.canvas, bx0, by0, bx1 - bx0, by1 - by0) : null;
+      const AW = bx1 - bx0;
       for (const idx of indices) {
         const tx = idx % cols, ty = Math.floor(idx / cols);
         const x = tx * TILE, y = ty * TILE;
         const w = Math.min(TILE, s.w - x), h = Math.min(TILE, s.h - y);
-        if (w <= 0 || h <= 0) continue;
-        const img = g.getImageData(x, y, w, h);
+        if (w <= 0 || h <= 0 || !area) continue;
+        const img = new ImageData(w, h);
+        for (let r = 0; r < h; r++) {
+          const o = ((y - by0 + r) * AW + (x - bx0)) * 4;
+          img.data.set(area.data.subarray(o, o + w * 4), r * w * 4);
+        }
         const d = img.data;
         let empty = true;
         for (let k = 3; k < d.length; k += 4) if (d[k]) { empty = false; break; }

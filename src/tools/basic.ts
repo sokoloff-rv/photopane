@@ -3,7 +3,7 @@ import { t } from '../i18n';
 import { Tool, PEvent } from './tool';
 import { Layer } from '../core/layer';
 import { Selection } from '../core/selection';
-import { createCanvas, ctx2d, cloneCanvas, alphaBounds } from '../core/util';
+import { createCanvas, ctx2d, cloneCanvas, alphaBounds, readPixels } from '../core/util';
 import { css, RGB } from '../core/color';
 import { floodMask, coverageToImageData } from '../core/fill';
 import { previews } from '../core/render';
@@ -41,7 +41,7 @@ export function pickLayerAt(x: number, y: number): Layer | null {
   for (const l of all) {
     const lx = Math.floor(x - l.x), ly = Math.floor(y - l.y);
     if (lx < 0 || ly < 0 || lx >= l.canvas.width || ly >= l.canvas.height) continue;
-    const a = ctx2d(l.canvas).getImageData(lx, ly, 1, 1).data[3];
+    const a = readPixels(l.canvas, lx, ly, 1, 1).data[3];
     if (a > 10) return l;
   }
   return null;

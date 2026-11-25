@@ -23,6 +23,14 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
   protected sel: Uint8Array | null = null;
   protected path: DabPath | null = null;
   protected total: Rect | null = null;
+  /**
+   * The pixels the dabs read and write: a CPU copy of the layer. Reading the layer canvas itself (GPU) on
+   * every dab stalled the brush and made the browser upload the whole layer again on each frame; now only
+   * the area changed by a pointer move is written into the layer.
+   */
+  protected work: CanvasRenderingContext2D | null = null;
+  private moveRect: Rect | null = null;
+  protected changed(r: Rect) { this.moveRect = rectUnion(this.moveRect, r); this.total = rectUnion(this.total, r); }
   protected margin = 0;
   abstract readonly label: string;
 
@@ -38,6 +46,9 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
     // the dabs read the stroke's starting pixels: a CPU canvas, so the first read does not wait for the GPU
     this.backup = createCanvas(tg.surface.w, tg.surface.h);
     this.backup.getContext('2d', { willReadFrequently: true })!.drawImage(tg.surface.canvas, 0, 0);
+    this.work = createCanvas(tg.surface.w, tg.surface.h).getContext('2d', { willReadFrequently: true })!;
+    this.work.drawImage(this.backup, 0, 0);
+    this.moveRect = null;
     this.sel = d.selection ? d.selection.alpha() : null;
     this.total = null;
     this.path = new DabPath(() => Math.max(1, this.o.size * this.spacing()));
@@ -64,6 +75,7 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
     if (!this.target) return;
     if (this.total) this.target.surface.markDirty(this.total);
     this.target = null;
+    this.work = null;
     app.commit(this.label);
   }
 
@@ -79,7 +91,16 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
 
   busy() { return !!this.target; }
 
-  private flush() { this.target?.layer.touch(); app.update('canvas'); }
+  /** The area the last pointer move changed goes from the working copy into the layer and onto the screen. */
+  private flush() {
+    const r = this.moveRect, tg = this.target;
+    if (!r || !tg || !this.work) return;
+    this.moveRect = null;
+    const s = tg.surface;
+    s.ctx.putImageData(this.work.getImageData(r.x, r.y, r.w, r.h), r.x, r.y);
+    tg.layer.touch();
+    app.paintDirty({ x: r.x + s.x, y: r.y + s.y, w: r.w, h: r.h });
+  }
 
   /** Process one dab: weights per pixel and the operation. */
   protected dab(x: number, y: number) {
@@ -92,7 +113,7 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
     const x1 = Math.min(s.w, Math.ceil(lx + r) + m), y1 = Math.min(s.h, Math.ceil(ly + r) + m);
     const w = x1 - x0, h = y1 - y0;
     if (w <= 0 || h <= 0) return;
-    const img = s.ctx.getImageData(x0, y0, w, h);
+    const img = this.work!.getImageData(x0, y0, w, h);
     const weights = new Float32Array(w * h);
     const hard = this.o.hardness / 100, str = this.o.strength / 100;
     let any = false;
@@ -112,8 +133,8 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
     }
     if (!any) return;
     this.op(img, weights, w, h, x0, y0, lx, ly);
-    s.ctx.putImageData(img, x0, y0);
-    this.total = rectUnion(this.total, { x: x0, y: y0, w, h });
+    this.work!.putImageData(img, x0, y0);
+    this.changed({ x: x0, y: y0, w, h });
   }
 
   protected abstract op(img: ImageData, wt: Float32Array, w: number, h: number, x0: number, y0: number, cx: number, cy: number): void;
@@ -226,8 +247,8 @@ export class DodgeTool extends PixelBrush<DBOpts> {
   private covW = 0;
   /** Area whose coverage changed since the pixels were last updated (surface coordinates). */
   private dirty: { x0: number; y0: number; x1: number; y1: number } | null = null;
-  constructor() { super({ size: 80, hardness: 0, strength: 50, range: 'midtones' }); }
-  protected start() {
+  constructor(defaults?: any) { super(defaults ?? { size: 80, hardness: 0, strength: 50, range: 'midtones' }); }
+  protected start(_e?: PEvent) {
     const s = this.target!.surface;
     this.covW = s.w;
     this.cov = new Float32Array(s.w * s.h);
@@ -272,17 +293,30 @@ export class DodgeTool extends PixelBrush<DBOpts> {
     const dr = this.dirty;
     if (!dr || !this.target) return;
     this.dirty = null;
-    const s = this.target.surface;
     const w = dr.x1 - dr.x0, h = dr.y1 - dr.y0;
-    const img = s.ctx.getImageData(dr.x0, dr.y0, w, h);
+    const img = this.work!.getImageData(dr.x0, dr.y0, w, h);
     const orig = this.backup!.getContext('2d')!.getImageData(dr.x0, dr.y0, w, h).data;
     const d = img.data, cov = this.cov!, CW = this.covW;
-    const range = this.o.range, dodge = this.dir > 0;
+    this.prepareTone();
     for (let j = 0, p = 0; j < h; j++) {
       const row = (dr.y0 + j) * CW + dr.x0;
       for (let i = 0; i < w; i++, p += 4) {
         const c = cov[row + i];
-        if (!c) continue;
+        if (c) this.tone(orig, d, p, c);
+      }
+    }
+    this.work!.putImageData(img, dr.x0, dr.y0);
+    this.changed({ x: dr.x0, y: dr.y0, w, h });
+  }
+
+  /** Settings read once per pointer move, before tone() runs for its pixels. */
+  protected prepareTone() {}
+
+  /** One pixel: `orig` as before the stroke, `d` gets the result, `c` the stroke's coverage there. */
+  protected tone(orig: Uint8ClampedArray, d: Uint8ClampedArray, p: number, c: number) {
+    const range = this.o.range, dodge = this.dir > 0;
+    {
+      {
         const r = orig[p] / 255, g = orig[p + 1] / 255, b = orig[p + 2] / 255;
         const L = 0.299 * r + 0.587 * g + 0.114 * b;
         const a = c * 0.5;
@@ -304,8 +338,6 @@ export class DodgeTool extends PixelBrush<DBOpts> {
         d[p] = R * 255; d[p + 1] = G * 255; d[p + 2] = B * 255;
       }
     }
-    s.ctx.putImageData(img, dr.x0, dr.y0);
-    this.total = rectUnion(this.total, { x: dr.x0, y: dr.y0, w, h });
   }
 
   protected op() { /* pixels are computed per pointer move in endMove() */ }
@@ -329,47 +361,53 @@ export class BurnTool extends DodgeTool {
 /* ---------- Color replacement ---------- */
 interface CROpts extends PixOpts { tolerance: number; sampling: 'once' | 'continuous' }
 
-export class ReplaceTool extends PixelBrush<CROpts> {
+/**
+ * Like Dodge/Burn, a stroke changes each pixel once, from the pixels as they were before the stroke: the
+ * dabs only extend the stroke's coverage. Each dab used to recolour pixels already recoloured by the dabs
+ * before it (and to sample its own result), so the stroke came out patchy, one circle on top of another.
+ */
+export class ReplaceTool extends DodgeTool {
   readonly id = 'replace';
   readonly iconName = 'colorReplace';
   readonly key = 'B';
   readonly label = 'tool.replace';
   private sample: [number, number, number] | null = null;
-  constructor() { super({ size: 40, hardness: 60, strength: 100, tolerance: 30, sampling: 'continuous' }); }
-  protected start(e: PEvent) { this.sample = this.sampleAt(e.x, e.y); }
+  private toneArgs = { tol: 0, fh: 0, fs: 0 };
+  constructor() { super({ size: 40, hardness: 60, strength: 100, tolerance: 30, sampling: 'continuous', range: 'midtones' }); }
+  protected start(e?: PEvent) { super.start(); if (e) this.sample = this.sampleAt(e.x, e.y); }
+  /** The colour to replace, read from the picture before the stroke. */
   private sampleAt(x: number, y: number): [number, number, number] | null {
     const s = this.target!.surface;
     const lx = Math.floor(x - s.x), ly = Math.floor(y - s.y);
     if (lx < 0 || ly < 0 || lx >= s.w || ly >= s.h) return null;
-    const p = s.ctx.getImageData(lx, ly, 1, 1).data;
+    const p = this.backup!.getContext('2d')!.getImageData(lx, ly, 1, 1).data;
     return [p[0], p[1], p[2]];
   }
   protected dab(x: number, y: number) {
-    if (this.o.sampling === 'continuous') this.sample = this.sampleAt(x, y) || this.sample;
+    if ((this.o as any).sampling === 'continuous') this.sample = this.sampleAt(x, y) || this.sample;
     super.dab(x, y);
   }
-  protected op(img: ImageData, wt: Float32Array, w: number, h: number) {
-    const smp = this.sample;
-    if (!smp) return;
-    const d = img.data;
-    const tol = this.o.tolerance * 2.55;
+  protected prepareTone() {
     const [fh, fs] = rgbToHsl(app.fg.r / 255, app.fg.g / 255, app.fg.b / 255);
-    for (let p = 0, i = 0; i < w * h; i++, p += 4) {
-      const k0 = wt[i];
-      if (!k0 || !d[p + 3]) continue;
-      const diff = Math.max(Math.abs(d[p] - smp[0]), Math.abs(d[p + 1] - smp[1]), Math.abs(d[p + 2] - smp[2]));
-      if (diff > tol) continue;
-      const k = k0 * (tol > 0 ? Math.min(1, (tol - diff) / (tol * 0.35 + 1)) : 1);
-      const [, , l] = rgbToHsl(d[p] / 255, d[p + 1] / 255, d[p + 2] / 255);
-      const [r, g, b] = hslToRgb(fh, fs, l);
-      d[p] += (r * 255 - d[p]) * k; d[p + 1] += (g * 255 - d[p + 1]) * k; d[p + 2] += (b * 255 - d[p + 2]) * k;
-    }
+    this.toneArgs = { tol: (this.o as any).tolerance * 2.55, fh, fs };
+  }
+  protected tone(orig: Uint8ClampedArray, d: Uint8ClampedArray, p: number, c: number) {
+    const smp = this.sample;
+    if (!smp || !orig[p + 3]) return;
+    const { tol, fh, fs } = this.toneArgs;
+    const diff = Math.max(Math.abs(orig[p] - smp[0]), Math.abs(orig[p + 1] - smp[1]), Math.abs(orig[p + 2] - smp[2]));
+    if (diff > tol) { d[p] = orig[p]; d[p + 1] = orig[p + 1]; d[p + 2] = orig[p + 2]; return; }
+    const k = c * (tol > 0 ? Math.min(1, (tol - diff) / (tol * 0.35 + 1)) : 1);
+    const [, , l] = rgbToHsl(orig[p] / 255, orig[p + 1] / 255, orig[p + 2] / 255);
+    const [r, g, b] = hslToRgb(fh, fs, l);
+    d[p] = orig[p] + (r * 255 - orig[p]) * k; d[p + 1] = orig[p + 1] + (g * 255 - orig[p + 1]) * k; d[p + 2] = orig[p + 2] + (b * 255 - orig[p + 2]) * k;
   }
   options() {
+    const o = this.o as any;
     return [
       ...this.baseOptions(), sep(),
-      numberField({ label: t('opt.tolerance'), value: this.o.tolerance, min: 1, max: 100, unit: '%', onChange: v => this.set('tolerance', v) }),
-      select([{ value: 'continuous', label: t('opt.sampleCont') }, { value: 'once', label: t('opt.sampleOnce') }], this.o.sampling, v => this.set('sampling', v as any)),
+      numberField({ label: t('opt.tolerance'), value: o.tolerance, min: 1, max: 100, unit: '%', onChange: v => this.set('tolerance' as any, v as any) }),
+      select([{ value: 'continuous', label: t('opt.sampleCont') }, { value: 'once', label: t('opt.sampleOnce') }], o.sampling, v => this.set('sampling' as any, v as any)),
     ];
   }
 }

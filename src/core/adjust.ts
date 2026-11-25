@@ -1,5 +1,5 @@
 import { app, PaintTarget } from '../app';
-import { createCanvas, ctx2d } from './util';
+import { createCanvas, ctx2d, readPixels } from './util';
 import { rgbToHsl, hslToRgb } from './color';
 import { t } from '../i18n';
 import { toast } from '../ui/dialog';
@@ -38,7 +38,7 @@ export class AdjustSession {
     this.target = target;
     const s = target.surface;
     this.w = s.w; this.h = s.h; this.ox = s.x; this.oy = s.y;
-    this.orig = s.ctx.getImageData(0, 0, s.w, s.h);
+    this.orig = readPixels(s.canvas, 0, 0, s.w, s.h);
     if (d.selection) {
       const c = createCanvas(s.w, s.h);
       ctx2d(c).drawImage(d.selection.mask, -s.x, -s.y);

@@ -30,7 +30,8 @@ export interface Command {
   checked?: () => boolean;
 }
 
-export type UpdateFlag = 'canvas' | 'view' | 'overlay' | 'layers' | 'history' | 'tabs' | 'options' | 'colors' | 'status' | 'all';
+/** 'paint': pixels changed in a rectangle already passed to doc.invalidateRect (brush strokes). */
+export type UpdateFlag = 'canvas' | 'paint' | 'view' | 'overlay' | 'layers' | 'history' | 'tabs' | 'options' | 'colors' | 'status' | 'all';
 
 export interface PaintTarget { layer: Layer; surface: Surface; isMask: boolean }
 
@@ -175,15 +176,39 @@ export class App {
     if (!this.raf) this.raf = requestAnimationFrame(() => this.flush());
   }
 
+  /** Document area changed by paint strokes since the last frame (redrawn on its own, see paintDirty). */
+  private paintRect: { x: number; y: number; w: number; h: number } | null = null;
+
+  /**
+   * A brush dab changed this document rectangle: only it is composited again and redrawn on screen, so
+   * painting stays smooth on large pictures (a whole 11 MP picture used to be redrawn on every move).
+   */
+  paintDirty(r: { x: number; y: number; w: number; h: number }) {
+    this.doc?.invalidateRect(r);
+    const p = this.paintRect;
+    this.paintRect = !p ? { ...r } : {
+      x: Math.min(p.x, r.x), y: Math.min(p.y, r.y),
+      w: Math.max(p.x + p.w, r.x + r.w) - Math.min(p.x, r.x), h: Math.max(p.y + p.h, r.y + r.h) - Math.min(p.y, r.y),
+    };
+    this.update('paint');
+  }
+
   /** Synchronous canvas refresh (used during strokes). */
   private flush() {
     this.raf = 0;
     const p = this.pending;
     this.pending = new Set();
     const all = p.has('all');
-    const canvas = all || p.has('canvas');
-    if (canvas) { this.doc?.invalidate(); this.layersPanel.refreshThumbs(); }
-    if (canvas || p.has('view')) { this.viewport.render(); this.navigator.render(); }
+    const full = all || p.has('canvas');
+    if (full) this.doc?.invalidate();
+    const canvas = full || p.has('paint');
+    if (canvas) this.layersPanel.refreshThumbs();
+    const paintOnly = !full && !p.has('view') && this.paintRect;
+    if (canvas || p.has('view')) {
+      if (paintOnly) this.viewport.renderPaint(this.paintRect!); else this.viewport.render();
+      this.navigator.render();
+    }
+    this.paintRect = null;
     if (canvas || p.has('view') || p.has('overlay')) this.viewport.renderOverlay();
     if (this.split && (canvas || p.has('view'))) this.syncPartner();
     if (all || p.has('layers')) this.layersPanel.render();

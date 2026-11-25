@@ -28,7 +28,7 @@ export class BrushTool extends Tool<BrushOpts> {
     if (e.alt && this.mode === 'paint') { this.picking = true; this.pick(e); return; }
     const target = app.paintTarget();
     if (!target) return;
-    this.session = new StrokeSession(target, this.mode, this.o.opacity / 100, this.color());
+    this.session = new StrokeSession(target, this.mode, this.o.opacity / 100, this.color(), true);
     const o = this.o;
     this.path = new DabPath(p => Math.max(0.5, this.diameter(p) * 0.1));
     if (e.shift && lastPoint) {
@@ -78,7 +78,8 @@ export class BrushTool extends Tool<BrushOpts> {
 
   private dabs(pts: { x: number; y: number; p: number }[]) {
     const s = this.session!;
-    const color = s.target.isMask ? { r: 255, g: 255, b: 255 } : this.color();
+    // coverage only: the session puts the colour on at output (see StrokeSession's tint)
+    const color = { r: 255, g: 255, b: 255 };
     for (const p of pts) {
       const d = this.diameter(p.p);
       const tip = brushTip(Math.min(d, 512), this.o.hardness / 100, color);

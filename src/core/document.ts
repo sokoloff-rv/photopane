@@ -141,7 +141,27 @@ export class Doc {
   /* ---------- composite ---------- */
   /** Bumped on every content change (caches keyed on the picture, e.g. the scaled view) */
   version = 0;
-  invalidate() { this._compositeValid = false; this._displayValid = false; this.version++; }
+  invalidate() { this._compositeValid = false; this._displayValid = false; this._dirty = null; this.version++; }
+
+  /**
+   * Only this rectangle changed (a brush dab): the next composite() redraws just that part instead of the
+   * whole picture, which keeps painting smooth on large images.
+   */
+  invalidateRect(r: { x: number; y: number; w: number; h: number }) {
+    if (this._compositeValid) {
+      const x0 = Math.max(0, Math.floor(r.x)), y0 = Math.max(0, Math.floor(r.y));
+      const x1 = Math.min(this.width, Math.ceil(r.x + r.w)), y1 = Math.min(this.height, Math.ceil(r.y + r.h));
+      if (x1 > x0 && y1 > y0) {
+        const d = this._dirty;
+        this._dirty = d
+          ? { x: Math.min(d.x, x0), y: Math.min(d.y, y0), w: Math.max(d.x + d.w, x1) - Math.min(d.x, x0), h: Math.max(d.y + d.h, y1) - Math.min(d.y, y0) }
+          : { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+      }
+    }
+    this._displayValid = false;
+    this.version++;
+  }
+  private _dirty: { x: number; y: number; w: number; h: number } | null = null;
 
   setIccProfile(bytes: Uint8Array | null | undefined) {
     this.iccProfile = bytes ? new Uint8Array(bytes) : null;
@@ -175,6 +195,16 @@ export class Doc {
       g.clearRect(0, 0, this.width, this.height);
       compositeDocument(this, g);
       this._compositeValid = true;
+      this._dirty = null;
+    } else if (this._dirty) {
+      // only the changed part: the same drawing, clipped to it
+      const r = this._dirty, g = ctx2d(this._composite);
+      this._dirty = null;
+      g.save();
+      g.beginPath(); g.rect(r.x, r.y, r.w, r.h); g.clip();
+      g.clearRect(r.x, r.y, r.w, r.h);
+      compositeDocument(this, g);
+      g.restore();
     }
     return this._composite;
   }

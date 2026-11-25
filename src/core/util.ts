@@ -1,6 +1,26 @@
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface Point { x: number; y: number }
 
+/**
+ * Pixels of a region of a canvas, read through a CPU copy. Calling getImageData on a layer's own canvas
+ * makes the browser move that canvas out of GPU memory after a few reads (history snapshots read after
+ * every step); from then on every redraw uploads the whole layer again (~15 ms per frame on 11 MP).
+ */
+let readScratch: CanvasRenderingContext2D | null = null;
+export function readPixels(src: HTMLCanvasElement, x: number, y: number, w: number, h: number): ImageData {
+  w = Math.max(1, Math.round(w)); h = Math.max(1, Math.round(h));
+  if (!readScratch) readScratch = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
+  const c = readScratch.canvas;
+  if (c.width < w || c.height < h) { c.width = Math.max(c.width, w); c.height = Math.max(c.height, h); }
+  readScratch.globalCompositeOperation = 'copy';
+  readScratch.drawImage(src, x, y, w, h, 0, 0, w, h);
+  readScratch.globalCompositeOperation = 'source-over';
+  const img = readScratch.getImageData(0, 0, w, h);
+  // a large one-off read (a whole photo) does not keep its memory
+  if (c.width * c.height > 4e6) { c.width = 1; c.height = 1; }
+  return img;
+}
+
 export function createCanvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(w));

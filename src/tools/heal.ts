@@ -104,7 +104,7 @@ export class HealTool extends Tool<HealOpts> {
 
   options() {
     return [
-      numberField({ label: t('opt.size'), value: this.o.size, min: 1, max: 1000, unit: 'px', onChange: v => { this.set('size', v); app.update('overlay'); } }),
+      numberField({ label: t('opt.size'), value: this.o.size, min: 1, max: 1000, unit: 'px', log: true, onChange: v => { this.set('size', v); app.update('overlay'); } }),
       numberField({ label: t('opt.hardness'), value: this.o.hardness, min: 0, max: 100, unit: '%', onChange: v => this.set('hardness', v) }),
     ];
   }

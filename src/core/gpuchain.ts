@@ -239,10 +239,11 @@ void main() {
         dl = uLum[i] * (1.0 - t) + uLum[j] * t;
       }
     }
-    float sw = smoothstep(0.02, 0.2, hsl.y);
-    float h2 = mod(hsl.x + dh / 100.0 * (30.0 / 360.0) * sw + 1.0, 1.0);
-    float s2 = clamp(hsl.y * (1.0 + ds / 100.0), 0.0, 1.0);
-    float k = dl / 100.0 * 0.5 * sw;
+    // weight by chroma (as the CPU code in colorgrade.ts): nearly grey dark pixels change little
+    float cw = smoothstep(0.04, 0.3, max(s.r, max(s.g, s.b)) - min(s.r, min(s.g, s.b)));
+    float h2 = mod(hsl.x + dh / 100.0 * (30.0 / 360.0) * cw + 1.0, 1.0);
+    float s2 = clamp(hsl.y * (1.0 + ds / 100.0 * cw), 0.0, 1.0);
+    float k = dl / 100.0 * 0.3 * cw;
     float l2 = clamp(k > 0.0 ? hsl.z + (1.0 - hsl.z) * k : hsl.z + hsl.z * k, 0.0, 1.0);
     res = vec4(hsl2rgb(vec3(h2, s2, l2)), s.a);
   }

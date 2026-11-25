@@ -8,16 +8,29 @@ import { prettyKey } from './menubar';
 export type CtxItem = '-' | { cmd: string; label?: string } | { label: string; run: () => void; checked?: boolean };
 
 let current: HTMLElement | null = null;
+/** The button that opened the popup: clicking it again closes the popup (instead of reopening it). */
+let anchor: HTMLElement | null = null;
 
 export function closeContextMenu() {
   current?.remove();
   current = null;
+  anchor = null;
   delete document.body.dataset.popup;
   document.removeEventListener('pointerdown', onOutside, true);
   window.removeEventListener('keydown', onKey, true);
   window.removeEventListener('blur', closeContextMenu);
 }
-function onOutside(e: Event) { if (current && !current.contains(e.target as Node)) closeContextMenu(); }
+function onOutside(e: Event) {
+  if (!current || current.contains(e.target as Node)) return;
+  const a = anchor;
+  closeContextMenu();
+  // a press on the button that opened it only closes it: its click must not open it again
+  if (a && a.contains(e.target as Node)) {
+    const swallow = (ev: Event) => { if (a.contains(ev.target as Node)) { ev.stopPropagation(); ev.preventDefault(); } window.removeEventListener('click', swallow, true); };
+    window.addEventListener('click', swallow, true);
+    setTimeout(() => window.removeEventListener('click', swallow, true), 600);
+  }
+}
 function onKey(e: KeyboardEvent) { if (e.key === 'Escape') { e.stopPropagation(); closeContextMenu(); } }
 
 function place(node: HTMLElement, x: number, y: number) {
@@ -35,10 +48,14 @@ function place(node: HTMLElement, x: number, y: number) {
   }, 0);
 }
 
-/** Show a ready-made popup (a menu-drop element) at x, y; it closes on an outside click or Esc. */
-export function showPopup(node: HTMLElement, x: number, y: number) {
+/**
+ * Show a ready-made popup (a menu-drop element) at x, y; it closes on an outside click, Esc, or a second
+ * click on `from`, the button that opened it.
+ */
+export function showPopup(node: HTMLElement, x: number, y: number, from?: HTMLElement) {
   closeContextMenu();
   place(node, x, y);
+  anchor = from ?? null;
 }
 
 export function showContextMenu(x: number, y: number, items: CtxItem[]) {
@@ -91,8 +108,13 @@ function brushPopover(x: number, y: number) {
   const changed = () => { app.saveSettings(); app.update('options', 'overlay'); };
   const row = (label: string, key: string, min: number, max: number, unit: string) => {
     const val = el('span', { class: 'ctx-val mono' }, `${o[key]} ${unit}`);
-    const r = el('input', { type: 'range', class: 'range', min, max, value: o[key] }) as HTMLInputElement;
-    r.addEventListener('input', () => { o[key] = +r.value; val.textContent = `${r.value} ${unit}`; changed(); });
+    // the size on a log scale (as in the options bar): small and medium brushes get most of the track
+    const lg = key === 'size';
+    const span = Math.log(max / min);
+    const toPos = (v: number) => (lg ? Math.round(1000 * Math.log(clamp(v, min, max) / min) / span) : v);
+    const fromPos = (p: number) => (lg ? Math.round(min * Math.exp(span * p / 1000)) : p);
+    const r = el('input', { type: 'range', class: 'range', min: lg ? 0 : min, max: lg ? 1000 : max, value: toPos(o[key]) }) as HTMLInputElement;
+    r.addEventListener('input', () => { o[key] = fromPos(+r.value); val.textContent = `${o[key]} ${unit}`; changed(); });
     return el('div', { class: 'ctx-row' }, el('div', { class: 'ctx-row-head' }, el('span', {}, label), val), r);
   };
   const rows: HTMLElement[] = [];

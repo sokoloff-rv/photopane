@@ -49,10 +49,14 @@ export function hslMix(p: HslParams, src: Uint8ClampedArray, dst: Uint8ClampedAr
     hslWeights(h * 360, w);
     let dh = 0, ds = 0, dl = 0;
     for (let k = 0; k < 8; k++) { dh += w[k] * p.hue[k]; ds += w[k] * p.sat[k]; dl += w[k] * p.lum[k]; }
-    const sw = smooth(0.02, 0.2, s);
-    const h2 = (h + (dh / 100) * (30 / 360) * sw + 1) % 1;
-    const s2 = Math.min(1, Math.max(0, s * (1 + ds / 100)));
-    const k = (dl / 100) * 0.5 * sw;
+    // how coloured the pixel really is: chroma, not HSL saturation (which is high for nearly grey dark
+    // pixels, so dark hair or shadows used to get blotchy when a colour was brightened)
+    const r0 = src[i], g0 = src[i + 1], b0 = src[i + 2];
+    const cw = smooth(0.04, 0.3, (Math.max(r0, g0, b0) - Math.min(r0, g0, b0)) / 255);
+    const h2 = (h + (dh / 100) * (30 / 360) * cw + 1) % 1;
+    const s2 = Math.min(1, Math.max(0, s * (1 + (ds / 100) * cw)));
+    // luminance: at most a 30 % step towards white or black (it used to be 50 %, too strong)
+    const k = (dl / 100) * 0.3 * cw;
     const l2 = Math.min(1, Math.max(0, k > 0 ? l + (1 - l) * k : l + l * k));
     const [r, g, b] = hslToRgb(h2, s2, l2);
     dst[i] = r * 255; dst[i + 1] = g * 255; dst[i + 2] = b * 255;

@@ -89,13 +89,36 @@ export class LayersPanel extends Panel {
 
   private renderBottom() {
     this.bottom.innerHTML = '';
+    /**
+     * Each button: its click, and what a layer dragged onto it does (as in Photoshop: onto the bin deletes it,
+     * onto New Layer or Duplicate copies it, onto the folder groups it, onto the mask button adds a mask).
+     * The name shows as the toolbar's quick tooltip, above the button.
+     */
+    const btn = (name: string, tip: string, run: () => void, onDrop: string | null, end = false) => {
+      const b = iconButton(name, '', run);
+      b.removeAttribute('title');
+      b.dataset.tip = tip;
+      b.dataset.tipPos = end ? 'up-end' : 'up';
+      if (onDrop) {
+        b.addEventListener('dragover', e => { if (this.dragId < 0) return; e.preventDefault(); e.dataTransfer!.dropEffect = 'copy'; b.classList.add('drop-on'); });
+        b.addEventListener('dragleave', () => b.classList.remove('drop-on'));
+        b.addEventListener('drop', e => {
+          e.preventDefault(); b.classList.remove('drop-on');
+          const d = app.doc, l = d?.find(this.dragId);
+          if (!d || !l) return;
+          if (d.activeId !== l.id) { d.setActive(l); this.clearMulti(); }
+          app.run(onDrop);
+        });
+      }
+      return b;
+    };
     this.bottom.append(
-      iconButton('fx', t('layers.fx'), () => app.run('layerStyle')),
-      iconButton('mask', t('layers.mask'), () => app.run(app.doc?.active?.mask ? 'maskDelete' : 'maskReveal')),
-      iconButton('folderPlus', t('layers.group'), () => app.run('newGroup')),
-      iconButton('newLayer', t('layers.new'), () => app.run('newLayer')),
-      iconButton('copy', t('layers.duplicate'), () => app.run('duplicate')),
-      iconButton('trash', t('layers.delete'), () => app.run('deleteLayer')),
+      btn('fx', t('layers.fx'), () => app.run('layerStyle'), 'layerStyle'),
+      btn('mask', t('layers.mask'), () => app.run(app.doc?.active?.mask ? 'maskDelete' : 'maskReveal'), 'maskReveal'),
+      btn('folderPlus', t('layers.group'), () => app.run('newGroup'), 'groupLayers'),
+      btn('newLayer', t('layers.new'), () => app.run('newLayer'), 'duplicate'),
+      btn('copy', t('layers.duplicate'), () => app.run('duplicate'), 'duplicate', true),
+      btn('trash', t('layers.delete'), () => app.run('deleteLayer'), 'deleteLayer', true),
     );
   }
 
@@ -124,6 +147,11 @@ export class LayersPanel extends Panel {
       th.addEventListener('click', e => {
         e.stopPropagation();
         if (e.ctrlKey || e.metaKey) { d.setActive(l); app.run('selectLayerPixels'); return; }
+        // double click on the thumbnail: edit a text layer, else Layer Style
+        if (this.isDouble(`${l.id}:thumb`, e)) {
+          if (l.kind === 'text') { app.setTool('text'); (app.tool as any).edit?.(l); } else app.run('layerStyle');
+          return;
+        }
         this.activate(d, l, e, false);
       });
       r.append(th);
@@ -140,7 +168,6 @@ export class LayersPanel extends Panel {
       r.append(mt);
     }
     const name = el('span', { class: 'lrow-name' }, l.kind === 'text' ? icon('text', 12) : null, el('span', {}, l.name));
-    name.addEventListener('dblclick', e => { e.stopPropagation(); this.rename(l, name); });
     r.append(name);
     if (listedEffects(l.effects)) {
       // expanded by default the first time a layer with effects is shown
@@ -166,15 +193,14 @@ export class LayersPanel extends Panel {
         app.commit('h.layerProps');
         return;
       }
-      this.activate(d, l, e, d.editMask && l.id === d.activeId);
-    });
-    r.addEventListener('dblclick', e => {
-      if (l.kind === 'text' && (e.target as HTMLElement).closest('.lthumb')) {
-        app.setTool('text');
-        (app.tool as any).edit?.(l);
+      // double click on the name renames the layer, elsewhere on the row it opens Layer Style
+      const onName = (e.target as HTMLElement).closest<HTMLElement>('.lrow-name');
+      if (this.isDouble(`${l.id}:${onName ? 'name' : 'row'}`, e)) {
+        if (onName) this.rename(l, onName);
+        else if (!l.isGroup) app.run('layerStyle');
         return;
       }
-      if (!l.isGroup) app.run('layerStyle');
+      this.activate(d, l, e, d.editMask && l.id === d.activeId);
     });
     r.addEventListener('dragstart', e => { this.dragId = l.id; e.dataTransfer!.effectAllowed = 'move'; e.dataTransfer!.setData('text/x-layer', String(l.id)); });
     r.addEventListener('dragend', () => { this.dragId = -1; this.clearDrop(); });
@@ -245,6 +271,20 @@ export class LayersPanel extends Panel {
     d.setActive(l);
     d.editMask = mask && !!l.mask;
     app.update('layers', 'options');
+  }
+
+  /**
+   * Our own double click: two clicks on the same part of the same layer within 350 ms and a few pixels.
+   * The system one counts clicks on different buttons (the eye clicked twice opened Layer Style) and
+   * allows up to half a second, so two separate quick clicks often turned into one double click.
+   * Kept on the panel, because the first click may rebuild the row.
+   */
+  private lastClick = { key: '', t: 0, x: 0, y: 0 };
+  private isDouble(key: string, e: MouseEvent): boolean {
+    const p = this.lastClick, now = performance.now();
+    const dbl = p.key === key && now - p.t < 350 && Math.abs(e.clientX - p.x) < 5 && Math.abs(e.clientY - p.y) < 5;
+    this.lastClick = dbl ? { key: '', t: 0, x: 0, y: 0 } : { key, t: now, x: e.clientX, y: e.clientY };
+    return dbl;
   }
 
   private rename(l: Layer, nameEl: HTMLElement) {

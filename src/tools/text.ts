@@ -393,7 +393,7 @@ export class TextTool extends Tool<TextOpts> {
     return [
       fontSel,
       weightSel,
-      numberField({ label: t('opt.size'), value: Math.round(td.size * 10) / 10, min: 1, max: 2000, step: 0.5, unit: 'px', onChange: (v, fin) => { if (fin) this.setStyle({ size: v }); } }),
+      numberField({ label: t('opt.size'), value: Math.round(td.size * 10) / 10, min: 1, max: 2000, step: 0.5, unit: 'px', log: true, onChange: (v, fin) => { if (fin) this.setStyle({ size: v }); } }),
       colorSwatch(td.color as RGB, t('opt.textColor'), c => { if (this.targetLayer()) this.setStyle({ color: c }); else app.setColor('fg', c); }),
       sep(),
       el('div', { class: 'seg' }, toggle('italic', 'italic'), toggle('underline', 'underline'), toggle('strike', 'strike')),

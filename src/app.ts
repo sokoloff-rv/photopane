@@ -127,7 +127,8 @@ export class App {
     if ((window as any).__TAURI_INTERNALS__) void this.guardWindowClose();
     window.addEventListener('blur', () => { if (this.spaceDown) { this.spaceDown = false; this.viewport.updateCursor(); } });
     // drag & drop files
-    this.root.addEventListener('dragover', e => { e.preventDefault(); this.root.classList.add('dropping'); });
+    // only files from outside show the drop frame (a layer dragged in the Layers panel is not a file)
+    this.root.addEventListener('dragover', e => { if (!e.dataTransfer?.types.includes('Files')) return; e.preventDefault(); this.root.classList.add('dropping'); });
     this.root.addEventListener('dragleave', e => { if (e.target === this.root || !this.root.contains(e.relatedTarget as Node)) this.root.classList.remove('dropping'); });
     this.root.addEventListener('drop', e => {
       e.preventDefault();

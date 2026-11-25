@@ -89,7 +89,7 @@ export class BrushTool extends Tool<BrushOpts> {
   options() {
     const o = this.o;
     return [
-      numberField({ label: t('opt.size'), value: o.size, min: 1, max: 2500, unit: 'px', onChange: v => { this.set('size', v); app.update('overlay'); } }),
+      numberField({ label: t('opt.size'), value: o.size, min: 1, max: 2500, unit: 'px', log: true, onChange: v => { this.set('size', v); app.update('overlay'); } }),
       numberField({ label: t('opt.hardness'), value: o.hardness, min: 0, max: 100, unit: '%', onChange: v => this.set('hardness', v) }),
       sep(),
       numberField({ label: t('opt.opacity'), value: o.opacity, min: 1, max: 100, unit: '%', onChange: v => this.set('opacity', v) }),

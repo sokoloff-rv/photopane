@@ -149,7 +149,7 @@ export function enhanceDialog(vignetteOnly = false) {
     menu.append(save);
     const r = presetBtn.getBoundingClientRect();
     menu.style.minWidth = Math.max(220, r.width) + 'px';
-    showPopup(menu, r.left, r.bottom + 4);
+    showPopup(menu, r.left, r.bottom + 4, presetBtn);
   };
   const presetBar = () => {
     const b = el('button', { class: 'preset-pick bar', title: t('adj.presets') }, el('span', {}, current ?? t('adj.presets')), icon('chevronDown', 14));

@@ -118,7 +118,7 @@ export function fontPicker(current: string, sys: SystemFonts, onPick: (family: s
     cat.addEventListener('change', render);
     render();
     const r = btn.getBoundingClientRect();
-    showPopup(panel, r.left, r.bottom + 4);
+    showPopup(panel, r.left, r.bottom + 4, btn);
     setTimeout(() => search.focus(), 0);
   }
   return btn;

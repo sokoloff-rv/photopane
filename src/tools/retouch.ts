@@ -120,7 +120,7 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
 
   protected baseOptions() {
     return [
-      numberField({ label: t('opt.size'), value: this.o.size, min: 1, max: 1000, unit: 'px', onChange: v => { this.set('size', v as any); app.update('overlay'); } }),
+      numberField({ label: t('opt.size'), value: this.o.size, min: 1, max: 1000, unit: 'px', log: true, onChange: v => { this.set('size', v as any); app.update('overlay'); } }),
       numberField({ label: t('opt.hardness'), value: this.o.hardness, min: 0, max: 100, unit: '%', onChange: v => this.set('hardness', v as any) }),
     ];
   }
@@ -469,7 +469,7 @@ export class StampTool extends Tool<StampOpts> {
 
   options() {
     return [
-      numberField({ label: t('opt.size'), value: this.o.size, min: 1, max: 1000, unit: 'px', onChange: v => { this.set('size', v); app.update('overlay'); } }),
+      numberField({ label: t('opt.size'), value: this.o.size, min: 1, max: 1000, unit: 'px', log: true, onChange: v => { this.set('size', v); app.update('overlay'); } }),
       numberField({ label: t('opt.hardness'), value: this.o.hardness, min: 0, max: 100, unit: '%', onChange: v => this.set('hardness', v) }),
       sep(),
       numberField({ label: t('opt.opacity'), value: this.o.opacity, min: 1, max: 100, unit: '%', onChange: v => this.set('opacity', v) }),

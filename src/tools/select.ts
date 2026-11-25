@@ -144,8 +144,8 @@ const LASSO_ICONS: Record<LassoType, string> = { free: 'freeLasso', poly: 'polyL
 export class LassoTool extends Tool<LassoOpts> {
   readonly id = 'lasso';
   readonly key = 'L';
-  // the tool has its own icon; the options bar and the cursor show the type
-  readonly iconName = 'lasso';
+  // the toolbar shows the chosen type (as the marquee shows rectangle or ellipse)
+  get iconName() { return this.typeIcon; }
   private get typeIcon() { return LASSO_ICONS[this.o.type] ?? 'freeLasso'; }
   cursor = arrowBadgeCursor('freeLasso');
   private pts: P[] = [];

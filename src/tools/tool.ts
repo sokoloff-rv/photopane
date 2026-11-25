@@ -25,7 +25,12 @@ export abstract class Tool<O extends Record<string, any> = Record<string, any>> 
 
   /** Load persisted options (called by app after construction). */
   loadOptions(saved: any) { if (saved) Object.assign(this.o, saved); }
-  set<K extends keyof O>(k: K, v: O[K]) { this.o[k] = v; app.saveSettings(); }
+  set<K extends keyof O>(k: K, v: O[K]) {
+    const ic = this.iconName;
+    this.o[k] = v; app.saveSettings();
+    // a type change (rectangle/ellipse, lasso type) shows on the toolbar at once
+    if (this.iconName !== ic) app.toolbar.render();
+  }
 
   get hintKey() { return 'hint.' + this.id; }
   get nameKey() { return 'tool.' + this.id; }

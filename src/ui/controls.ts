@@ -9,12 +9,24 @@ export function numberField(opts: {
   title?: string; onChange: (v: number, final: boolean) => void;
   /** Usual values to pick from (a list opens instead of the slider); typing any value still works. */
   presets?: number[];
+  /**
+   * Sizes (1…2500 px): the slider moves on a logarithmic scale, so the usual 10–200 px take a good part of
+   * the track instead of its first few percent (as in Photoshop); typing any value still works.
+   */
+  log?: boolean;
 }): HTMLElement & { set(v: number): void } {
   const step = opts.step ?? 1;
   let value = opts.value;
   const dec = step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0;
   const input = el('input', { class: 'num-input', type: 'text', value: value.toFixed(dec), style: { width: (opts.width ?? 44) + 'px' } }) as HTMLInputElement;
-  const range = el('input', { class: 'range', type: 'range', min: opts.min, max: opts.max, step, value }) as HTMLInputElement;
+  const lg = !!opts.log && opts.min > 0;
+  const span = Math.log(opts.max / opts.min);
+  /** slider position (0…1000 on a log scale) ↔ value */
+  const toPos = (v: number) => (lg ? Math.round(1000 * Math.log(clamp(v, opts.min, opts.max) / opts.min) / span) : v);
+  const fromPos = (p: number) => (lg ? opts.min * Math.exp(span * p / 1000) : p);
+  const range = el('input', lg
+    ? { class: 'range', type: 'range', min: 0, max: 1000, step: 1, value: toPos(value) }
+    : { class: 'range', type: 'range', min: opts.min, max: opts.max, step, value }) as HTMLInputElement;
   const list = opts.presets ? el('div', { class: 'num-presets' }) : null;
   const pop = el('div', { class: 'num-pop' + (list ? ' list' : '') }, list ?? range);
   const arrow = el('button', { class: 'num-arrow', tabIndex: -1 }, icon('chevronDown', 12));
@@ -25,10 +37,10 @@ export function numberField(opts: {
     v = clamp(Math.round(v / step) * step, opts.min, opts.max);
     value = v;
     input.value = v.toFixed(dec);
-    range.value = String(v);
+    range.value = String(toPos(v));
     opts.onChange(v, final);
   };
-  root.set = (v: number) => { value = v; input.value = v.toFixed(dec); range.value = String(v); };
+  root.set = (v: number) => { value = v; input.value = v.toFixed(dec); range.value = String(toPos(v)); };
   if (list) {
     const fill = () => {
       list.innerHTML = '';
@@ -51,8 +63,8 @@ export function numberField(opts: {
     }
     e.stopPropagation();
   });
-  range.addEventListener('input', () => apply(parseFloat(range.value), false));
-  range.addEventListener('change', () => apply(parseFloat(range.value), true));
+  range.addEventListener('input', () => apply(fromPos(parseFloat(range.value)), false));
+  range.addEventListener('change', () => apply(fromPos(parseFloat(range.value)), true));
   arrow.addEventListener('click', e => {
     e.stopPropagation();
     const open = !root.classList.contains('open');
@@ -71,6 +83,8 @@ export function numberField(opts: {
       const range = opts.max - opts.min;
       const onMove = (ev: PointerEvent) => {
         const dx = ev.clientX - sx;
+        // on a log scale the drag moves along the same curve as the slider (2 positions per pixel)
+        if (lg) { apply(fromPos(toPos(sv) + dx * 2 * (ev.shiftKey ? 5 : 1)), false); return; }
         const per = range > 200 ? 1 : range / 200;
         apply(sv + dx * Math.max(step, per) * (ev.shiftKey ? 10 : 1), false);
       };

@@ -38,6 +38,7 @@ export class Toolbar {
     for (const tl of app.tools) {
       if (groups.includes(tl.id) && tl.id !== 'move') this.list.append(el('div', { class: 'tool-sep' }));
       const b = el('button', { class: 'tool-btn' + (tl.implemented ? '' : ' soon') }, icon(tl.iconName, 19)) as HTMLButtonElement;
+      b.dataset.icon = tl.iconName;
       b.addEventListener('click', () => app.setTool(tl.id));
       this.buttons.set(tl.id, b);
       this.list.append(b);
@@ -48,6 +49,8 @@ export class Toolbar {
     for (const tl of app.tools) {
       const b = this.buttons.get(tl.id)!;
       b.classList.toggle('on', tl === app.tool);
+      // tools with types (marquee, lasso) show the chosen one at once
+      if (b.dataset.icon !== tl.iconName) { b.dataset.icon = tl.iconName; b.replaceChildren(icon(tl.iconName, 19)); }
       b.dataset.tip = t(tl.nameKey) + (tl.key ? ` (${tl.key})` : '') + (tl.implemented ? '' : ` — ${t('app.soon')}`);
       b.setAttribute('aria-label', t(tl.nameKey));
     }

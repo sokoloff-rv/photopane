@@ -36,6 +36,15 @@ export class ShapeTool extends Tool<ShapeOpts> {
     app.update('overlay');
   }
 
+  /** Alt (from the centre) and Shift (square/circle) pressed or released mid-drag apply at once, without moving. */
+  keydown(e: KeyboardEvent) {
+    if (this.a && (e.key === 'Alt' || e.key === 'Shift')) { this.live = { shift: e.shiftKey, alt: e.altKey }; app.update('overlay'); return true; }
+    return false;
+  }
+  keyup(e: KeyboardEvent) {
+    if (this.a && (e.key === 'Alt' || e.key === 'Shift')) { this.live = { shift: e.shiftKey, alt: e.altKey }; app.update('overlay'); }
+  }
+
   /** Geometry in document coordinates. */
   private geom() {
     const a = this.a!, b = this.b!;

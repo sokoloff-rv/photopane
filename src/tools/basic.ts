@@ -51,7 +51,8 @@ export class MoveTool extends Tool<MoveOpts> {
   readonly id = 'move';
   readonly iconName = 'move';
   readonly key = 'V';
-  cursor = 'default';
+  // an arrow with the move badge (as in Photoshop), not the plain pointer: shows that dragging moves the layer
+  cursor = arrowBadgeCursor('move');
   private start: { x: number; y: number } | null = null;
   private items: ReturnType<typeof movable> = [];
   private float: { canvas: HTMLCanvasElement; x: number; y: number; layer: Layer; sel: Selection } | null = null;

@@ -151,7 +151,8 @@ export class LassoTool extends Tool<LassoOpts> {
   private pts: P[] = [];
   private hoverPt: P | null = null;
   private mode: SelMode = 'new';
-  private lastClick = 0;
+  /** time and screen point of the last click: a double click closes the polygon */
+  private lastClick = { t: 0, sx: 0, sy: 0 };
   private dragging = false;
   // magnetic
   private anchors: number[] = [];      // indices in pts
@@ -178,18 +179,22 @@ export class LassoTool extends Tool<LassoOpts> {
     const now = performance.now();
     if (!this.pts.length) {
       this.mode = modeFromEvent(e, this.o.mode);
-      this.lastClick = now;
+      this.lastClick = { t: now, sx: e.sx, sy: e.sy };
       const p = { x: e.x, y: e.y };
       this.pts = [p];
       if (type === 'magnetic') { this.prepareEdges(); this.anchors = [0]; this.wire = []; }
       app.update('overlay');
       return;
     }
-    // close on the first point or on a double click
+    // close on the first point or on a double click: two clicks on the same spot, not just two quick
+    // clicks (placing points fast used to close the polygon too early)
     const f = app.viewport.toScreen(this.pts[0].x, this.pts[0].y);
     const nearStart = this.pts.length > 2 && Math.hypot(f.x - e.sx, f.y - e.sy) < 8;
-    if (nearStart || (now - this.lastClick < 300 && this.pts.length > 2)) { this.close(); return; }
-    this.lastClick = now;
+    const lc = this.lastClick;
+    const dbl = now - lc.t < 350 && Math.hypot(e.sx - lc.sx, e.sy - lc.sy) < 5;
+    if (nearStart || (dbl && this.pts.length > 2)) { this.close(); return; }
+    if (dbl) return;   // a double click on the second point: nothing to close yet, no duplicate point
+    this.lastClick = { t: now, sx: e.sx, sy: e.sy };
     if (type === 'poly') {
       let p = { x: e.x, y: e.y };
       if (e.shift) p = snap45(this.pts[this.pts.length - 1], p);
@@ -229,7 +234,9 @@ export class LassoTool extends Tool<LassoOpts> {
     this.close();
   }
 
-  dblclick() { if (this.o.type !== 'free' && this.pts.length > 2) this.close(); }
+  // the double click is recognised in down() (same spot, 350 ms); the system one would also fire for two
+  // separate quick clicks
+  dblclick() {}
 
   keydown(e: KeyboardEvent) {
     if (!this.pts.length || this.o.type === 'free') return false;

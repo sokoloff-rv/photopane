@@ -13,26 +13,31 @@ export function brushTip(d: number, hardness: number, color: RGB): HTMLCanvasEle
   let c = tipCache.get(key);
   if (c) return c;
   if (tipCache.size > 64) tipCache.clear();
-  c = createCanvas(size + 2, size + 2);
+  const W = size + 2;
+  c = createCanvas(W, W);
   const g = ctx2d(c);
-  const r = d / 2, cx = (size + 2) / 2;
-  if (hardness >= 0.99 || d <= 2) {
-    g.fillStyle = css(color);
-    g.beginPath(); g.arc(cx, cx, Math.max(0.5, r), 0, Math.PI * 2); g.fill();
-  } else {
-    const gr = g.createRadialGradient(cx, cx, 0, cx, cx, r);
-    const h = Math.max(0, Math.min(0.98, hardness));
-    gr.addColorStop(0, css(color, 1));
-    gr.addColorStop(h, css(color, 1));
-    // smooth falloff (approx. gaussian-ish)
-    for (let i = 1; i <= 6; i++) {
-      const tt = i / 6;
-      const a = Math.pow(1 - tt, 2) * (1 + 2 * tt) ; // smoothstep falloff
-      gr.addColorStop(h + (1 - h) * tt, css(color, a));
+  // Computed pixel by pixel, not with a canvas radial gradient: the browser dithers gradients (adds noise
+  // against banding), and hundreds of overlapping dabs piled that noise up into a dirty, grainy stroke.
+  const img = g.createImageData(W, W), px = img.data;
+  const r = Math.max(0.5, d / 2), cx = W / 2;
+  const hard = hardness >= 0.99 || d <= 2;
+  const h = Math.max(0, Math.min(0.98, hardness));
+  for (let y = 0; y < W; y++) {
+    for (let x = 0; x < W; x++) {
+      const dist = Math.hypot(x + 0.5 - cx, y + 0.5 - cx);
+      let a: number;
+      if (hard) a = Math.min(1, Math.max(0, r - dist + 0.5));       // a clean anti-aliased edge
+      else {
+        const u = dist / r;
+        if (u <= h) a = 1;
+        else if (u >= 1) a = 0;
+        else { const t = (u - h) / (1 - h); a = (1 - t) * (1 - t) * (1 + 2 * t); }   // smooth falloff
+      }
+      const i = (y * W + x) * 4;
+      px[i] = color.r; px[i + 1] = color.g; px[i + 2] = color.b; px[i + 3] = Math.round(a * 255);
     }
-    g.fillStyle = gr;
-    g.fillRect(0, 0, size + 2, size + 2);
   }
+  g.putImageData(img, 0, 0);
   tipCache.set(key, c);
   return c;
 }

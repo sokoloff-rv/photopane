@@ -448,6 +448,7 @@ export class StampTool extends Tool<StampOpts> {
     // the source marker can be hidden to see the picture under it better
     if (this.o.showSource === false) return;
     const v = app.viewport;
+    this.drawPreview(g);
     let p: { x: number; y: number } | null = null;
     if (this.session && this.offset) {
       const cur = v.toDoc(v.pointer.sx, v.pointer.sy);
@@ -464,6 +465,31 @@ export class StampTool extends Tool<StampOpts> {
     g.beginPath(); g.moveTo(s.x - 7, s.y); g.lineTo(s.x + 7, s.y); g.moveTo(s.x, s.y - 7); g.lineTo(s.x, s.y + 7); g.stroke();
     g.strokeStyle = '#fff'; g.lineWidth = 1; g.stroke();
     g.beginPath(); g.arc(s.x, s.y, (this.o.size * app.doc!.zoom) / 2, 0, Math.PI * 2); g.setLineDash([3, 3]); g.stroke();
+    g.restore();
+  }
+
+  /**
+   * Before painting (source chosen, pointer over the image): what the stamp would put down, shown under the
+   * brush circle as in Photoshop, so the patch can be lined up before clicking.
+   */
+  private drawPreview(g: CanvasRenderingContext2D) {
+    const v = app.viewport, d = app.doc;
+    if (this.session || !this.source || !d || !v.pointer.inside) return;
+    const l = d.active;
+    if (!l || l.isGroup) return;
+    const cur = v.toDoc(v.pointer.sx, v.pointer.sy);
+    // aligned: the same offset as the last stroke; otherwise the next stroke starts at the source point
+    const src = this.offset && this.o.aligned ? { x: cur.x + this.offset.x, y: cur.y + this.offset.y } : this.source;
+    const all = this.o.allLayers || d.editMask;
+    const img: CanvasImageSource = all ? d.composite() : l.canvas;
+    const ox = all ? 0 : l.x, oy = all ? 0 : l.y;
+    const r = this.o.size / 2, z = d.zoom;
+    const p = v.toScreen(cur.x, cur.y);
+    g.save();
+    g.beginPath(); g.arc(p.x, p.y, r * z, 0, Math.PI * 2); g.clip();
+    g.globalAlpha = 0.7;
+    g.imageSmoothingEnabled = z < 1;
+    g.drawImage(img, src.x - r - ox, src.y - r - oy, 2 * r, 2 * r, p.x - r * z, p.y - r * z, 2 * r * z, 2 * r * z);
     g.restore();
   }
 

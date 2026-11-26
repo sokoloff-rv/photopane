@@ -17,6 +17,7 @@ import { batchDialog } from './ui/batchdialog';
 import { printDoc } from './io/print';
 import { metadataDialog } from './ui/metadialog';
 import { colorProfileDialog } from './ui/profiledialog';
+import { applyImageDialog } from './ui/applyimagedialog';
 import { associatePsd } from './io/desktop';
 import { hslMixerDialog, toningDialog } from './ui/colordialogs';
 import { aiSettingsDialog, upscaleDialog, removeBackground, selectSubject, removeObject } from './ui/aidialogs';
@@ -204,6 +205,7 @@ export function registerCommands(app: App) {
   R('imageSize', () => imageSizeDialog(), ['Ctrl+Alt+I'], hasDoc);
   R('metadata', () => metadataDialog(), [], hasDoc);
   R('colorProfile', () => colorProfileDialog(), [], hasDoc);
+  R('applyImage', () => applyImageDialog(), [], hasPixelLayer);
   R('canvasSize', () => canvasSizeDialog(), ['Ctrl+Alt+C'], hasDoc);
   R('rotArbitrary', () => rotateArbitraryDialog(), [], hasDoc);
   R('cropToSel', () => { cropDocument(D(), D().selection!.bounds); D().selection = null; done('cmd.cropToSel'); app.viewport.fit(false); }, undefined, hasSel);

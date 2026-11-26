@@ -3,11 +3,13 @@ import { t } from '../i18n';
 import { Tool, PEvent } from './tool';
 import { AdjustSession } from '../core/adjust';
 import { gaussianBlur, smoothstep } from '../core/filters';
-import { createCanvas, ctx2d, clamp } from '../core/util';
+import { createCanvas, ctx2d, clamp, el } from '../core/util';
 import { previews } from '../core/render';
 import { numberField } from '../ui/controls';
 import { spacer, textButton, span } from './transform';
-import { toast } from '../ui/dialog';
+import { toast, openDialog } from '../ui/dialog';
+import { sliderRow } from '../ui/adjustdialogs';
+import { checkbox } from '../ui/controls';
 import { GpuBlur, BlurShape } from '../core/gpublur';
 
 /** One full turn of the ring around a pin = this much blur (px), as the ring shows it. */
@@ -59,6 +61,11 @@ export class BlurGalleryTool extends Tool {
   private timer = 0;
   /** Bokeh highlights: bright spots in the blurred area light up like out-of-focus lights (0..100). */
   private bokeh = 0;
+  /** The window with the same settings as sliders (like the other filters); closed with the tool. */
+  private win: { close: () => void } | null = null;
+  private rows: { set: (v: number) => void; get: () => number }[] = [];
+  /** Before/after line (document x), null = off; dragged by its handle at the bottom of the view. */
+  private split: number | null = null;
 
   constructor() { super({}); }
 
@@ -90,8 +97,13 @@ export class BlurGalleryTool extends Tool {
       const p = this.proxy, s = this.s;
       if (!p || !s) { g.drawImage(l.canvas, l.x, l.y); return; }
       const sel = app.doc?.selection;
+      // before/after: the layer as it is left of the line
+      if (this.split != null) {
+        g.save(); g.beginPath(); g.rect(-1e6, -1e6, this.split + 1e6, 2e6); g.clip(); g.drawImage(l.canvas, l.x, l.y); g.restore();
+        g.save(); g.beginPath(); g.rect(this.split, -1e6, 2e6, 2e6); g.clip();
+      }
       // only the blurred layer (its soft edges on transparency look as they will after Apply)
-      if (!sel) { g.drawImage(p.out, s.ox, s.oy, s.w, s.h); return; }
+      if (!sel) { g.drawImage(p.out, s.ox, s.oy, s.w, s.h); if (this.split != null) g.restore(); return; }
       // with a selection: the layer as it is outside, the blur inside
       const W = g.canvas.width, H = g.canvas.height;
       if (!this.selTmp || this.selTmp.width !== W || this.selTmp.height !== H) this.selTmp = createCanvas(W, H);
@@ -106,10 +118,53 @@ export class BlurGalleryTool extends Tool {
       tg.globalCompositeOperation = 'destination-in'; tg.drawImage(sel.mask, 0, 0);
       tg.globalCompositeOperation = 'source-over';
       g.drawImage(this.selTmp, 0, 0);
+      if (this.split != null) g.restore();
     });
     this.renderProxy();
+    this.openWindow();
     return true;
   }
+
+  /**
+   * The usual filter window: the blur (of the chosen pin), bokeh, the iris feather or the tilt-shift focus and
+   * transition, and before/after. The rings and handles on the canvas and the options bar work as well; all of
+   * them stay in step.
+   */
+  private openWindow() {
+    const d = app.doc!;
+    const big = Math.max(d.width, d.height);
+    const rows: { el: HTMLElement & { set(v: number): void }; get: () => number }[] = [];
+    const add = (key: string, label: string, min: number, max: number, unit: string, get: () => number, set: (v: number) => void) => {
+      const el = sliderRow({ key, label: t(label), min, max, def: get(), unit }, Math.round(get()), v => { set(v); this.schedule(); app.update('overlay', 'options'); });
+      rows.push({ el, get });
+    };
+    add('blur', 'blur.amount', 0, 500, ' px', () => this.getBlur(this.mode === 'field' ? 'pin' + this.selPin : 'center'), v => this.setBlur(this.mode === 'field' ? 'pin' + this.selPin : 'center', v));
+    add('bokeh', 'blur.bokeh', 0, 100, '%', () => this.bokeh, v => { this.bokeh = v; });
+    if (this.mode === 'iris') add('feather', 'blur.feather', 0, 98, '%', () => this.iris.feather * 100, v => { this.iris.feather = v / 100; });
+    if (this.mode === 'tilt') {
+      add('focus', 'blur.focus', 0, Math.round(big / 2), ' px', () => this.tilt.focus, v => { this.tilt.focus = v; });
+      add('trans', 'blur.transition', 2, Math.round(big / 2), ' px', () => this.tilt.trans, v => { this.tilt.trans = Math.max(2, v); });
+    }
+    this.rows = rows.map(r => ({ set: (v: number) => r.el.set(Math.round(v)), get: r.get }));
+    const split = checkbox(t('adj.beforeAfter'), false, on => {
+      if (on) { const v = app.viewport, a = v.toDoc(0, 0), b = v.toDoc(v.w, 0); this.split = Math.round((Math.max(0, a.x) + Math.min(d.width, b.x)) / 2); }
+      else this.split = null;
+      this.schedule(); app.update('overlay');
+    });
+    const body = el('div', { class: 'adj' }, el('div', { class: 'adj-foot adj-foot-wrap adj-top' }, split), ...rows.map(r => r.el));
+    this.win = openDialog({
+      title: t(this.nameKey), body, width: 320, side: true, sideKey: 'blurGallery', posKey: 'blurGallery',
+      onOk: () => { this.apply(); },
+      onCancel: () => { this.win = null; this.cancel(); },
+      keys: e => (e.key === 'Delete' || e.key === 'Backspace') && this.keydown(e),
+    });
+    // the options bar keeps the gallery's own controls (not locked by the window)
+    app.sideOptions = { icon: 'blur', title: t(this.nameKey), items: () => this.options() };
+    app.update('options');
+  }
+
+  /** The window's sliders follow changes made on the canvas or in the options bar. */
+  private syncWindow() { for (const r of this.rows) r.set(r.get()); }
 
   private maxBlur() { return this.mode === 'field' ? Math.max(...this.pins.map(p => p.blur)) : this.mode === 'iris' ? this.iris.blur : this.tilt.blur; }
 
@@ -186,7 +241,7 @@ export class BlurGalleryTool extends Tool {
 
   private schedule() {
     if (this.timer) return;
-    this.timer = requestAnimationFrame(() => { this.timer = 0; this.renderProxy(); });
+    this.timer = requestAnimationFrame(() => { this.timer = 0; this.renderProxy(); this.syncWindow(); });
   }
 
   apply() {
@@ -212,6 +267,9 @@ export class BlurGalleryTool extends Tool {
 
   private cleanup() {
     if (this.s) previews.delete(this.s.target.layer.id);
+    const w = this.win; this.win = null; w?.close();
+    this.rows = []; this.split = null;
+    if (app.sideOptions?.icon === 'blur') { app.sideOptions = null; app.update('options'); }
     this.active = false;
     this.proxy = null;
     this.gpu?.dispose();
@@ -294,8 +352,17 @@ export class BlurGalleryTool extends Tool {
     if (c !== this.cursor) { this.cursor = c; app.viewport.updateCursor(); }
   }
 
+  /** The before/after handle: a knob at the bottom of the view on the line. */
+  private splitHandle(): { x: number; y: number } | null {
+    if (this.split == null) return null;
+    const v = app.viewport, p = v.toScreen(this.split, 0);
+    return { x: p.x, y: v.h - 26 };
+  }
+
   down(e: PEvent) {
     if (!this.active) return;
+    const sh = this.splitHandle();
+    if (sh && Math.hypot(e.sx - sh.x, e.sy - sh.y) < 14) { this.drag = { what: 'split', start: { x: e.x, y: e.y }, snap: null }; return; }
     let h = this.hit(e);
     if (!h && this.mode === 'field') {
       this.pins.push({ x: e.x, y: e.y, blur: this.pins[this.selPin]?.blur ?? 15 });
@@ -319,6 +386,7 @@ export class BlurGalleryTool extends Tool {
   move(e: PEvent) {
     const dr = this.drag;
     if (!dr) return;
+    if (dr.what === 'split') { this.split = Math.round(clamp(e.x, 0, app.doc!.width)); this.schedule(); app.update('overlay', 'canvas'); return; }
     if (dr.what.startsWith('ring:')) {
       // turning along the ring: clockwise adds blur, a full turn is RING_TURN px
       const id = dr.what.slice(5);
@@ -387,6 +455,16 @@ export class BlurGalleryTool extends Tool {
       };
       drawLine(tl.focus, false); drawLine(-tl.focus, false);
       drawLine(tl.focus + tl.trans, true); drawLine(-tl.focus - tl.trans, true);
+    }
+    const sh = this.splitHandle();
+    if (sh) {
+      g.setLineDash([]);
+      g.beginPath(); g.moveTo(Math.round(sh.x) + 0.5, 0); g.lineTo(Math.round(sh.x) + 0.5, v.h); line(false);
+      g.beginPath(); g.arc(sh.x, sh.y, 10, 0, Math.PI * 2);
+      g.fillStyle = 'rgba(20,20,20,.75)'; g.fill(); g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.stroke();
+      g.beginPath(); g.moveTo(sh.x - 5, sh.y); g.lineTo(sh.x - 2, sh.y - 3); g.lineTo(sh.x - 2, sh.y + 3); g.closePath();
+      g.moveTo(sh.x + 5, sh.y); g.lineTo(sh.x + 2, sh.y - 3); g.lineTo(sh.x + 2, sh.y + 3); g.closePath();
+      g.fillStyle = '#fff'; g.fill();
     }
     for (const h of this.handles()) {
       const s = v.toScreen(h.x, h.y);

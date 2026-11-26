@@ -27,6 +27,8 @@ export interface DialogOptions {
    * around it, it blocks no other window or shortcut, and takes Esc / Enter only when it has the focus.
    */
   floating?: boolean;
+  /** Keys the window lets its tool have (Delete removes a Field Blur pin); return true when handled. */
+  keys?: (e: KeyboardEvent) => boolean;
 }
 
 /* ---------- remembered window positions (kept in this browser / app profile) ---------- */
@@ -177,6 +179,8 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
     if (o.floating) { if (!card.contains(document.activeElement)) return; }
     else if (stack[stack.length - 1] !== card) return;   // another dialog is on top
     if (document.body.dataset.popup) return;          // a popup menu of the dialog handles its own keys
+    const inField = (e.target as HTMLElement)?.matches?.('input, select, textarea');
+    if (o.keys && !inField && o.keys(e)) { e.preventDefault(); e.stopImmediatePropagation(); return; }
     // typing in a field outside the window (the zoom value in the navigator or status bar) is that field's own
     const tgt = e.target as HTMLElement | null;
     if (tgt && tgt !== document.body && !card.contains(tgt) && tgt.matches?.('input, select, textarea, [contenteditable]')) return;

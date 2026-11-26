@@ -551,7 +551,7 @@ export class Viewport {
   }
 
   /** An Adjust/filter window is open: the canvas only pans, zooms and moves its before/after line. */
-  private locked() { return sideDialogOpen() && app.tool.id !== 'splitCompare'; }
+  private locked() { return sideDialogOpen() && app.tool.id !== 'splitCompare' && app.tool.id !== 'blurGallery'; }
 
   private onDown(e: PointerEvent) {
     if (!this.doc) return;

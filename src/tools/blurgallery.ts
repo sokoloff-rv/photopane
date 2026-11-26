@@ -126,7 +126,7 @@ export class BlurGalleryTool extends Tool {
   }
 
   /**
-   * The usual filter window: the blur (of the chosen pin), bokeh, the iris feather or the tilt-shift focus and
+   * The usual filter window: the blur (of the chosen pin), bokeh, the iris size and feather or the tilt-shift focus and
    * transition, and before/after. The rings and handles on the canvas and the options bar work as well; all of
    * them stay in step.
    */
@@ -140,7 +140,14 @@ export class BlurGalleryTool extends Tool {
     };
     add('blur', 'blur.amount', 0, 500, ' px', () => this.getBlur(this.mode === 'field' ? 'pin' + this.selPin : 'center'), v => this.setBlur(this.mode === 'field' ? 'pin' + this.selPin : 'center', v));
     add('bokeh', 'blur.bokeh', 0, 100, '%', () => this.bokeh, v => { this.bokeh = v; });
-    if (this.mode === 'iris') add('feather', 'blur.feather', 0, 98, '%', () => this.iris.feather * 100, v => { this.iris.feather = v / 100; });
+    if (this.mode === 'iris') {
+      // the outer ellipse: its larger radius; the proportions stay as dragged on the canvas
+      add('size', 'blur.size', 5, big, ' px', () => Math.max(this.iris.rx, this.iris.ry), v => {
+        const ir = this.iris, k = Math.max(5, v) / Math.max(ir.rx, ir.ry);
+        ir.rx = Math.max(5, ir.rx * k); ir.ry = Math.max(5, ir.ry * k);
+      });
+      add('feather', 'blur.feather', 0, 98, '%', () => this.iris.feather * 100, v => { this.iris.feather = v / 100; });
+    }
     if (this.mode === 'tilt') {
       add('focus', 'blur.focus', 0, Math.round(big / 2), ' px', () => this.tilt.focus, v => { this.tilt.focus = v; });
       add('trans', 'blur.transition', 2, Math.round(big / 2), ' px', () => this.tilt.trans, v => { this.tilt.trans = Math.max(2, v); });

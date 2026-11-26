@@ -386,6 +386,7 @@ const D: Record<string, [string, string]> = {
   'prof.converted': ['Преобразовано в {0}', 'Converted to {0}'],
   'prof.assigned': ['Назначен профиль {0}', 'Profile {0} assigned'],
   'prof.indexed': ['Палитра: {0} цветов', 'Palette: {0} colours'],
+  'blur.size': ['Размер', 'Size'],
   'blur.feather': ['Растушёвка', 'Feather'],
   'blur.focus': ['Фокус', 'Focus'],
   'blur.transition': ['Переход', 'Transition'],

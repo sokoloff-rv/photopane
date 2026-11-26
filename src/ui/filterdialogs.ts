@@ -32,7 +32,9 @@ function sliderFilter<P extends Record<string, any>>(o: {
   const res = adjustDialog({
     title: t('cmd.' + o.cmd), body, label: 'cmd.' + o.cmd, alpha: o.alpha,
     compute: c => (src, dst) => runJob(o.job(p, c.w, c.h, c.ox, c.oy, c.k), src, dst, c.w, c.h),
-    job: o.fast ? undefined : c => o.job(p, c.w, c.h, c.ox, c.oy, c.k),
+    // the job always: the GPU runs it where it can; `fast` only keeps it out of the worker without a GPU
+    job: c => o.job(p, c.w, c.h, c.ox, c.oy, c.k),
+    light: o.fast,
   });
   if (res) { refresh = () => { app.saveSettings(); res.refresh(); }; res.refresh(); }
 }

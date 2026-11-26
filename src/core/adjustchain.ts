@@ -35,8 +35,10 @@ export interface StageSpec {
   cpu: (c: StageCtx) => PixelFn;
   /** The current settings for the GPU (Adjust, Levels, Curves). */
   gpu?: () => GpuStageDesc;
-  /** A heavy filter as a data job: draft preview on large layers, full result in a worker. */
+  /** A filter as a data job: on the GPU where it can run there, else (on large layers) in the worker. */
   job?: (c: StageCtx) => FxJob;
+  /** The job is quick on the CPU too: computed at once rather than in the worker. */
+  light?: boolean;
   /** Preserve transparency (filters that have the option). */
   keepAlpha?: () => boolean;
 }
@@ -218,7 +220,7 @@ export class AdjustChain {
     return GPU_FX.has(job[0]) ? { kind: 'fx', job, keep: !!st.spec.keepAlpha?.() } : null;
   }
   /** A stage that has to be computed on the CPU (in the worker on large layers). */
-  private cpuHeavy(st: Stage) { return !!st.spec.job && !(this.gpuDesc(st) && this.getGpu()); }
+  private cpuHeavy(st: Stage) { return !!st.spec.job && !st.spec.light && !(this.gpuDesc(st) && this.getGpu()); }
 
   private getGpu(): GpuChain | null {
     if (this.gpu === undefined) {

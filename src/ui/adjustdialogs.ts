@@ -43,8 +43,10 @@ export function adjustDialog(opts: {
   compute: (c: StageCtx) => PixelFn;
   /** The current settings for the GPU (Adjust, Levels, Curves): smooth chains on large photos. */
   gpu?: () => GpuStageDesc;
-  /** A heavy filter as a data job: draft preview on large layers, full result in a worker. */
+  /** A filter as a data job: on the GPU where it can run there, else (on large layers) in the worker. */
   job?: (c: StageCtx) => FxJob;
+  /** The job is quick on the CPU too: computed at once rather than in the worker. */
+  light?: boolean;
   extra?: HTMLElement[];
   alpha?: boolean;
   /** Called when the window closes (OK or Cancel). */
@@ -54,7 +56,7 @@ export function adjustDialog(opts: {
   let keepA = opts.alpha ? !!app.settings.fltKeepAlpha : false;
   // the window's own option, or the layer's "lock transparency"
   const layer = app.doc?.active;
-  const joined = AdjustChain.join({ key, label: opts.label, cpu: opts.compute, gpu: opts.gpu, job: opts.job, keepAlpha: () => keepA || !!layer?.lockAlpha });
+  const joined = AdjustChain.join({ key, label: opts.label, cpu: opts.compute, gpu: opts.gpu, job: opts.job, light: opts.light, keepAlpha: () => keepA || !!layer?.lockAlpha });
   if (!joined) return null;
   const { chain, stage } = joined;
   const refresh = () => chain.changed(stage);

@@ -133,6 +133,17 @@ export async function writeClipboard(canvas: HTMLCanvasElement) {
 type Fmt = 'psd' | 'png' | 'jpeg' | 'webp' | 'pdf';
 const MIME: Record<Fmt, string> = { psd: 'image/vnd.adobe.photoshop', png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp', pdf: 'application/pdf' };
 const EXT: Record<Fmt, string> = { psd: '.psd', png: '.png', jpeg: '.jpg', webp: '.webp', pdf: '.pdf' };
+/**
+ * The quality last used for each format (JPEG at 80 %, WebP at 75 % … as the user likes them); a format
+ * not used yet starts from the one quality kept before (or 92 %).
+ */
+function qualityFor(fmt: Fmt): number {
+  const q = app.settings.quality as Partial<Record<Fmt, number>> | undefined;
+  return q?.[fmt] ?? app.settings.jpegQuality ?? 92;
+}
+function rememberQuality(fmt: Fmt, v: number) {
+  app.settings.quality = { ...(app.settings.quality || {}), [fmt]: v };
+}
 const fmtOf = (name: string): Fmt => (/\.psd$/i.test(name) ? 'psd' : /\.png$/i.test(name) ? 'png' : /\.webp$/i.test(name) ? 'webp' : /\.pdf$/i.test(name) ? 'pdf' : 'jpeg');
 
 function flattenedFor(d: Doc, fmt: Fmt): HTMLCanvasElement {
@@ -235,7 +246,7 @@ export async function saveDoc(asNew: boolean) {
   if (!d) return;
   if (!asNew && d.fileHandle && d.fileName) {
     const fmt = fmtOf(d.fileName);
-    const blob = await encode(d, fmt, app.settings.jpegQuality ?? 92, app.settings.keepExif ?? false);
+    const blob = await encode(d, fmt, qualityFor(fmt), app.settings.keepExif ?? false);
     await writeBlob(blob, d.fileName, fmt, d.fileHandle);
     d.dirty = false;
     toast(t('app.saved'));
@@ -262,7 +273,9 @@ function fileDialog(saveAs: boolean) {
   const layered = d.layers.length > 1 || d.layers.some(l => l.kind === 'text' || !!l.mask || hasEffects(l.effects));
   let fmt: Fmt = saveAs ? (layered ? 'psd' : (app.settings.saveFmt as Fmt) || 'psd') : ((app.settings.exportFmt as Fmt) || 'pdf');
   if (!formats.includes(fmt)) fmt = formats[0];
-  let quality = app.settings.jpegQuality ?? 92;
+  let quality = qualityFor(fmt);
+  // the qualities set in this window, kept per format once it is confirmed (not on Cancel)
+  const picked: Partial<Record<Fmt, number>> = {};
   let keepExif = app.settings.keepExif ?? false;
   let size = { w: d.width, h: d.height };
   const nameInput = el('input', { class: 'text-input', type: 'text', value: baseName(d.fileName || d.name), spellcheck: 'false' }) as HTMLInputElement;
@@ -288,7 +301,7 @@ function fileDialog(saveAs: boolean) {
   const seg = el('div', { class: 'seg save-formats' });
   for (const f of formats) {
     const b = el('button', { class: 'seg-btn' }, labels[f]) as HTMLButtonElement;
-    b.addEventListener('click', () => { fmt = f; renderRows(); updateSize(); });
+    b.addEventListener('click', () => { fmt = f; quality = picked[f] ?? qualityFor(f); renderRows(); updateSize(); });
     segBtns.push(b); seg.append(b);
   }
   const renderRows = () => {
@@ -297,7 +310,7 @@ function fileDialog(saveAs: boolean) {
     hint.textContent = t('fmt.hint.' + fmt);
     qualityRow.innerHTML = '';
     exifRow.innerHTML = '';
-    if (fmt === 'jpeg' || fmt === 'webp' || fmt === 'pdf') qualityRow.append(el('label', {}, t('dlg.quality')), numberField({ value: quality, min: 1, max: 100, unit: '%', onChange: v => { quality = v; updateSize(); } }));
+    if (fmt === 'jpeg' || fmt === 'webp' || fmt === 'pdf') qualityRow.append(el('label', {}, t('dlg.quality')), numberField({ value: quality, min: 1, max: 100, unit: '%', onChange: v => { quality = v; picked[fmt] = v; updateSize(); } }));
     // metadata only when the source had any (a disabled box with a note only took room)
     if (fmt === 'jpeg' && d.exif) exifRow.append(el('label', {}, ''), checkbox(t('dlg.keepExif'), keepExif, v => { keepExif = v; updateSize(); }));
     exifRow.style.display = exifRow.childElementCount ? '' : 'none';
@@ -337,7 +350,7 @@ function fileDialog(saveAs: boolean) {
     title: saveAs ? t('dlg.save.title') : t('cmd.export'), body, width: 460, okLabel: t(saveAs ? 'cmd.save' : 'dlg.exportOk'),
     onOk: async () => {
       if (saveAs) app.settings.saveFmt = fmt; else app.settings.exportFmt = fmt;
-      app.settings.jpegQuality = quality;
+      for (const [f, v] of Object.entries(picked)) rememberQuality(f as Fmt, v!);
       app.settings.keepExif = keepExif;
       app.saveSettings();
       const blob = await encode(d, fmt, quality, keepExif, saveAs ? undefined : size);

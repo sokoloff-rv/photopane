@@ -84,7 +84,8 @@ export function batchDialog() {
     el('div', { class: 'batch-row' }, saveSeg), saveNote);
 
   openDialog({
-    title: t('cmd.batch'), body, width: 540, okLabel: t('batch.run'),
+    // the size fields are one option among several: none of them takes the focus on opening
+    title: t('cmd.batch'), body, width: 540, okLabel: t('batch.run'), autoFocus: false,
     onOk: () => {
       if (!src) { toast(t('batch.noSource'), 'error'); return false; }
       if (!ops.resize && !ops.adjust && ops.format === 'same') { toast(t('batch.nothing'), 'error'); return false; }

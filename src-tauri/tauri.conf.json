@@ -32,7 +32,10 @@
       "nsis",
       "msi",
       "app",
-      "dmg"
+      "dmg",
+      "deb",
+      "rpm",
+      "appimage"
     ],
     "category": "GraphicsAndDesign",
     "shortDescription": "Lightweight image editor",

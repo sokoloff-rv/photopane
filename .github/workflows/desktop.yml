@@ -1,6 +1,6 @@
 name: Desktop builds
 
-# Builds the PhotoPane desktop app (Tauri) for Windows and macOS and attaches the installers
+# Builds the PhotoPane desktop app (Tauri) for Windows, macOS and Linux and attaches the installers
 # to the workflow run as artifacts. Runs only on request: the "Run workflow" button in Actions
 # or a version tag (v1.0.0 …), not on every push.
 on:
@@ -29,9 +29,24 @@ jobs:
             args: '--target universal-apple-darwin'
             bundles: |
               src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          # the oldest supported Ubuntu, so the packages run on older systems too
+          - platform: ubuntu-22.04
+            name: PhotoPane-Linux
+            args: ''
+            bundles: |
+              src-tauri/target/release/bundle/deb/*.deb
+              src-tauri/target/release/bundle/rpm/*.rpm
+              src-tauri/target/release/bundle/appimage/*.AppImage
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+
+      # what Tauri needs on Linux: the WebKitGTK web view, tray and SVG libraries, and tools for the AppImage
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 file
 
       - uses: actions/setup-node@v4
         with:

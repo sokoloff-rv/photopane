@@ -24,6 +24,26 @@ export function modeButtons(value: SelMode, onChange: (m: SelMode) => void) {
   ], value, onChange);
 }
 
+/**
+ * Arrow keys with a selection tool move the selection outline (not the pixels) by a pixel, with Shift by
+ * ten, as Photoshop's Nudge Outline; each press is a step in History.
+ */
+export function nudgeSelection(e: KeyboardEvent): boolean {
+  const k = e.key;
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(k) || e.ctrlKey || e.altKey || e.metaKey) return false;
+  const d = app.doc;
+  if (!d?.selection) return false;
+  const n = e.shiftKey ? 10 : 1;
+  const dx = k === 'ArrowLeft' ? -n : k === 'ArrowRight' ? n : 0;
+  const dy = k === 'ArrowUp' ? -n : k === 'ArrowDown' ? n : 0;
+  const moved = d.selection.translate(dx, dy);
+  if (!moved) return true;   // it would leave the document entirely: it stays where it is
+  d.selection = moved;
+  app.commit('h.nudgeSel');
+  app.update('overlay');
+  return true;
+}
+
 export function applySelection(shape: Selection | null, mode: SelMode, feather = 0) {
   const d = app.doc!;
   if (shape && feather > 0) shape = shape.feather(feather);
@@ -50,6 +70,8 @@ export class MarqueeTool extends Tool<MarqueeOpts> {
   private live = { shift: false, alt: false };
 
   constructor() { super({ shape: 'rect', mode: 'new', feather: 0, antialias: true }); }
+
+  keydown(e: KeyboardEvent) { return !this.busy?.() && nudgeSelection(e); }
 
   down(e: PEvent) {
     this.mode = modeFromEvent(e, this.o.mode);
@@ -239,7 +261,8 @@ export class LassoTool extends Tool<LassoOpts> {
   dblclick() {}
 
   keydown(e: KeyboardEvent) {
-    if (!this.pts.length || this.o.type === 'free') return false;
+    if (!this.pts.length) return nudgeSelection(e);
+    if (this.o.type === 'free') return false;
     if (e.key === 'Enter') { this.close(); return true; }
     if (e.key === 'Escape') { this.cancel(); return true; }
     if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -428,6 +451,8 @@ export class WandTool extends Tool<WandOpts> {
   cursor = arrowBadgeCursor('wand');
 
   constructor() { super({ mode: 'new', tolerance: 32, contiguous: true, allLayers: false, antialias: true }); }
+
+  keydown(e: KeyboardEvent) { return !this.busy?.() && nudgeSelection(e); }
 
   down(e: PEvent) {
     const d = app.doc!;

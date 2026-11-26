@@ -41,6 +41,7 @@ const D: Record<string, [string, string]> = {
   'opt.cropDelete': ['Удалить набор', 'Delete preset'],
   'opt.swapRatio': ['Поменять ориентацию', 'Swap orientation'],
   'opt.cropCustomValues': ['Свои значения', 'Custom values'],
+  'h.nudgeSel': ['Сдвиг выделения', 'Nudge Selection'],
   'opt.cropUnitRatio': ['пропорции', 'ratio'],
   'opt.cropUnitPx': ['пиксели', 'pixels'],
   'opt.cropWidth': ['Ширина', 'Width'],

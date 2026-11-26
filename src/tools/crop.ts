@@ -5,7 +5,7 @@ import { Rect, normRect } from '../core/util';
 import { cropDocument } from '../core/ops';
 import { Layer, Surface } from '../core/layer';
 import { P, Quad, homography, applyH, pointInPoly, warp, rectQuad } from '../core/geom';
-import { snapPoint, clearSmart } from '../core/snap';
+import { snapPoint, snapRect, collectTargets, clearSmart } from '../core/snap';
 import { select, checkbox, iconButton, sep } from '../ui/controls';
 import { span, spacer, textButton } from './transform';
 import { css } from '../core/color';
@@ -206,7 +206,11 @@ export class CropTool extends Tool<CropOpts> {
     const p = snapPoint(e.x, e.y);
     const ratio = this.ratio() || (e.shift ? (dr.mode === 'new' ? 1 : dr.r.w / dr.r.h) : 0);
     if (dr.mode === 'move') {
-      this.rect = { ...dr.r, x: Math.round(dr.r.x + e.x - dr.start.x), y: Math.round(dr.r.y + e.y - dr.start.y) };
+      // moved whole, the frame's edges (and middle) stick to the picture's edges, middle and guides within a few
+      // screen pixels, so a frame as wide or as high as the picture is easy to place exactly; it can go past them
+      const r0 = { ...dr.r, x: dr.r.x + e.x - dr.start.x, y: dr.r.y + e.y - dr.start.y };
+      const s = snapRect(r0, collectTargets(null, false));
+      this.rect = { ...dr.r, x: Math.round(r0.x + s.dx), y: Math.round(r0.y + s.dy) };
     } else if (dr.mode === 'new') {
       let w = p.x - dr.start.x, h = p.y - dr.start.y;
       if (ratio) { if (Math.abs(w) / ratio > Math.abs(h)) h = Math.sign(h || 1) * Math.abs(w) / ratio; else w = Math.sign(w || 1) * Math.abs(h) * ratio; }
@@ -239,6 +243,14 @@ export class CropTool extends Tool<CropOpts> {
   keydown(e: KeyboardEvent) {
     if (e.key === 'Enter') { this.apply(); return true; }
     if (e.key === 'Escape') { if (this.rect) { this.clear(); return true; } return false; }
+    // arrows move the frame by a pixel, with Shift by ten (as in Photoshop)
+    const k = e.key;
+    if (this.rect && !this.drag && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(k) && !e.ctrlKey && !e.altKey) {
+      const n = e.shiftKey ? 10 : 1;
+      this.rect = { ...this.rect, x: this.rect.x + (k === 'ArrowLeft' ? -n : k === 'ArrowRight' ? n : 0), y: this.rect.y + (k === 'ArrowUp' ? -n : k === 'ArrowDown' ? n : 0) };
+      app.update('overlay', 'options');
+      return true;
+    }
     return false;
   }
 

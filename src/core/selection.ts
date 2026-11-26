@@ -77,6 +77,17 @@ export class Selection {
     return s;
   }
 
+  /** The same selection moved by dx, dy pixels (arrow keys with a selection tool); what leaves the document is cut. */
+  translate(dx: number, dy: number): Selection | null {
+    const w = this.width, h = this.height, b = this.bounds;
+    const x0 = Math.max(0, b.x + dx), y0 = Math.max(0, b.y + dy);
+    const x1 = Math.min(w, b.x + b.w + dx), y1 = Math.min(h, b.y + b.h + dy);
+    if (x1 <= x0 || y1 <= y0) return null;
+    const c = createCanvas(w, h);
+    ctx2d(c).drawImage(this.mask, dx, dy);
+    return new Selection(c, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  }
+
   /** Combine current selection with a new shape mask according to the mode. */
   static combine(cur: Selection | null, shape: Selection | null, mode: SelMode, w: number, h: number): Selection | null {
     if (mode === 'new' || !cur) {

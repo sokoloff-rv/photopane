@@ -43,7 +43,7 @@ const D: Record<string, [string, string]> = {
   'opt.deleteCropped': ['Удалить отсечённые пиксели', 'Delete cropped pixels'],
   'opt.extendTransparent': ['Расширение: прозрачное', 'Extend: transparent'],
   'opt.extendBg': ['Расширение: фоновый цвет', 'Extend: background color'],
-  'hint.text': ['Щелчок — строка текста, протягивание — абзац в рамке. Щелчок по тексту — редактировать. Esc или Ctrl+Enter — готово', 'Click for point text, drag for a text box. Click text to edit. Esc or Ctrl+Enter commits'],
+  'hint.text': ['Клик — строка текста, протягивание — абзац в рамке. Клик по тексту — редактировать. Esc или Ctrl+Enter — готово', 'Click for point text, drag for a text box. Click text to edit. Esc or Ctrl+Enter commits'],
   'h.text': ['Текст', 'Type'],
   'opt.moreFonts': ['Все системные шрифты', 'All system fonts'],
   'opt.fontsDenied': ['Нет доступа к списку шрифтов', 'No access to the font list'],
@@ -111,18 +111,18 @@ const D: Record<string, [string, string]> = {
   'dlg.pos.outside': ['Снаружи', 'Outside'],
 
   // stage 3
-  'hint.stamp': ['Alt+щелчок — задать источник, затем рисуйте. [ ] — размер', 'Alt+click sets the source, then paint. [ ] size'],
+  'hint.stamp': ['Alt+клик — задать источник, затем рисуйте. [ ] — размер', 'Alt+click sets the source, then paint. [ ] size'],
   'hint.replace': ['Заменяет цвет под кистью основным цветом, сохраняя яркость', 'Replaces the color under the brush with the foreground color, keeping luminosity'],
   'hint.blur': ['Проводите по участкам, которые нужно смягчить', 'Paint over areas to soften'],
   'hint.sharpen': ['Проводите по участкам, которые нужно сделать резче', 'Paint over areas to sharpen'],
   'hint.smudge': ['Размазывает пиксели в направлении мазка', 'Smears pixels along the stroke'],
   'hint.dodge': ['Осветляет участки. Диапазон: тени, средние тона, света', 'Lightens areas. Range: shadows, midtones, highlights'],
   'hint.burn': ['Затемняет участки. Диапазон: тени, средние тона, света', 'Darkens areas. Range: shadows, midtones, highlights'],
-  'hint.blur.field': ['Щелчок — новая булавка; тяните кольцо вокруг неё, чтобы изменить размытие. Delete — удалить выбранную. Enter — применить', 'Click adds a pin; drag the ring around it to change the blur. Delete removes the selected pin. Enter applies'],
+  'hint.blur.field': ['Клик — новая булавка; тяните кольцо вокруг неё, чтобы изменить размытие. Delete — удалить выбранную. Enter — применить', 'Click adds a pin; drag the ring around it to change the blur. Delete removes the selected pin. Enter applies'],
   'hint.blur.iris': ['Точки эллипса — размер, внутренняя точка — плавность перехода, центр — перемещение, кольцо вокруг центра — размытие. Enter — применить', 'Ellipse handles resize, the inner handle sets the transition, the center moves it, the ring around it sets the blur. Enter applies'],
   'hint.blur.tilt': ['Сплошные линии — зона резкости, пунктир — переход, точка — поворот, кольцо вокруг центра — размытие. Enter — применить', 'Solid lines: focus area, dashed: transition, the handle rotates, the ring around the center sets the blur. Enter applies'],
   'stamp.sourceSet': ['Источник задан', 'Source set'],
-  'stamp.needSource': ['Сначала Alt+щелчок — задать источник клонирования', 'Alt+click first to set the clone source'],
+  'stamp.needSource': ['Сначала Alt+клик — задать источник клонирования', 'Alt+click first to set the clone source'],
   'opt.strength': ['Интенсивность', 'Strength'],
   'opt.exposure': ['Экспонир.', 'Exposure'],
   'opt.shadows': ['Тени', 'Shadows'],
@@ -229,7 +229,7 @@ const D: Record<string, [string, string]> = {
   'adj.presetDeleteTip': ['Удалить пресет', 'Delete preset'],
   'adj.delete': ['Удалить', 'Delete'],
   'adj.save': ['Сохранить', 'Save'],
-  'adj.resetHint': ['Двойной щелчок — сбросить', 'Double-click to reset'],
+  'adj.resetHint': ['Двойной клик — сбросить', 'Double-click to reset'],
   'adj.processing': ['Обработка…', 'Processing…'],
   'adj.sec.light': ['Свет', 'Light'],
   'adj.sec.color': ['Цвет', 'Color'],
@@ -259,7 +259,7 @@ const D: Record<string, [string, string]> = {
   'adj.red': ['Красный', 'Red'],
   'adj.green': ['Зелёный', 'Green'],
   'adj.blue': ['Синий', 'Blue'],
-  'adj.curvesHint': ['Щелчок — добавить точку, вытащить за край — удалить', 'Click to add a point, drag it out to remove'],
+  'adj.curvesHint': ['Клик — добавить точку, вытащить за край — удалить', 'Click to add a point, drag it out to remove'],
   'adj.hue': ['Цветовой тон', 'Hue'],
   'adj.amount': ['Эффект', 'Amount'],
   'adj.threshold': ['Порог', 'Threshold'],
@@ -268,7 +268,7 @@ const D: Record<string, [string, string]> = {
   'adj.mono': ['Монохромный', 'Monochromatic'],
   'blur.amount': ['Размытие', 'Blur'],
   'blur.bokeh': ['Блики боке', 'Bokeh highlights'],
-  'blur.fieldHint': ['Щелчок по изображению — новая булавка', 'Click the image to add a pin'],
+  'blur.fieldHint': ['Клик по изображению — новая булавка', 'Click the image to add a pin'],
 
   'nav.zoomHint': ['Масштаб: введите значение и нажмите Enter', 'Zoom: type a value and press Enter'],
 
@@ -317,7 +317,7 @@ const D: Record<string, [string, string]> = {
   'fonts.unavailable': ['Браузер не даёт доступа к шрифтам: {0}. Текст показан как в PSD, при правке будет заменён похожим шрифтом', 'The browser does not allow access to fonts: {0}. Text is shown as in the PSD; editing will use a similar font'],
 
   'layers.effects': ['Эффекты', 'Effects'],
-  'layers.fxHint': ['Показать/скрыть эффекты, двойной щелчок — стиль слоя', 'Show/hide effects, double-click for Layer Style'],
+  'layers.fxHint': ['Показать/скрыть эффекты, двойной клик — стиль слоя', 'Show/hide effects, double-click for Layer Style'],
   'ctx.blending': ['Параметры наложения', 'Blending Options'],
 
   // menus
@@ -612,14 +612,14 @@ const D: Record<string, [string, string]> = {
 
   'hint.move': ['Перетаскивайте слой. Ctrl — автовыбор слоя, стрелки — сдвиг на 1 px (Shift — 10 px)', 'Drag to move the layer. Ctrl auto-selects, arrows nudge 1 px (Shift: 10 px)'],
   'hint.marquee': ['Shift — добавить, Alt — вычесть, Shift+Alt — пересечь. Во время рисования Shift — квадрат, Alt — от центра', 'Shift adds, Alt subtracts, Shift+Alt intersects. While dragging: Shift constrains, Alt draws from center'],
-  'hint.lasso': ['Обычное — обведите с зажатой кнопкой; прямолинейное — щёлкайте по точкам; магнитное — щёлкните и ведите вдоль края. Enter или двойной щелчок — замкнуть, Backspace — убрать точку, Esc — отмена', 'Freehand: drag around; polygonal: click points; magnetic: click and move along an edge. Enter or double-click closes, Backspace removes a point, Esc cancels'],
-  'hint.wand': ['Щёлкните по области похожего цвета. Shift — добавить, Alt — вычесть', 'Click an area of similar color. Shift adds, Alt subtracts'],
-  'hint.eyedropper': ['Щелчок — основной цвет, Alt+щелчок — фоновый', 'Click picks foreground, Alt+click picks background'],
-  'hint.brush': ['[ ] — размер, Shift+[ ] — жёсткость, Shift+щелчок — прямая линия, Alt — пипетка', '[ ] size, Shift+[ ] hardness, Shift+click straight line, Alt eyedropper'],
-  'hint.eraser': ['[ ] — размер, Shift+щелчок — прямая линия', '[ ] size, Shift+click straight line'],
+  'hint.lasso': ['Обычное — обведите с зажатой кнопкой; прямолинейное — кликайте по точкам; магнитное — кликните и ведите вдоль края. Enter или двойной клик — замкнуть, Backspace — убрать точку, Esc — отмена', 'Freehand: drag around; polygonal: click points; magnetic: click and move along an edge. Enter or double-click closes, Backspace removes a point, Esc cancels'],
+  'hint.wand': ['Кликните по области похожего цвета. Shift — добавить, Alt — вычесть', 'Click an area of similar color. Shift adds, Alt subtracts'],
+  'hint.eyedropper': ['Клик — основной цвет, Alt+клик — фоновый', 'Click picks foreground, Alt+click picks background'],
+  'hint.brush': ['[ ] — размер, Shift+[ ] — жёсткость, Shift+клик — прямая линия, Alt — пипетка', '[ ] size, Shift+[ ] hardness, Shift+click straight line, Alt eyedropper'],
+  'hint.eraser': ['[ ] — размер, Shift+клик — прямая линия', '[ ] size, Shift+click straight line'],
   'hint.gradient': ['Протяните линию градиента. Shift — шаг 45°', 'Drag to draw the gradient. Shift snaps to 45°'],
-  'hint.bucket': ['Щёлкните, чтобы залить область основным цветом', 'Click to fill an area with the foreground color'],
-  'hint.hand': ['Перетаскивайте холст. Двойной щелчок — по размеру окна', 'Drag to pan. Double-click to fit'],
+  'hint.bucket': ['Кликните, чтобы залить область основным цветом', 'Click to fill an area with the foreground color'],
+  'hint.hand': ['Перетаскивайте холст. Двойной клик — по размеру окна', 'Drag to pan. Double-click to fit'],
 
   // options
   'opt.size': ['Размер', 'Size'],
@@ -670,8 +670,8 @@ const D: Record<string, [string, string]> = {
   'layers.background': ['Фон', 'Background'],
   'layers.copy': ['копия', 'copy'],
   'layers.visibility': ['Видимость', 'Visibility'],
-  'layers.maskThumb': ['Щелчок — редактировать маску, Shift+щелчок — выключить', 'Click to edit mask, Shift+click to disable'],
-  'layers.thumb': ['Ctrl+щелчок — загрузить выделение', 'Ctrl+click loads selection'],
+  'layers.maskThumb': ['Клик — редактировать маску, Shift+клик — выключить', 'Click to edit mask, Shift+click to disable'],
+  'layers.thumb': ['Ctrl+клик — загрузить выделение', 'Ctrl+click loads selection'],
   'layers.clipped': ['Обтравочная маска', 'Clipping mask'],
 
   // history labels

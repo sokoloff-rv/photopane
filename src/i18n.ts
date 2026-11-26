@@ -811,8 +811,8 @@ function retranslateOpen(from: Lang, to: Lang) {
   for (const root of document.querySelectorAll<HTMLElement>('.dlg-overlay, .busy')) {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) { const v = swap(n.nodeValue || ''); if (v != null) n.nodeValue = v; }
-    for (const elem of root.querySelectorAll<HTMLElement>('[title], [placeholder], [aria-label]')) {
-      for (const attr of ['title', 'placeholder', 'aria-label']) {
+    for (const elem of root.querySelectorAll<HTMLElement>('[title], [data-tip], [placeholder], [aria-label]')) {
+      for (const attr of ['title', 'data-tip', 'placeholder', 'aria-label']) {
         const cur = elem.getAttribute(attr);
         const v = cur ? swap(cur) : null;
         if (v != null) elem.setAttribute(attr, v);

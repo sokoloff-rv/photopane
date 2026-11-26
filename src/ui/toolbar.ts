@@ -52,6 +52,7 @@ export class Toolbar {
       // tools with types (marquee, lasso) show the chosen one at once
       if (b.dataset.icon !== tl.iconName) { b.dataset.icon = tl.iconName; b.replaceChildren(icon(tl.iconName, 19)); }
       b.dataset.tip = t(tl.nameKey) + (tl.key ? ` (${tl.key})` : '') + (tl.implemented ? '' : ` — ${t('app.soon')}`);
+      b.dataset.tipPos = 'right';
       b.setAttribute('aria-label', t(tl.nameKey));
     }
   }
@@ -77,5 +78,6 @@ export class Toolbar {
     bg.dataset.tip = t('colors.bg');
     (this.colors.querySelector('.swap') as HTMLElement).dataset.tip = t('colors.swap');
     (this.colors.querySelector('.reset') as HTMLElement).dataset.tip = t('colors.reset');
+    for (const n of this.colors.querySelectorAll<HTMLElement>('[data-tip]')) n.dataset.tipPos = 'right';
   }
 }

@@ -104,8 +104,7 @@ export function applyImageDialog() {
     el('div', { class: 'adj-section' }, t('apply.blending')),
     row(t('apply.mode'), modeSel),
     el('div', { class: 'adj' }, opacity, scale, offset),
-    el('div', { class: 'form-row' }, el('label', {}, ''), checkbox(t('apply.preserve'), p.preserveTransparency, v => { p.preserveTransparency = v; render(); })),
-    el('div', { class: 'muted sm' }, t('apply.hint')));
+    el('div', { class: 'form-row' }, el('label', {}, ''), checkbox(t('apply.preserve'), p.preserveTransparency, v => { p.preserveTransparency = v; render(); })));
 
   const close = () => {
     clearTimeout(timer);

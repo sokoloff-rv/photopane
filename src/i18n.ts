@@ -393,7 +393,6 @@ const D: Record<string, [string, string]> = {
   'apply.divide': ['Разделить', 'Divide'],
   'apply.add': ['Сложение', 'Add'],
   'apply.subtract': ['Вычитание', 'Subtract'],
-  'apply.hint': ['Действует на активный слой и только внутри выделения, если оно есть. Частотное разложение: источник — размытая копия слоя, «Вычитание», масштаб 2, сдвиг 128.', 'Works on the active layer, inside the selection if there is one. Frequency separation: the source is a blurred copy of the layer, Subtract, scale 2, offset 128.'],
   'cmd.indexedColors': ['Индексированные цвета', 'Indexed Colours'],
   'prof.current': ['Профиль документа: {0}', 'Document profile: {0}'],
   'prof.convert': ['Преобразовать в', 'Convert to'],

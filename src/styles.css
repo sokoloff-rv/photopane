@@ -506,3 +506,9 @@ body.busy-cursor, body.busy-cursor * { cursor: progress !important; }
 .win-btn { width: 46px; border: 0; background: transparent; color: var(--text2); display: grid; place-items: center; padding: 0; border-radius: 0; }
 .win-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
 .win-btn.close:hover { background: #c42b1c; color: #fff; }
+
+/* Crop: width and height typed in the options bar */
+.crop-size { display: inline-flex; align-items: center; gap: 5px; }
+.crop-num { padding: 0 6px; }
+/* long preset names (1080 × 1920 — Stories / Reels) are cut in the bar; the open list shows them whole */
+.crop-preset { max-width: 175px; }

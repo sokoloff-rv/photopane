@@ -50,7 +50,16 @@ function customPresets(): CropPreset[] {
 }
 function allPresets(): CropPreset[] { return [...RATIOS, ...PIXEL_PRESETS, ...customPresets()]; }
 
-interface CropOpts { ratio: string; portrait: boolean; deletePixels: boolean; fill: 'transparent' | 'bg' | 'ai' }
+/**
+ * `ratio`: the chosen preset, or 'custom': the numbers typed in the options bar (customKind says whether they
+ * are an aspect ratio or a size in pixels), used at once without saving a preset.
+ */
+interface CropOpts {
+  ratio: string; portrait: boolean; deletePixels: boolean; fill: 'transparent' | 'bg' | 'ai';
+  customKind: 'ratio' | 'px'; customW: number; customH: number;
+}
+
+const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
 
 export class CropTool extends Tool<CropOpts> {
   readonly id = 'crop';
@@ -61,7 +70,7 @@ export class CropTool extends Tool<CropOpts> {
   private docId = -1;
   private drag: { mode: 'new' | 'move' | 'handle'; h?: [number, number]; start: P; r: Rect } | null = null;
 
-  constructor() { super({ ratio: 'free', portrait: false, deletePixels: true, fill: 'transparent' }); }
+  constructor() { super({ ratio: 'free', portrait: false, deletePixels: true, fill: 'transparent', customKind: 'ratio', customW: 3, customH: 2 }); }
 
   activate() { this.reset(); }
   private reset() {
@@ -78,7 +87,80 @@ export class CropTool extends Tool<CropOpts> {
   /** Remove the crop frame (Esc / Cancel); a new one can be drawn by dragging. */
   private clear() { this.rect = null; this.drag = null; app.update('overlay', 'options'); }
 
-  private preset(): CropPreset | undefined { return allPresets().find(x => x.value === this.o.ratio); }
+  private preset(): CropPreset | undefined {
+    if (this.o.ratio === 'custom') {
+      const { customW: w, customH: h, customKind: k } = this.o;
+      return { value: 'custom', label: t('opt.cropCustomValues'), r: w / h, px: k === 'px' ? { w, h } : undefined };
+    }
+    return allPresets().find(x => x.value === this.o.ratio);
+  }
+
+  /**
+   * What the width and height fields show: the typed numbers, the chosen preset's ratio or size (turned
+   * with the orientation), or with no constraint the frame's size in pixels.
+   */
+  private fieldValues(): { w: number; h: number; kind: 'ratio' | 'px' } {
+    const d = app.doc;
+    const o = this.o;
+    if (o.ratio === 'custom') return { w: o.customW, h: o.customH, kind: o.customKind };
+    const p = this.preset();
+    const turn = (w: number, h: number, kind: 'ratio' | 'px') => (o.portrait ? { w: h, h: w, kind } : { w, h, kind });
+    if (p?.px) return turn(p.px.w, p.px.h, 'px');
+    if (p && p.r === -1 && d) { const g = gcd(d.width, d.height) || 1; return turn(d.width / g, d.height / g, 'ratio'); }
+    if (p && p.r > 0) {
+      const m = /^(?:cr:)?(\d+(?:\.\d+)?)[:](\d+(?:\.\d+)?)/.exec(p.value);
+      if (m) return turn(+m[1], +m[2], 'ratio');
+    }
+    const r = this.rect ?? (d ? { x: 0, y: 0, w: d.width, h: d.height } : { x: 0, y: 0, w: 1, h: 1 });
+    return { w: Math.round(r.w), h: Math.round(r.h), kind: 'px' };
+  }
+
+  /**
+   * Numbers typed in the options bar: an aspect ratio gives the largest frame of it in the middle (as a
+   * preset does); a size in pixels gives a frame of exactly that many image pixels around the frame's centre
+   * (resized later, the result is scaled to that size on Apply, as with the pixel presets).
+   */
+  private setCustom(kind: 'ratio' | 'px', w: number, h: number) {
+    if (!(w > 0 && h > 0)) return;
+    this.o.customKind = kind; this.o.customW = w; this.o.customH = h;
+    this.o.portrait = false;
+    this.set('ratio', 'custom');
+    const d = app.doc;
+    if (kind === 'px' && d) {
+      const c = this.rect ? { x: this.rect.x + this.rect.w / 2, y: this.rect.y + this.rect.h / 2 } : { x: d.width / 2, y: d.height / 2 };
+      this.rect = roundRect({ x: c.x - w / 2, y: c.y - h / 2, w, h });
+      app.update('overlay', 'options');
+    } else this.fitRatio();
+  }
+
+  /** The width × height fields and the unit, in the options bar. */
+  private sizeFields(): HTMLElement {
+    const v = this.fieldValues();
+    const field = (value: number, tip: string, other: () => number, isW: boolean) => {
+      const i = el('input', { class: 'num-input', type: 'text', value: String(+value.toFixed(2)), style: { width: '40px' } }) as HTMLInputElement;
+      const box = el('div', { class: 'num-box crop-num', title: tip }, i);
+      const commit = () => {
+        const n = parseFloat(i.value.replace(',', '.'));
+        if (!(n > 0)) { i.value = String(+value.toFixed(2)); return; }
+        const val = kindSel.value === 'px' ? Math.round(n) : n;
+        if (isW) this.setCustom(kindSel.value as 'ratio' | 'px', val, other()); else this.setCustom(kindSel.value as 'ratio' | 'px', other(), val);
+      };
+      i.addEventListener('change', commit);
+      i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); i.blur(); } e.stopPropagation(); });
+      return { box, i };
+    };
+    const kindSel = select<'ratio' | 'px'>([{ value: 'ratio', label: t('opt.cropUnitRatio') }, { value: 'px', label: t('opt.cropUnitPx') }], v.kind, k => {
+      // the same frame, its numbers in the other unit: its size in pixels, or that size as the smallest ratio
+      const r = this.rect;
+      const d = app.doc;
+      const fw = Math.round(r?.w ?? d?.width ?? 1), fh = Math.round(r?.h ?? d?.height ?? 1);
+      if (k === 'px') this.setCustom('px', fw, fh);
+      else { const g = gcd(fw, fh) || 1; this.setCustom('ratio', fw / g, fh / g); }
+    });
+    const W = field(v.w, t('opt.cropWidth'), () => +H.i.value || v.h, true);
+    const H = field(v.h, t('opt.cropHeight'), () => +W.i.value || v.w, false);
+    return el('div', { class: 'crop-size' }, W.box, el('span', { class: 'muted' }, v.kind === 'ratio' ? ':' : '×'), H.box, kindSel);
+  }
 
   private ratio(): number {
     const r = this.preset()?.r ?? 0;
@@ -231,11 +313,18 @@ export class CropTool extends Tool<CropOpts> {
 
   options() {
     const r = this.rect;
+    const kind = this.fieldValues().kind;
     return [
       this.presetSelect(),
-      iconButton('updown', t('opt.swapRatio'), () => { this.set('portrait', !this.o.portrait); this.fitRatio(); }),
+      this.sizeFields(),
+      iconButton('updown', t('opt.swapRatio'), () => {
+        // typed numbers are swapped themselves; a preset turns
+        if (this.o.ratio === 'custom') { this.setCustom(this.o.customKind, this.o.customH, this.o.customW); return; }
+        this.set('portrait', !this.o.portrait); this.fitRatio();
+      }),
       this.preset()?.custom ? iconButton('trash', t('opt.cropDelete'), () => this.deletePreset()) : null,
-      r ? span(`${Math.round(r.w)} × ${Math.round(r.h)} ${t('dlg.px')}`) : null,
+      // with a ratio in the fields, the frame's size in pixels next to them
+      r && kind === 'ratio' ? span(`${Math.round(r.w)} × ${Math.round(r.h)} ${t('dlg.px')}`) : null,
       sep(),
       checkbox(t('opt.deleteCropped'), this.o.deletePixels, v => this.set('deletePixels', v)),
       select([{ value: 'transparent', label: t('opt.extendTransparent') }, { value: 'bg', label: t('opt.extendBg') }, { value: 'ai', label: t('opt.extendAi') }], this.o.fill, v => this.set('fill', v as any)),
@@ -251,6 +340,8 @@ export class CropTool extends Tool<CropOpts> {
     const custom = customPresets();
     const opts: { value: string; label: string }[] = [
       ...RATIOS.map(x => ({ value: x.value, label: lab(x) })),
+      // the numbers typed in the fields (shown while they are in use)
+      ...(this.o.ratio === 'custom' ? [{ value: 'custom', label: t('opt.cropCustomValues') }] : []),
       { value: '-', label: '' },
       ...PIXEL_PRESETS.map(x => ({ value: x.value, label: x.label })),
       ...(custom.length ? [{ value: '-', label: '' }, ...custom.map(x => ({ value: x.value, label: x.label }))] : []),
@@ -260,7 +351,7 @@ export class CropTool extends Tool<CropOpts> {
     const s = select(opts, this.o.ratio, v => {
       if (v === '__new') { s.value = this.o.ratio; this.newPresetDialog(); return; }
       this.set('ratio', v); this.fitRatio();
-    });
+    }, 'crop-preset');
     return s;
   }
 

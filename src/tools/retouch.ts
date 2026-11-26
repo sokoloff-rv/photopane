@@ -179,24 +179,6 @@ export class BlurTool extends PixelBrush<PixOpts> {
   options() { return [...this.baseOptions(), sep(), numberField({ label: t('opt.strength'), value: this.o.strength, min: 1, max: 100, unit: '%', onChange: v => this.set('strength', v) })]; }
 }
 
-export class SharpenTool extends BlurTool {
-  readonly id = 'sharpen';
-  readonly iconName = 'sharpen';
-  readonly label = 'tool.sharpen';
-  protected margin = 1;
-  constructor() { super(); this.o.strength = 35; }
-  protected op(img: ImageData, wt: Float32Array, w: number, h: number) {
-    const src = img.data.slice();
-    const d = img.data;
-    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
-      const k = wt[j * w + i];
-      if (!k) continue;
-      const p = (j * w + i) * 4;
-      for (let c = 0; c < 3; c++) d[p + c] = src[p + c] + (src[p + c] - boxAvg(src, w, h, i, j, c, 1)) * k * 0.7;
-    }
-  }
-}
-
 /* ---------- Smudge ---------- */
 export class SmudgeTool extends PixelBrush<PixOpts> {
   readonly id = 'smudge';
@@ -236,22 +218,13 @@ export class SmudgeTool extends PixelBrush<PixOpts> {
   options() { return [...this.baseOptions(), sep(), numberField({ label: t('opt.strength'), value: this.o.strength, min: 1, max: 100, unit: '%', onChange: v => this.set('strength', v) })]; }
 }
 
-/* ---------- Dodge / Burn ---------- */
-type Range = 'shadows' | 'midtones' | 'highlights';
-interface DBOpts extends PixOpts { range: Range }
-
-export class DodgeTool extends PixelBrush<DBOpts> {
-  readonly id: string = 'dodge';
-  readonly iconName: string = 'dodge';
-  readonly key: string = 'O';
-  readonly label: string = 'tool.dodge';
-  protected dir = 1;
+/* ---------- brushes with a stroke coverage (Dodge / Burn, Sharpen, Color Replacement) ---------- */
+abstract class CoverageBrush<O extends PixOpts> extends PixelBrush<O> {
   /** Stroke coverage per surface pixel (0..1, already scaled by exposure). */
-  private cov: Float32Array | null = null;
-  private covW = 0;
+  protected cov: Float32Array | null = null;
+  protected covW = 0;
   /** Area whose coverage changed since the pixels were last updated (surface coordinates). */
-  private dirty: { x0: number; y0: number; x1: number; y1: number } | null = null;
-  constructor(defaults?: any) { super(defaults ?? { size: 80, hardness: 0, strength: 50, range: 'midtones' }); }
+  protected dirty: { x0: number; y0: number; x1: number; y1: number } | null = null;
   protected start(_e?: PEvent) {
     const s = this.target!.surface;
     this.covW = s.w;
@@ -324,6 +297,25 @@ export class DodgeTool extends PixelBrush<DBOpts> {
   protected dabWeight(_px: number, _py: number, wt: number) { return wt; }
 
   /** One pixel: `orig` as before the stroke, `d` gets the result, `c` the stroke's coverage there. */
+  protected tone(_orig: Uint8ClampedArray, _d: Uint8ClampedArray, _p: number, _c: number) {}
+
+  protected op() { /* pixels are computed per pointer move in endMove() */ }
+  up() { super.up(); this.cov = null; }
+  cancel() { super.cancel(); this.cov = null; }
+}
+
+/* ---------- Dodge / Burn ---------- */
+type Range = 'shadows' | 'midtones' | 'highlights';
+interface DBOpts extends PixOpts { range: Range }
+
+export class DodgeTool extends CoverageBrush<DBOpts> {
+  readonly id: string = 'dodge';
+  readonly iconName: string = 'dodge';
+  readonly key: string = 'O';
+  readonly label: string = 'tool.dodge';
+  protected dir = 1;
+  constructor(defaults?: any) { super(defaults ?? { size: 80, hardness: 0, strength: 50, range: 'midtones' }); }
+
   protected tone(orig: Uint8ClampedArray, d: Uint8ClampedArray, p: number, c: number) {
     const range = this.o.range, dodge = this.dir > 0;
     {
@@ -351,9 +343,6 @@ export class DodgeTool extends PixelBrush<DBOpts> {
     }
   }
 
-  protected op() { /* pixels are computed per pointer move in endMove() */ }
-  up() { super.up(); this.cov = null; }
-  cancel() { super.cancel(); this.cov = null; }
   options() {
     return [
       ...this.baseOptions(), sep(),
@@ -368,6 +357,104 @@ export class BurnTool extends DodgeTool {
   readonly iconName = 'burn';
   readonly label = 'tool.burn';
   protected dir = -1;
+}
+
+/* ---------- Sharpen ---------- */
+/** [1 4 6 4 1] in both directions (about a 1 px Gaussian); outside the area counts as zero. */
+function blur5(src: Float32Array, w: number, h: number): Float32Array {
+  const tmp = new Float32Array(w * h), out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const r = y * w;
+    for (let x = 0; x < w; x++) {
+      let s = 6 * src[r + x];
+      if (x > 0) s += 4 * src[r + x - 1];
+      if (x > 1) s += src[r + x - 2];
+      if (x < w - 1) s += 4 * src[r + x + 1];
+      if (x < w - 2) s += src[r + x + 2];
+      tmp[r + x] = s;
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    const r = y * w;
+    for (let x = 0; x < w; x++) {
+      let s = 6 * tmp[r + x];
+      if (y > 0) s += 4 * tmp[r + x - w];
+      if (y > 1) s += tmp[r + x - 2 * w];
+      if (y < h - 1) s += 4 * tmp[r + x + w];
+      if (y < h - 2) s += tmp[r + x + 2 * w];
+      out[r + x] = s;
+    }
+  }
+  return out;
+}
+
+/**
+ * Like Dodge/Burn, a stroke sharpens each pixel once, from the pixels as they were before the stroke, by at
+ * most the strength: the dabs only extend the stroke's coverage. Each dab used to sharpen again what the dabs
+ * before it had sharpened (about six times per stroke), so after two or three strokes noise and edges turned
+ * into bright and dark specks. Only the brightness is sharpened (no colour fringes), the faintest grain is
+ * left as it is, and a pixel goes at most a few levels past the darkest or brightest of its neighbours (no
+ * halos or specks).
+ */
+export class SharpenTool extends CoverageBrush<PixOpts> {
+  readonly id = 'sharpen';
+  readonly iconName = 'sharpen';
+  readonly key = 'R';
+  readonly label = 'tool.sharpen';
+  constructor() { super({ size: 60, hardness: 50, strength: 50 }); }
+
+  protected endMove() {
+    const dr = this.dirty;
+    if (!dr || !this.target) return;
+    this.dirty = null;
+    const s = this.target.surface, M = 2;
+    const ex0 = Math.max(0, dr.x0 - M), ey0 = Math.max(0, dr.y0 - M);
+    const ew = Math.min(s.w, dr.x1 + M) - ex0, eh = Math.min(s.h, dr.y1 + M) - ey0, n = ew * eh;
+    const orig = this.backup!.getContext('2d')!.getImageData(ex0, ey0, ew, eh).data;
+    // brightness before the stroke; its blur is weighted by opacity, so transparent pixels do not darken edges
+    const L = new Float32Array(n), A = new Float32Array(n), LA = new Float32Array(n);
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      L[i] = 0.299 * orig[p] + 0.587 * orig[p + 1] + 0.114 * orig[p + 2];
+      A[i] = orig[p + 3];
+      LA[i] = L[i] * A[i];
+    }
+    const bLA = blur5(LA, ew, eh), bA = blur5(A, ew, eh);
+    const w = dr.x1 - dr.x0, h = dr.y1 - dr.y0;
+    const img = this.work!.getImageData(dr.x0, dr.y0, w, h);
+    const d = img.data, cov = this.cov!, CW = this.covW;
+    const AMOUNT = 3, GRAIN = 3, OVER = 3;
+    for (let j = 0; j < h; j++) {
+      const ey = dr.y0 + j - ey0, row = (dr.y0 + j) * CW + dr.x0;
+      for (let i = 0; i < w; i++) {
+        const c = cov[row + i];
+        if (!c) continue;
+        const ex = dr.x0 + i - ex0, e = ey * ew + ex;
+        if (!A[e]) continue;
+        const y = L[e];
+        let detail = y - bLA[e] / bA[e];
+        detail = detail > GRAIN ? detail - GRAIN : detail < -GRAIN ? detail + GRAIN : 0;
+        if (!detail) continue;
+        let lo = 255, hi = 0;
+        for (let yy = Math.max(0, ey - 1); yy <= Math.min(eh - 1, ey + 1); yy++) {
+          for (let xx = Math.max(0, ex - 1); xx <= Math.min(ew - 1, ex + 1); xx++) {
+            const q = yy * ew + xx;
+            if (!A[q]) continue;
+            if (L[q] < lo) lo = L[q];
+            if (L[q] > hi) hi = L[q];
+          }
+        }
+        // a little past the neighbours (crisper), never far (halos, specks)
+        const over = Math.min(OVER, (hi - lo) * 0.1);
+        const y2 = Math.min(hi + over, Math.max(lo - over, y + detail * AMOUNT));
+        const delta = (y2 - y) * c, p = e * 4, q = (j * w + i) * 4;
+        d[q] = orig[p] + delta; d[q + 1] = orig[p + 1] + delta; d[q + 2] = orig[p + 2] + delta;
+      }
+    }
+    this.work!.putImageData(img, dr.x0, dr.y0);
+    this.changed({ x: dr.x0, y: dr.y0, w, h });
+  }
+
+  options() { return [...this.baseOptions(), sep(), numberField({ label: t('opt.strength'), value: this.o.strength, min: 1, max: 100, unit: '%', onChange: v => this.set('strength', v) })]; }
 }
 
 /* ---------- Color replacement ---------- */

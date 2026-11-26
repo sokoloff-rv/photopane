@@ -224,8 +224,9 @@ export class BlurTool extends PixelBrush<PixOpts> {
 /**
  * Each dab drags the picture from where the previous dab was. The dabs are 1–2 px apart and the colours are
  * taken between pixels (bilinear), so the smear is smooth: with dabs 8 % of the size apart, every dab left a
- * shifted copy of the detail and the copies added up to a comb of stripes. The amount per dab is set so the
- * dragged colour fades over the same distance as before (per 8 % of the size, by the strength).
+ * shifted copy of the detail and the copies added up to a comb of stripes. A dab mixes by weight × strength,
+ * so the picture moves at strength × the brush's speed (the smear is as long as before, whatever the
+ * spacing) and the brush's soft edge stays soft.
  */
 export class SmudgeTool extends PixelBrush<PixOpts> {
   readonly id = 'smudge';
@@ -239,8 +240,6 @@ export class SmudgeTool extends PixelBrush<PixOpts> {
   constructor() { super({ size: 50, hardness: 40, strength: 50 }); }
   private step() { return Math.min(2, Math.max(1, this.o.size * 0.02)); }
   protected spacing() { return this.step() / this.o.size; }
-  /** k = (weight × strength)^e per dab: the fading per distance does not depend on how close the dabs are. */
-  private exponent() { return this.step() / (0.08 * this.o.size); }
   protected start() { this.prev = null; }
   protected dab(x: number, y: number) {
     const s = this.target!.surface, cx = x - s.x, cy = y - s.y, p = this.prev;
@@ -254,11 +253,11 @@ export class SmudgeTool extends PixelBrush<PixOpts> {
   protected gpuDab(x: number, y: number) {
     const a = this.dabArea(x, y, 0);
     if (!a) return;
-    this.gpu!.smudgeDab(a.lx, a.ly, a.r, this.o.hardness / 100, this.o.strength / 100, this.delta.x, this.delta.y, this.exponent(), a.x0, a.y0, a.x1, a.y1);
+    this.gpu!.smudgeDab(a.lx, a.ly, a.r, this.o.hardness / 100, this.o.strength / 100, this.delta.x, this.delta.y, a.x0, a.y0, a.x1, a.y1);
     this.changed({ x: a.x0, y: a.y0, w: a.x1 - a.x0, h: a.y1 - a.y0 });
   }
   protected op(img: ImageData, wt: Float32Array, w: number, h: number) {
-    const src = img.data.slice(), d = img.data, e = this.exponent();
+    const src = img.data.slice(), d = img.data;
     const dx = this.delta.x, dy = this.delta.y;
     // colour × alpha, so transparent pixels do not darken what is dragged across them
     const tap = (i: number, j: number, f: number, acc: number[]) => {
@@ -267,9 +266,8 @@ export class SmudgeTool extends PixelBrush<PixOpts> {
       acc[0] += src[q] * a; acc[1] += src[q + 1] * a; acc[2] += src[q + 2] * a; acc[3] += a;
     };
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
-      const k0 = wt[j * w + i];
-      if (!k0) continue;
-      const k = Math.pow(k0, e);
+      const k = wt[j * w + i];
+      if (!k) continue;
       const sx = i - dx, sy = j - dy, ix = Math.floor(sx), iy = Math.floor(sy), tx = sx - ix, ty = sy - iy;
       const acc = [0, 0, 0, 0];
       tap(ix, iy, (1 - tx) * (1 - ty), acc); tap(ix + 1, iy, tx * (1 - ty), acc);

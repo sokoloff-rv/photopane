@@ -96,12 +96,12 @@ void main() {
 
 /**
  * One Smudge dab (as SmudgeTool.op): the picture from where the previous dab was (uD back, taken between
- * pixels) mixes in by (weight × strength)^uE. Mixed as colour × alpha, as the textures hold it.
+ * pixels) mixes in by weight × strength. Mixed as colour × alpha, as the textures hold it.
  */
 const FS_SMUDGE = `#version 300 es
 precision highp float; precision highp int;
 ${DAB}
-uniform sampler2D uA; uniform ivec2 uRect; uniform ivec2 uSurf; uniform vec2 uD; uniform float uE;
+uniform sampler2D uA; uniform ivec2 uRect; uniform ivec2 uSurf; uniform vec2 uD;
 out vec4 o;
 vec4 at(ivec2 p) { return texelFetch(uA, clamp(p, ivec2(0), uSurf - 1), 0); }
 void main() {
@@ -112,7 +112,7 @@ void main() {
   vec2 sp = vec2(q) - uD;
   ivec2 i0 = ivec2(floor(sp)); vec2 t = sp - floor(sp);
   vec4 b = mix(mix(at(i0), at(i0 + ivec2(1, 0)), t.x), mix(at(i0 + ivec2(0, 1)), at(i0 + ivec2(1, 1)), t.x), t.y);
-  o = d + (b - d) * pow(w, uE);
+  o = d + (b - d) * w;
 }`;
 
 /** The result of a pointer move's area, drawn upright into the output canvas (colour × alpha, as canvases keep it). */
@@ -408,7 +408,7 @@ export class GpuRetouch {
   }
 
   /** One Smudge dab over x0..x1 × y0..y1: drags the picture by dx, dy (from the previous dab). */
-  smudgeDab(cx: number, cy: number, r: number, hard: number, str: number, dx: number, dy: number, e: number, x0: number, y0: number, x1: number, y1: number) {
+  smudgeDab(cx: number, cy: number, r: number, hard: number, str: number, dx: number, dy: number, x0: number, y0: number, x1: number, y1: number) {
     const gl = this.gl, w = x1 - x0, h = y1 - y0;
     if (!this.work || w <= 0 || h <= 0) return;
     const sc = this.scratchTex(w, h);
@@ -416,7 +416,7 @@ export class GpuRetouch {
     this.dabUniforms(u, cx, cy, r, hard, str);
     this.bindTex(0, this.work.t); gl.uniform1i(u('uA'), 0);
     gl.uniform2i(u('uRect'), x0, y0); gl.uniform2i(u('uSurf'), this.surf.w, this.surf.h);
-    gl.uniform2f(u('uD'), dx, dy); gl.uniform1f(u('uE'), e);
+    gl.uniform2f(u('uD'), dx, dy);
     gl.bindFramebuffer(gl.FRAMEBUFFER, sc.f);
     gl.viewport(0, 0, sc.w, sc.h);
     gl.enable(gl.SCISSOR_TEST); gl.scissor(0, 0, w, h);

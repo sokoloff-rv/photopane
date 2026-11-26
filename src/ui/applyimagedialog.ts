@@ -13,7 +13,13 @@ import { previews } from '../core/render';
 import type { Doc } from '../core/document';
 import { ApplyImageGpu, ApplyParams, ApplyChannel, ApplyMode, APPLY_MODES, applyImageCpu } from '../core/applyimage';
 
-const DEFAULTS: ApplyParams = { channel: 'rgb', invert: false, mode: 'multiply', opacity: 1, scale: 1, offset: 0, preserveTransparency: true };
+/**
+ * Normal blending at first: the window shows its result at once, and Multiply (Photoshop's first mode) with the
+ * merged picture darkened the whole image the moment the window opened, which read as the window dimming it.
+ */
+const DEFAULTS: ApplyParams = { channel: 'rgb', invert: false, mode: 'normal', opacity: 1, scale: 1, offset: 0, preserveTransparency: true };
+/** The settings last confirmed with OK (a new key: the old one may still hold Multiply from the first version). */
+const SETTINGS_KEY = 'applyImageLast';
 
 export function applyImageDialog() {
   const d = app.doc;
@@ -21,7 +27,8 @@ export function applyImageDialog() {
   if (!d || !l) return;
   if (l.isGroup || l.kind === 'text') { toast(t('ai.needRaster'), 'error'); return; }
   const W = d.width, H = d.height;
-  const p: ApplyParams = { ...DEFAULTS, ...(app.settings.applyImage || {}) };
+  delete app.settings.applyImage;
+  const p: ApplyParams = { ...DEFAULTS, ...(app.settings[SETTINGS_KEY] || {}) };
   if (!APPLY_MODES.includes(p.mode as any)) p.mode = DEFAULTS.mode;
 
   // the active layer and this document's merged picture as they are now (before the preview changes them)
@@ -128,7 +135,7 @@ export function applyImageDialog() {
       s.markDirtyDoc({ x: 0, y: 0, w: W, h: H });
       l.touch();
       close();
-      app.settings.applyImage = { ...p };
+      app.settings[SETTINGS_KEY] = { ...p };
       app.saveSettings();
       app.commit('cmd.applyImage');
     },

@@ -27,6 +27,7 @@ export type GpuStageDesc =
 export const GPU_FX = new Set<string>([
   'gaussian', 'unsharp', 'motionBlur', 'radialBlur', 'highPass', 'glow',
   'invert', 'desaturate', 'posterize', 'threshold', 'sepia', 'noise', 'pixelate', 'chromatic', 'emboss', 'findEdges',
+  'surfaceBlur', 'denoise', 'dehaze', 'halftone',
 ]);
 /** The simple filters' operation numbers in FS_SIMPLE. */
 const SIMPLE_OP: Record<string, number> = { invert: 0, desaturate: 1, posterize: 2, threshold: 3, sepia: 4, noise: 5, chromatic: 7, emboss: 8, findEdges: 9 };
@@ -271,6 +272,161 @@ void main() {
   o = acc / max(n, 1.0);
 }`;
 
+/*
+ * Surface Blur, Reduce Noise and Dehaze use the guided filter (He et al.; guided() in core/fx.ts), here in its
+ * fast form: the box averages are taken on a reduced copy (the averages are smooth anyway) and the result
+ * a·I + b is formed at full size from the bilinearly enlarged a and b. The reduction keeps the working
+ * textures within a few hundred MB on large photos.
+ */
+/* A reduced copy for the guided filter: block averages (or minima) of the source, packed per filter (uMode). */
+const FS_GFPACK = `#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D uIn, uAux; uniform ivec2 uSize; uniform int uF, uMode; uniform vec3 uAtm; uniform float uOmega;
+out vec4 o;
+float lumf(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+void main() {
+  ivec2 lq = ivec2(gl_FragCoord.xy), b = lq * uF;
+  vec3 acc = vec3(0.0); float mn = 1e9, n = 0.0;
+  for (int y = 0; y < uF; y++) for (int x = 0; x < uF; x++) {
+    ivec2 q = b + ivec2(x, y);
+    if (q.x >= uSize.x || q.y >= uSize.y) continue;
+    vec3 c = texelFetch(uIn, q, 0).rgb;
+    if (uMode == 2) mn = min(mn, min(c.r / uAtm.r, min(c.g / uAtm.g, c.b / uAtm.b)));
+    else acc += c;
+    n += 1.0;
+  }
+  acc /= max(n, 1.0);
+  if (uMode == 0) o = vec4(acc, 1.0);                                  // Surface Blur: the guide (= the input)
+  else if (uMode == 1) o = vec4(acc * acc, 1.0);                       // Surface Blur: its square
+  else if (uMode == 2) o = vec4(mn, 0.0, 0.0, 1.0);                    // Dehaze: the darkest channel / haze colour
+  else if (uMode == 3) { float Y = lumf(acc); o = vec4(Y, Y, Y * Y, Y * Y); }   // Reduce Noise: luma guides itself
+  else if (uMode == 4) {                                               // Dehaze: guide = luma, input = transmission
+    float L = lumf(acc), t0 = 1.0 - uOmega * texelFetch(uAux, lq, 0).r;
+    o = vec4(L, t0, L * L, L * t0);
+  } else {                                                             // Reduce Noise: YCbCr (chroma + 0.5)
+    vec3 c = acc;
+    o = vec4(lumf(c), -0.168736 * c.r - 0.331264 * c.g + 0.5 * c.b + 0.5, 0.5 * c.r - 0.418688 * c.g - 0.081312 * c.b + 0.5, 1.0);
+  }
+}`;
+
+/* Separable box average (uMin = 0) or minimum (uMin = 1) of radius uR, edges repeated (boxMean, minRows). */
+const FS_BOX = `#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D uIn; uniform ivec2 uSize, uDir; uniform int uR, uMin;
+out vec4 o;
+void main() {
+  ivec2 q = ivec2(gl_FragCoord.xy);
+  vec4 acc = texelFetch(uIn, q, 0);
+  for (int i = 1; i <= uR; i++) {
+    vec4 a = texelFetch(uIn, clamp(q + uDir * i, ivec2(0), uSize - 1), 0);
+    vec4 b = texelFetch(uIn, clamp(q - uDir * i, ivec2(0), uSize - 1), 0);
+    acc = uMin == 1 ? min(acc, min(a, b)) : acc + a + b;
+  }
+  o = uMin == 1 ? acc : acc / float(2 * uR + 1);
+}`;
+
+/* The guided filter's a and b from the averages: one channel (uMode 0: means of I, p, I², I·p) or three (1: a, 2: b). */
+const FS_GFAB = `#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D uM1, uM2; uniform int uMode; uniform float uEps;
+out vec4 o;
+void main() {
+  ivec2 q = ivec2(gl_FragCoord.xy);
+  vec4 m = texelFetch(uM1, q, 0);
+  if (uMode == 0) {
+    float a = (m.w - m.x * m.y) / (max(m.z - m.x * m.x, 0.0) + uEps);
+    o = vec4(a, m.y - a * m.x, 0.0, 1.0);
+  } else {
+    vec3 mI = m.rgb, v = max(texelFetch(uM2, q, 0).rgb - mI * mI, 0.0);
+    vec3 a = v / (v + uEps);
+    o = uMode == 1 ? vec4(a, 1.0) : vec4(mI - a * mI, 1.0);
+  }
+}`;
+
+/* The end of Surface Blur (0), Reduce Noise (1), Dehaze (2) and adding haze (3), blended with the selection. */
+const FS_GFOUT = `#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D uSrc, uSel, uMA, uMB, uAux; uniform ivec2 uSize, uLow; uniform float uS, uK;
+uniform int uMode, uHasSel, uLuma, uChroma; uniform vec3 uAtm;
+out vec4 o;
+float lumf(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+vec4 low(sampler2D t, ivec2 q) { return texture(t, (vec2(q) + 0.5) / uS / vec2(uLow)); }
+void main() {
+  ivec2 q = ivec2(gl_FragCoord.xy);
+  vec4 s = texelFetch(uSrc, q, 0);
+  vec3 r;
+  if (uMode == 0) r = low(uMA, q).rgb * s.rgb + low(uMB, q).rgb;
+  else if (uMode == 1) {
+    vec3 c = s.rgb;
+    float Y = lumf(c), Cb = -0.168736 * c.r - 0.331264 * c.g + 0.5 * c.b, Cr = 0.5 * c.r - 0.418688 * c.g - 0.081312 * c.b;
+    if (uLuma == 1) { vec4 ab = low(uMA, q); Y = ab.x * Y + ab.y; }
+    if (uChroma == 1) { vec4 ch = texture(uAux, (vec2(q) + 0.5) / vec2(uSize)); Cb = ch.g - 0.5; Cr = ch.b - 0.5; }
+    r = vec3(Y + 1.402 * Cr, Y - 0.344136 * Cb - 0.714136 * Cr, Y + 1.772 * Cb);
+  } else if (uMode == 2) {
+    vec4 ab = low(uMA, q);
+    float t = clamp(ab.x * lumf(s.rgb) + ab.y, 0.1, 1.0);
+    r = (s.rgb - uAtm) / t + uAtm;
+  } else r = s.rgb + (vec3(215.0, 220.0, 228.0) / 255.0 - s.rgb) * uK;
+  vec4 res = vec4(clamp(r, 0.0, 1.0), s.a);
+  if (uHasSel == 1) res = mix(s, res, texelFetch(uSel, q, 0).r);
+  o = res;
+}`;
+
+/*
+ * Halftone (halftone() in core/fx.ts). Cells: each texel is one cell of the rotated grid (index − uN), the
+ * alpha-weighted mean colour of the pixels nearest to its centre and the dot radius (in cells) from its lightness.
+ */
+const FS_HTCELL = `#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D uIn; uniform ivec2 uSize; uniform float uC, uCs, uSn; uniform int uN; uniform vec2 uCenter;
+out vec4 o;
+void main() {
+  ivec2 k = ivec2(gl_FragCoord.xy) - uN;
+  vec2 ctr = uCenter + uC * vec2(float(k.x) * uCs - float(k.y) * uSn, float(k.x) * uSn + float(k.y) * uCs);
+  float ext = uC * (abs(uCs) + abs(uSn)) * 0.5 + 1.0;
+  ivec2 lo = max(ivec2(floor(ctr - ext)), ivec2(0)), hi = min(ivec2(ceil(ctr + ext)), uSize - 1);
+  vec3 acc = vec3(0.0); float sa = 0.0;
+  for (int y = lo.y; y <= hi.y; y++) for (int x = lo.x; x <= hi.x; x++) {
+    vec2 d = vec2(float(x), float(y)) - uCenter;
+    float u = (d.x * uCs + d.y * uSn) / uC, v = (d.y * uCs - d.x * uSn) / uC;
+    if (int(floor(u + 0.5)) != k.x || int(floor(v + 0.5)) != k.y) continue;
+    vec4 c = texelFetch(uIn, ivec2(x, y), 0);
+    acc += c.rgb * c.a; sa += c.a;
+  }
+  if (sa <= 0.0) { o = vec4(0.0); return; }
+  vec3 m = acc / sa;
+  float r = 0.71 * sqrt(max(0.0, 1.0 - dot(m, vec3(0.299, 0.587, 0.114))));
+  o = vec4(m, r * uC < 0.3 ? 0.0 : r);
+}`;
+
+/* Halftone dots: each pixel takes the strongest of the four nearest dots, with a 1 px soft edge. */
+const FS_HT = `#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D uIn, uSel, uCells; uniform float uC, uCs, uSn; uniform int uN, uColor, uHasSel; uniform vec2 uCenter;
+out vec4 o;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 s = texelFetch(uIn, p, 0);
+  vec2 d = vec2(p) - uCenter;
+  float ic = 1.0 / uC;
+  float u = (d.x * uCs + d.y * uSn) * ic, v = (d.y * uCs - d.x * uSn) * ic;
+  int u0 = int(floor(u)), v0 = int(floor(v));
+  float cov = 0.0; vec3 best = vec3(1.0); bool any = false;
+  for (int j = v0; j <= v0 + 1; j++) for (int q = u0; q <= u0 + 1; q++) {
+    vec4 cell = texelFetch(uCells, ivec2(q + uN, j + uN), 0);
+    float r = cell.a;
+    if (r <= 0.0) continue;
+    float du = u - float(q), dv = v - float(j), d2 = du * du + dv * dv, reach = r + 0.5 * ic;
+    if (d2 >= reach * reach) continue;
+    float cv = min(1.0, (r - sqrt(d2)) * uC + 0.5);
+    if (cv > cov) { cov = cv; best = cell.rgb; any = true; }
+  }
+  vec3 res = uColor == 1 && any ? 1.0 + (best - 1.0) * cov : vec3(1.0 - cov);
+  vec4 r4 = vec4(clamp(res, 0.0, 1.0), s.a);
+  if (uHasSel == 1) r4 = mix(s, r4, texelFetch(uSel, p, 0).r);
+  o = r4;
+}`;
+
 /* Adjust: the per-pixel part of enhance() on the stage input, blended with the selection. */
 const FS_ENH = `#version 300 es
 precision highp float; precision highp int;
@@ -498,6 +654,7 @@ interface GL {
   canvas: HTMLCanvasElement; gl: WebGL2RenderingContext;
   enh: Prog; lut: Prog; hsl: Prog; tone: Prog; show: Prog; blur: Prog; down: Prog;
   premul: Prog; avg2: Prog; glowMask: Prog; fxOut: Prog; simple: Prog; cell: Prog; lut3: Prog;
+  gfPack: Prog; box: Prog; gfAb: Prog; gfOut: Prog; htCell: Prog; ht: Prog;
   /** internal format for the wide blur: half float when it can be rendered to */
   fmt: { internal: number; type: number };
   maxSize: number;
@@ -543,6 +700,12 @@ function init(): GL | null {
     const cell = prog(FS_CELL, ['uIn', 'uSrcSize', 'uDir', 'uF', 'uPremul']);
     const lut3 = prog(FS_LUT3D, ['uIn', 'uSel', 'uLut3', 'uHasSel', 'uMin', 'uMax', 'uN', 'uS']);
     const simple = prog(FS_SIMPLE, ['uIn', 'uSel', 'uAux', 'uSize', 'uOp', 'uHasSel', 'uI0', 'uF0', 'uF1', 'uF2', 'uC', 'uStopC', 'uStopP']);
+    const gfPack = prog(FS_GFPACK, ['uIn', 'uAux', 'uSize', 'uF', 'uMode', 'uAtm', 'uOmega']);
+    const box = prog(FS_BOX, ['uIn', 'uSize', 'uDir', 'uR', 'uMin']);
+    const gfAb = prog(FS_GFAB, ['uM1', 'uM2', 'uMode', 'uEps']);
+    const gfOut = prog(FS_GFOUT, ['uSrc', 'uSel', 'uMA', 'uMB', 'uAux', 'uSize', 'uLow', 'uS', 'uK', 'uMode', 'uHasSel', 'uLuma', 'uChroma', 'uAtm']);
+    const htCell = prog(FS_HTCELL, ['uIn', 'uSize', 'uC', 'uCs', 'uSn', 'uN', 'uCenter']);
+    const ht = prog(FS_HT, ['uIn', 'uSel', 'uCells', 'uC', 'uCs', 'uSn', 'uN', 'uColor', 'uHasSel', 'uCenter']);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
@@ -554,7 +717,7 @@ function init(): GL | null {
     const vp = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array;
     const maxSize = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) as number, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number, vp[0], vp[1]);
     canvas.addEventListener('webglcontextlost', () => { shared = undefined; });
-    return { canvas, gl, enh, lut, hsl, tone, show, blur, down, premul, avg2, glowMask, fxOut, simple, cell, lut3, fmt, maxSize, fbo: gl.createFramebuffer()! };
+    return { canvas, gl, enh, lut, hsl, tone, show, blur, down, premul, avg2, glowMask, fxOut, simple, cell, lut3, gfPack, box, gfAb, gfOut, htCell, ht, fmt, maxSize, fbo: gl.createFramebuffer()! };
   } catch (e) {
     console.warn('PhotoPane: GPU adjustments unavailable', e);
     return null;
@@ -586,8 +749,8 @@ export class GpuChain {
     if (t) { this.scratch.delete(key); this.scratch.set(key, t); return t; }
     t = eightBit ? this.rgba8(w, h, filter) : this.texture(fmt.internal, w, h, gl.RGBA, fmt.type, null, filter);
     this.scratch.set(key, t);
-    // a dragged radius makes new sizes: keep the most recent few
-    while (this.scratch.size > 8) { const [k, old] = this.scratch.entries().next().value!; this.scratch.delete(k); this.free(old); }
+    // a dragged radius makes new sizes: keep the most recent few (one filter uses up to ten)
+    while (this.scratch.size > 14) { const [k, old] = this.scratch.entries().next().value!; this.scratch.delete(k); this.free(old); }
     return t;
   }
 
@@ -729,6 +892,8 @@ export class GpuChain {
     const op = job[0];
     const num = (i: number) => Number(job[i]) || 0;
     if (op in SIMPLE_OP || op === 'pixelate') { this.simple(job, input, out); return; }
+    if (op === 'surfaceBlur' || op === 'denoise' || op === 'dehaze') { this.guidedFx(job, input, out); return; }
+    if (op === 'halftone') { this.halftone(job, input, out); return; }
     const finish = (blurred: WebGLTexture, mode: number, a = 0, b = 0, tint: [number, number, number] = [1, 1, 1]) => {
       this.pass(this.st.fxOut, out, w, h, [['uIn', blurred], ['uSrc', input], ['uSel', this.sel ?? input]], u => {
         gl.uniform2i(u.uSize, w, h); gl.uniform1i(u.uMode, mode); gl.uniform1i(u.uHasSel, this.sel ? 1 : 0); gl.uniform1i(u.uKeep, keep ? 1 : 0);
@@ -773,6 +938,151 @@ export class GpuChain {
       }
     }
     finish(src, 0);
+  }
+
+  /** Box average (or minimum) of radius r over a w×h texture, through the shared horizontal pass. */
+  private boxPass(src: WebGLTexture, dst: WebGLTexture, w: number, h: number, r: number, min = false) {
+    const { gl } = this.st;
+    const tmp = this.tmp('gfH', w, h, gl.LINEAR);
+    this.pass(this.st.box, tmp, w, h, [['uIn', src]], u => { gl.uniform2i(u.uSize, w, h); gl.uniform2i(u.uDir, 1, 0); gl.uniform1i(u.uR, r); gl.uniform1i(u.uMin, min ? 1 : 0); });
+    this.pass(this.st.box, dst, w, h, [['uIn', tmp]], u => { gl.uniform2i(u.uSize, w, h); gl.uniform2i(u.uDir, 0, 1); gl.uniform1i(u.uR, r); gl.uniform1i(u.uMin, min ? 1 : 0); });
+  }
+
+  /** A reduced copy (factor f) packed for a filter (FS_GFPACK modes). */
+  private gfPack(input: WebGLTexture, dst: WebGLTexture, f: number, mode: number, set: (u: Prog['u']) => void = () => {}, aux?: WebGLTexture) {
+    const { gl } = this.st;
+    const lw = Math.ceil(this.w / f), lh = Math.ceil(this.h / f);
+    this.pass(this.st.gfPack, dst, lw, lh, [['uIn', input], ['uAux', aux ?? input]], u => {
+      gl.uniform2i(u.uSize, this.w, this.h); gl.uniform1i(u.uF, f); gl.uniform1i(u.uMode, mode); set(u);
+    });
+  }
+
+  /**
+   * Surface Blur, Reduce Noise and Dehaze (core/fx.ts) on the GPU: the guided filter on a copy reduced by f
+   * (so that the working textures stay near 6 MP), its a and b enlarged bilinearly at the end.
+   */
+  private guidedFx(job: FxJob, input: WebGLTexture, out: WebGLTexture) {
+    const { gl } = this.st;
+    const { w, h } = this;
+    const op = job[0];
+    const num = (i: number) => Number(job[i]) || 0;
+    const memF = Math.max(1, Math.ceil(Math.sqrt(w * h / 6e6)));
+    const reduce = (r: number, perStep: number) => {
+      const f = Math.max(memF, r > perStep * 2 ? Math.floor(r / perStep) : 1);
+      return { f, R: f > 1 ? Math.max(1, Math.round(r / f)) : Math.max(1, Math.round(r)), lw: Math.ceil(w / f), lh: Math.ceil(h / f) };
+    };
+    const T = (role: string, lw: number, lh: number) => this.tmp(role, lw, lh, gl.LINEAR);
+    const finish = (mode: number, low: { f: number; lw: number; lh: number } | null, ma: WebGLTexture | null, mb: WebGLTexture | null, set: (u: Prog['u']) => void, aux?: WebGLTexture) => {
+      this.pass(this.st.gfOut, out, w, h, [['uSrc', input], ['uSel', this.sel ?? input], ['uMA', ma ?? input], ['uMB', mb ?? input], ['uAux', aux ?? input]], u => {
+        gl.uniform2i(u.uSize, w, h); gl.uniform1i(u.uMode, mode); gl.uniform1i(u.uHasSel, this.sel ? 1 : 0);
+        gl.uniform2i(u.uLow, low?.lw ?? w, low?.lh ?? h); gl.uniform1f(u.uS, low?.f ?? 1);
+        set(u);
+      });
+    };
+    if (op === 'surfaceBlur') {
+      const g = reduce(num(1), 8), eps = Math.pow(num(2) / 255, 2);
+      const P1 = T('gfP1', g.lw, g.lh), P2 = T('gfP2', g.lw, g.lh), M1 = T('gfM1', g.lw, g.lh), M2 = T('gfM2', g.lw, g.lh);
+      this.gfPack(input, P1, g.f, 0);
+      this.gfPack(input, P2, g.f, 1);
+      this.boxPass(P1, M1, g.lw, g.lh, g.R);
+      this.boxPass(P2, M2, g.lw, g.lh, g.R);
+      this.pass(this.st.gfAb, P1, g.lw, g.lh, [['uM1', M1], ['uM2', M2]], u => { gl.uniform1i(u.uMode, 1); gl.uniform1f(u.uEps, eps); });
+      this.pass(this.st.gfAb, P2, g.lw, g.lh, [['uM1', M1], ['uM2', M2]], u => { gl.uniform1i(u.uMode, 2); gl.uniform1f(u.uEps, eps); });
+      this.boxPass(P1, M1, g.lw, g.lh, g.R);
+      this.boxPass(P2, M2, g.lw, g.lh, g.R);
+      finish(0, g, M1, M2, () => {});
+      return;
+    }
+    if (op === 'denoise') {
+      const luma = num(1), chroma = num(2), scale = job[3] === undefined ? 1 : num(3);
+      let g: ReturnType<typeof reduce> | null = null, mab: WebGLTexture | null = null, ch: WebGLTexture | undefined;
+      if (luma > 0) {
+        g = reduce((2 + Math.round(luma / 40)) * scale, 4);
+        const P1 = T('gfP1', g.lw, g.lh), P2 = T('gfP2', g.lw, g.lh), M1 = T('gfM1', g.lw, g.lh), M2 = T('gfM2', g.lw, g.lh);
+        this.gfPack(input, P1, g.f, 3);
+        this.boxPass(P1, M1, g.lw, g.lh, g.R);
+        this.pass(this.st.gfAb, P2, g.lw, g.lh, [['uM1', M1], ['uM2', M1]], u => { gl.uniform1i(u.uMode, 0); gl.uniform1f(u.uEps, Math.pow(luma / 100, 2) * 0.012); });
+        this.boxPass(P2, M2, g.lw, g.lh, g.R);
+        mab = M2;
+      }
+      if (chroma > 0) {
+        // the colour noise: Cb and Cr blurred (as blurF), from a full-size YCbCr copy
+        const ycc = this.tmp('ycc', w, h, gl.LINEAR, true);
+        this.gfPack(input, ycc, 1, 5);
+        ch = this.fxGauss(ycc, chroma / 100 * Math.max(2, Math.min(w, h) / 250)).tex;
+      }
+      finish(1, g, mab, mab, u => { gl.uniform1i(u.uLuma, mab ? 1 : 0); gl.uniform1i(u.uChroma, ch ? 1 : 0); }, ch);
+      return;
+    }
+    // Dehaze
+    const amount = num(1);
+    if (amount < 0) { finish(3, null, null, null, u => gl.uniform1f(u.uK, -amount / 100 * 0.6)); return; }
+    const r = Math.max(3, Math.round(Math.min(w, h) / 120));
+    const g = reduce(4 * r, 8);
+    const atm = this.hazeColour(input, g.f, Math.max(1, Math.ceil(r / g.f)));
+    const P1 = T('gfP1', g.lw, g.lh), P2 = T('gfP2', g.lw, g.lh), M1 = T('gfM1', g.lw, g.lh), M2 = T('gfM2', g.lw, g.lh);
+    // transmission: the darkest normalised channel, minimum over r (on the reduced copy: minima of blocks)
+    this.gfPack(input, P1, g.f, 2, u => gl.uniform3f(u.uAtm, atm[0], atm[1], atm[2]));
+    this.boxPass(P1, M1, g.lw, g.lh, Math.max(1, Math.ceil(r / g.f)), true);
+    this.gfPack(input, P2, g.f, 4, u => gl.uniform1f(u.uOmega, amount / 100 * 0.95), M1);
+    // smoothed along the picture's edges by the guided filter (guide: luma), radius 4r
+    this.boxPass(P2, M2, g.lw, g.lh, g.R);
+    this.pass(this.st.gfAb, P1, g.lw, g.lh, [['uM1', M2], ['uM2', M2]], u => { gl.uniform1i(u.uMode, 0); gl.uniform1f(u.uEps, 1e-3); });
+    this.boxPass(P1, M1, g.lw, g.lh, g.R);
+    finish(2, g, M1, M1, u => gl.uniform3f(u.uAtm, atm[0], atm[1], atm[2]));
+  }
+
+  /**
+   * Dehaze's haze colour (as dehaze() in core/fx.ts, on a copy reduced by f): the mean colour of the 0.1 %
+   * pixels whose darkest channel (minimum over rm) is the highest. Read back to the CPU: a small image.
+   */
+  private hazeColour(input: WebGLTexture, f: number, rm: number): [number, number, number] {
+    const { gl } = this.st;
+    const lw = Math.ceil(this.w / f), lh = Math.ceil(this.h / f);
+    const t = this.tmp('haze', lw, lh, gl.NEAREST, true);
+    this.gfPack(input, t, f, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.st.fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+    const px = new Uint8Array(lw * lh * 4);
+    gl.readPixels(0, 0, lw, lh, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const n = lw * lh;
+    const dark0 = new Float32Array(n);
+    for (let i = 0; i < n; i++) dark0[i] = Math.min(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]) / 255;
+    // minimum over rm: rows, then columns
+    const tmp = new Float32Array(n), dark = new Float32Array(n);
+    for (let y = 0; y < lh; y++) for (let x = 0; x < lw; x++) {
+      let m = 1;
+      for (let k = Math.max(0, x - rm); k <= Math.min(lw - 1, x + rm); k++) m = Math.min(m, dark0[y * lw + k]);
+      tmp[y * lw + x] = m;
+    }
+    for (let y = 0; y < lh; y++) for (let x = 0; x < lw; x++) {
+      let m = 1;
+      for (let k = Math.max(0, y - rm); k <= Math.min(lh - 1, y + rm); k++) m = Math.min(m, tmp[k * lw + x]);
+      dark[y * lw + x] = m;
+    }
+    const bins = new Uint32Array(1024);
+    for (let p = 0; p < n; p++) bins[Math.min(1023, Math.floor(dark[p] * 1023))]++;
+    let cut = 1023, acc = 0;
+    const want = Math.max(1, Math.floor(n / 1000));
+    while (cut > 0 && acc + bins[cut] < want) acc += bins[cut--];
+    const A = [0, 0, 0]; let cnt = 0;
+    for (let p = 0; p < n; p++) if (dark[p] * 1023 >= cut) { A[0] += px[p * 4]; A[1] += px[p * 4 + 1]; A[2] += px[p * 4 + 2]; cnt++; }
+    return A.map(v => Math.max(40, v / Math.max(1, cnt)) / 255) as [number, number, number];
+  }
+
+  /** Halftone (core/fx.ts): the cells' colours and dot sizes, then the dots per pixel. */
+  private halftone(job: FxJob, input: WebGLTexture, out: WebGLTexture) {
+    const { gl } = this.st;
+    const { w, h } = this;
+    const c = Math.max(1, Number(job[1]) || 1), an = (Number(job[2]) || 0) * Math.PI / 180;
+    const cs = Math.cos(an), sn = Math.sin(an);
+    const N = Math.ceil(Math.hypot(w, h) / 2 / c) + 2, S = 2 * N + 1;
+    const cells = this.tmp('htCells', S, S, gl.NEAREST);
+    const common = (u: Prog['u']) => { gl.uniform1f(u.uC, c); gl.uniform1f(u.uCs, cs); gl.uniform1f(u.uSn, sn); gl.uniform1i(u.uN, N); gl.uniform2f(u.uCenter, w / 2, h / 2); };
+    this.pass(this.st.htCell, cells, S, S, [['uIn', input]], u => { gl.uniform2i(u.uSize, w, h); common(u); });
+    this.pass(this.st.ht, out, w, h, [['uIn', input], ['uSel', this.sel ?? input], ['uCells', cells]], u => {
+      common(u); gl.uniform1i(u.uColor, job[3] ? 1 : 0); gl.uniform1i(u.uHasSel, this.sel ? 1 : 0);
+    });
   }
 
   /** The simple filters (FS_SIMPLE), with the cell averages for Pixelate and the premultiplied picture for Chromatic. */

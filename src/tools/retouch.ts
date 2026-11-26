@@ -221,48 +221,64 @@ export class BlurTool extends PixelBrush<PixOpts> {
 }
 
 /* ---------- Smudge ---------- */
+/**
+ * Each dab drags the picture from where the previous dab was. The dabs are 1–2 px apart and the colours are
+ * taken between pixels (bilinear), so the smear is smooth: with dabs 8 % of the size apart, every dab left a
+ * shifted copy of the detail and the copies added up to a comb of stripes. The amount per dab is set so the
+ * dragged colour fades over the same distance as before (per 8 % of the size, by the strength).
+ */
 export class SmudgeTool extends PixelBrush<PixOpts> {
   readonly id = 'smudge';
   readonly iconName = 'smudge';
   readonly key = 'R';
   readonly label = 'tool.smudge';
-  private buf: Float32Array | null = null;
-  private bufSize = 0;
+  protected margin = 3;
+  /** The previous dab's centre and the shift from it to this dab (surface pixels). */
+  private prev: { x: number; y: number } | null = null;
+  private delta = { x: 0, y: 0 };
   constructor() { super({ size: 50, hardness: 40, strength: 50 }); }
-  protected spacing() { return 0.08; }
-  protected start() { this.buf = null; }
+  private step() { return Math.min(2, Math.max(1, this.o.size * 0.02)); }
+  protected spacing() { return this.step() / this.o.size; }
+  /** k = (weight × strength)^e per dab: the fading per distance does not depend on how close the dabs are. */
+  private exponent() { return this.step() / (0.08 * this.o.size); }
+  protected start() { this.prev = null; }
+  protected dab(x: number, y: number) {
+    const s = this.target!.surface, cx = x - s.x, cy = y - s.y, p = this.prev;
+    this.prev = { x: cx, y: cy };
+    // the first dab of a stroke only marks where the dragging starts
+    if (!p) return;
+    this.delta = { x: cx - p.x, y: cy - p.y };
+    super.dab(x, y);
+  }
   protected gpuKind(): RetouchKind | null { return 'smudge'; }
   protected gpuDab(x: number, y: number) {
-    const s = this.target!.surface, lx = x - s.x, ly = y - s.y;
-    const D = Math.ceil(this.o.size) + 2;
-    const bx = Math.round(lx) - Math.floor(D / 2), by = Math.round(ly) - Math.floor(D / 2);
-    this.gpu!.smudgeDab(lx, ly, this.o.size / 2, this.o.hardness / 100, this.o.strength / 100, bx, by, D);
-    const x0 = Math.max(0, bx), y0 = Math.max(0, by), x1 = Math.min(s.w, bx + D), y1 = Math.min(s.h, by + D);
-    if (x1 > x0 && y1 > y0) this.changed({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+    const a = this.dabArea(x, y, 0);
+    if (!a) return;
+    this.gpu!.smudgeDab(a.lx, a.ly, a.r, this.o.hardness / 100, this.o.strength / 100, this.delta.x, this.delta.y, this.exponent(), a.x0, a.y0, a.x1, a.y1);
+    this.changed({ x: a.x0, y: a.y0, w: a.x1 - a.x0, h: a.y1 - a.y0 });
   }
-  protected op(img: ImageData, wt: Float32Array, w: number, h: number, x0: number, y0: number, cx: number, cy: number) {
-    const D = Math.ceil(this.o.size) + 2;
-    const d = img.data;
-    const bx = Math.round(cx) - Math.floor(D / 2), by = Math.round(cy) - Math.floor(D / 2);
-    if (!this.buf || this.bufSize !== D) {
-      this.bufSize = D;
-      this.buf = new Float32Array(D * D * 4);
-      for (let j = 0; j < D; j++) for (let i = 0; i < D; i++) {
-        const ii = bx + i - x0, jj = by + j - y0;
-        if (ii < 0 || jj < 0 || ii >= w || jj >= h) continue;
-        const p = (jj * w + ii) * 4, q = (j * D + i) * 4;
-        for (let c = 0; c < 4; c++) this.buf[q + c] = d[p + c];
-      }
-      return;
-    }
-    const buf = this.buf;
-    for (let j = 0; j < D; j++) for (let i = 0; i < D; i++) {
-      const ii = bx + i - x0, jj = by + j - y0;
-      if (ii < 0 || jj < 0 || ii >= w || jj >= h) continue;
-      const k = wt[jj * w + ii];
-      const p = (jj * w + ii) * 4, q = (j * D + i) * 4;
-      if (k) for (let c = 0; c < 4; c++) d[p + c] = d[p + c] + (buf[q + c] - d[p + c]) * k;
-      for (let c = 0; c < 4; c++) buf[q + c] = d[p + c];
+  protected op(img: ImageData, wt: Float32Array, w: number, h: number) {
+    const src = img.data.slice(), d = img.data, e = this.exponent();
+    const dx = this.delta.x, dy = this.delta.y;
+    // colour × alpha, so transparent pixels do not darken what is dragged across them
+    const tap = (i: number, j: number, f: number, acc: number[]) => {
+      i = i < 0 ? 0 : i >= w ? w - 1 : i; j = j < 0 ? 0 : j >= h ? h - 1 : j;
+      const q = (j * w + i) * 4, a = src[q + 3] / 255 * f;
+      acc[0] += src[q] * a; acc[1] += src[q + 1] * a; acc[2] += src[q + 2] * a; acc[3] += a;
+    };
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      const k0 = wt[j * w + i];
+      if (!k0) continue;
+      const k = Math.pow(k0, e);
+      const sx = i - dx, sy = j - dy, ix = Math.floor(sx), iy = Math.floor(sy), tx = sx - ix, ty = sy - iy;
+      const acc = [0, 0, 0, 0];
+      tap(ix, iy, (1 - tx) * (1 - ty), acc); tap(ix + 1, iy, tx * (1 - ty), acc);
+      tap(ix, iy + 1, (1 - tx) * ty, acc); tap(ix + 1, iy + 1, tx * ty, acc);
+      const p = (j * w + i) * 4, a0 = src[p + 3] / 255;
+      const A = a0 + (acc[3] - a0) * k;
+      if (A <= 0) { d[p] = d[p + 1] = d[p + 2] = d[p + 3] = 0; continue; }
+      for (let c = 0; c < 3; c++) d[p + c] = (src[p + c] * a0 + (acc[c] - src[p + c] * a0) * k) / A;
+      d[p + 3] = A * 255;
     }
   }
   options() { return [...this.baseOptions(), sep(), numberField({ label: t('opt.strength'), value: this.o.strength, min: 1, max: 100, unit: '%', onChange: v => this.set('strength', v) })]; }

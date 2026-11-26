@@ -94,21 +94,25 @@ void main() {
   o = pm(c + (acc / n - c) * k * 0.6);
 }`;
 
-/** One Smudge dab over its square: the carried colour mixes in, and is carried on (as SmudgeTool.op). */
+/**
+ * One Smudge dab (as SmudgeTool.op): the picture from where the previous dab was (uD back, taken between
+ * pixels) mixes in by (weight × strength)^uE. Mixed as colour × alpha, as the textures hold it.
+ */
 const FS_SMUDGE = `#version 300 es
 precision highp float; precision highp int;
 ${DAB}
-uniform sampler2D uA, uBuf; uniform ivec2 uRect; uniform ivec2 uSurf;
+uniform sampler2D uA; uniform ivec2 uRect; uniform ivec2 uSurf; uniform vec2 uD; uniform float uE;
 out vec4 o;
+vec4 at(ivec2 p) { return texelFetch(uA, clamp(p, ivec2(0), uSurf - 1), 0); }
 void main() {
-  ivec2 i = ivec2(gl_FragCoord.xy), q = uRect + i;
-  vec4 b = texelFetch(uBuf, i, 0);
-  if (q.x < 0 || q.y < 0 || q.x >= uSurf.x || q.y >= uSurf.y) { o = b; return; }
+  ivec2 q = uRect + ivec2(gl_FragCoord.xy);
   vec4 d = texelFetch(uA, q, 0);
-  float k = dabW(q);
-  if (k <= 0.0) { o = d; return; }
-  vec4 c = st(d);
-  o = pm(c + (st(b) - c) * k);
+  float w = dabW(q);
+  if (w <= 0.0) { o = d; return; }
+  vec2 sp = vec2(q) - uD;
+  ivec2 i0 = ivec2(floor(sp)); vec2 t = sp - floor(sp);
+  vec4 b = mix(mix(at(i0), at(i0 + ivec2(1, 0)), t.x), mix(at(i0 + ivec2(0, 1)), at(i0 + ivec2(1, 1)), t.x), t.y);
+  o = d + (b - d) * pow(w, uE);
 }`;
 
 /** The result of a pointer move's area, drawn upright into the output canvas (colour × alpha, as canvases keep it). */
@@ -200,13 +204,11 @@ export class GpuRetouch {
   private work: Tex | null = null;
   private cov: Tex | null = null;
   private scratch: Tex | null = null;
-  private buf: Tex | null = null;
   private sel: { t: WebGLTexture; of: Selection } | null = null;
   private maxSize: number;
   private surf = { w: 0, h: 0, x: 0, y: 0 };
   private doc = { w: 0, h: 0 };
   private hasSel = false;
-  private smudgeD = 0;
   private releaseTimer = 0;
 
   /** The shared instance, or null without WebGL2. */
@@ -260,7 +262,7 @@ export class GpuRetouch {
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
-    canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); this.orig = this.work = this.cov = this.scratch = this.buf = null; this.sel = null; });
+    canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); this.orig = this.work = this.cov = this.scratch = null; this.sel = null; });
   }
 
   /* ---------- textures ---------- */
@@ -309,7 +311,6 @@ export class GpuRetouch {
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.orig.f);
       gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.work.f);
       gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
-      this.smudgeD = 0;
     } else {
       this.cov = this.makeTex(w, h, gl.R8, gl.RED, this.cov);
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.cov.f);
@@ -336,7 +337,7 @@ export class GpuRetouch {
 
   private release() {
     const gl = this.gl;
-    for (const k of ['orig', 'work', 'cov', 'scratch', 'buf'] as const) {
+    for (const k of ['orig', 'work', 'cov', 'scratch'] as const) {
       const x = this[k];
       if (x) { gl.deleteTexture(x.t); gl.deleteFramebuffer(x.f); this[k] = null; }
     }
@@ -406,36 +407,21 @@ export class GpuRetouch {
     this.copyInto(sc, 0, 0, this.work, x0, y0, w, h);
   }
 
-  /**
-   * One Smudge dab: the square of side D at bx, by (surface pixels). The first dab of a stroke (or after the
-   * size changed) only picks up the colours under it.
-   */
-  smudgeDab(cx: number, cy: number, r: number, hard: number, str: number, bx: number, by: number, D: number) {
-    const gl = this.gl;
-    if (!this.work) return;
-    // the part of the square on the surface
-    const sx0 = Math.max(0, bx), sy0 = Math.max(0, by), sx1 = Math.min(this.surf.w, bx + D), sy1 = Math.min(this.surf.h, by + D);
-    if (this.smudgeD !== D || !this.buf) {
-      this.smudgeD = D;
-      this.buf = this.makeTex(D, D, gl.RGBA8, gl.RGBA, this.buf);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this.buf.f);
-      gl.disable(gl.SCISSOR_TEST);
-      gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-      if (sx1 > sx0 && sy1 > sy0) this.copyInto(this.work, sx0, sy0, this.buf, sx0 - bx, sy0 - by, sx1 - sx0, sy1 - sy0);
-      return;
-    }
-    const sc = this.scratchTex(D, D);
+  /** One Smudge dab over x0..x1 × y0..y1: drags the picture by dx, dy (from the previous dab). */
+  smudgeDab(cx: number, cy: number, r: number, hard: number, str: number, dx: number, dy: number, e: number, x0: number, y0: number, x1: number, y1: number) {
+    const gl = this.gl, w = x1 - x0, h = y1 - y0;
+    if (!this.work || w <= 0 || h <= 0) return;
+    const sc = this.scratchTex(w, h);
     const u = this.use('smudge');
     this.dabUniforms(u, cx, cy, r, hard, str);
     this.bindTex(0, this.work.t); gl.uniform1i(u('uA'), 0);
-    this.bindTex(1, this.buf.t); gl.uniform1i(u('uBuf'), 1);
-    gl.uniform2i(u('uRect'), bx, by); gl.uniform2i(u('uSurf'), this.surf.w, this.surf.h);
+    gl.uniform2i(u('uRect'), x0, y0); gl.uniform2i(u('uSurf'), this.surf.w, this.surf.h);
+    gl.uniform2f(u('uD'), dx, dy); gl.uniform1f(u('uE'), e);
     gl.bindFramebuffer(gl.FRAMEBUFFER, sc.f);
     gl.viewport(0, 0, sc.w, sc.h);
-    gl.enable(gl.SCISSOR_TEST); gl.scissor(0, 0, D, D);
+    gl.enable(gl.SCISSOR_TEST); gl.scissor(0, 0, w, h);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
-    if (sx1 > sx0 && sy1 > sy0) this.copyInto(sc, sx0 - bx, sy0 - by, this.work, sx0, sy0, sx1 - sx0, sy1 - sy0);
-    this.copyInto(sc, 0, 0, this.buf, 0, 0, D, D);
+    this.copyInto(sc, 0, 0, this.work, x0, y0, w, h);
   }
 
   private copyInto(src: Tex, sx: number, sy: number, dst: Tex, dx: number, dy: number, w: number, h: number) {

@@ -5,7 +5,7 @@ import { checkbox, segmented } from './controls';
 import { adjustDialog, sliderRow, SliderSpec } from './adjustdialogs';
 import { toast } from './dialog';
 import { openColorPicker } from './colorpicker';
-import { gradientMap, parseCube, applyLut, Lut3D, RGBc } from '../core/fx';
+import { gradientMap, gradientTable, parseCube, applyLut, Lut3D, RGBc } from '../core/fx';
 import { runJob, FxJob } from '../core/fxjobs';
 
 /** Remembered filter settings (per filter, in app settings). */
@@ -222,12 +222,17 @@ export function gradientMapDialog() {
   const body = el('div', { class: 'adj' }, presets, customRow,
     sliderRow(S('strength', 'adj.amount', 0, 100, 100, '%'), p.strength, v => { p.strength = v; refresh(); }));
   mark();
-  const res = adjustDialog({ title: t('cmd.gradientMap'), body, label: 'cmd.gradientMap', compute: () => (src, dst) => gradientMap(src, dst, stops(), p.strength) });
+  const res = adjustDialog({
+    title: t('cmd.gradientMap'), body, label: 'cmd.gradientMap',
+    compute: () => (src, dst) => gradientMap(src, dst, stops(), p.strength),
+    gpu: () => ({ kind: 'gmap', table: gradientTable(stops()), strength: p.strength / 100 }),
+  });
   if (res) { refresh = () => { app.saveSettings(); res.refresh(); }; res.refresh(); }
 }
 
 /** Colour LUT from a .cube file (thousands of free film and grading presets). */
 let lastLut: Lut3D | null = null;
+const IDENTITY_GRAY = new Uint8ClampedArray(256 * 3);
 export function lutDialog() {
   let strength = 100;
   let refresh = () => {};
@@ -246,6 +251,8 @@ export function lutDialog() {
   const res = adjustDialog({
     title: t('cmd.lut'), body, label: 'cmd.lut',
     compute: () => (src, dst) => { if (lastLut) applyLut(src, dst, lastLut, strength); else dst.set(src); },
+    // on the GPU: the LUT as a 3D texture, smooth on large photos (no LUT yet: unchanged)
+    gpu: () => lastLut ? { kind: 'lut3d', lut: lastLut, strength: strength / 100 } : { kind: 'gmap', table: IDENTITY_GRAY, strength: 0 },
   });
   if (res) { refresh = res.refresh; res.refresh(); if (!lastLut) input.click(); }
 }

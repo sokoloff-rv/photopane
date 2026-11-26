@@ -480,7 +480,8 @@ body.busy-cursor, body.busy-cursor * { cursor: progress !important; }
 
 /* a correction/filter window while its full-size result is being computed (core/adjustchain.ts) */
 .dlg.computing .dlg-head { position: relative; }
-.dlg.computing .dlg-head::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; border-radius: 1px; background: linear-gradient(90deg, transparent, var(--accent), transparent) no-repeat; background-size: 35% 100%; animation: computing 1.1s linear infinite; }
+.dlg.computing .dlg-head::after { content: ''; position: absolute; left: 16px; right: 16px; bottom: 0; height: 2px; border-radius: 1px; opacity: 0.6; background: linear-gradient(90deg, transparent, var(--accent), transparent) no-repeat; background-size: 30% 100%; animation: computing 1.6s ease-in-out infinite, computing-in 0.3s ease-out; }
+@keyframes computing-in { from { opacity: 0; } to { opacity: 0.6; } }
 @keyframes computing { from { background-position: -40% 0; } to { background-position: 140% 0; } }
 
 /* Image → Show Metadata */

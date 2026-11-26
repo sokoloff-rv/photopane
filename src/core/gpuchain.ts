@@ -8,6 +8,7 @@
 import type { EnhanceParams } from './adjust';
 import { HslParams, ToneParams, tintChroma } from './colorgrade';
 import type { FxJob } from './fxjobs';
+import type { Lut3D } from './fx';
 
 /** One step of the chain as the GPU sees it. */
 export type GpuStageDesc =
@@ -16,7 +17,11 @@ export type GpuStageDesc =
   | { kind: 'hsl'; p: HslParams }
   | { kind: 'tone'; p: ToneParams }
   /** a filter job (core/fxjobs.ts) the GPU can run: full size, in real time; `keep` = preserve transparency */
-  | { kind: 'fx'; job: FxJob; keep: boolean };
+  | { kind: 'fx'; job: FxJob; keep: boolean }
+  /** Gradient Map: the colour for each brightness (gradientTable in core/fx.ts), mixed by `strength` 0…1 */
+  | { kind: 'gmap'; table: Uint8ClampedArray; strength: number }
+  /** a 3D colour LUT (.cube), trilinear as applyLut() in core/fx.ts, mixed by `strength` 0…1 */
+  | { kind: 'lut3d'; lut: Lut3D; strength: number };
 
 /** Filters run on the GPU (the same jobs as the worker's, so the windows need no GPU code of their own). */
 export const GPU_FX = new Set<string>([
@@ -204,6 +209,26 @@ void main() {
     vec3 e = clamp((255.0 - sqrt(gx * gx + gy * gy) / 4.0) / 255.0, 0.0, 1.0);
     res.rgb = mix(c, e, uF0);
   }
+  else if (uOp == 10) {
+    int L = int(floor(dot(floor(c * 255.0 + 0.5), W3) + 0.5));
+    res.rgb = mix(c, texelFetch(uAux, ivec2(L, 0), 0).rgb, uF0);
+  }
+  if (uHasSel == 1) res = mix(s, res, texelFetch(uSel, q, 0).r);
+  o = res;
+}`;
+
+/* A 3D colour LUT: the colour mapped into the LUT's domain, looked up trilinearly, mixed by the strength. */
+const FS_LUT3D = `#version 300 es
+precision highp float; precision highp int; precision highp sampler3D;
+uniform sampler2D uIn, uSel; uniform sampler3D uLut3; uniform int uHasSel;
+uniform vec3 uMin, uMax; uniform float uN, uS;
+out vec4 o;
+void main() {
+  ivec2 q = ivec2(gl_FragCoord.xy);
+  vec4 s = texelFetch(uIn, q, 0);
+  vec3 v = clamp((s.rgb - uMin) / max(uMax - uMin, vec3(1e-6)), 0.0, 1.0) * (uN - 1.0);
+  vec3 m = texture(uLut3, (v + 0.5) / uN).rgb;
+  vec4 res = vec4(clamp(mix(s.rgb, m, uS), 0.0, 1.0), s.a);
   if (uHasSel == 1) res = mix(s, res, texelFetch(uSel, q, 0).r);
   o = res;
 }`;
@@ -472,7 +497,7 @@ interface Prog { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null>
 interface GL {
   canvas: HTMLCanvasElement; gl: WebGL2RenderingContext;
   enh: Prog; lut: Prog; hsl: Prog; tone: Prog; show: Prog; blur: Prog; down: Prog;
-  premul: Prog; avg2: Prog; glowMask: Prog; fxOut: Prog; simple: Prog; cell: Prog;
+  premul: Prog; avg2: Prog; glowMask: Prog; fxOut: Prog; simple: Prog; cell: Prog; lut3: Prog;
   /** internal format for the wide blur: half float when it can be rendered to */
   fmt: { internal: number; type: number };
   maxSize: number;
@@ -516,6 +541,7 @@ function init(): GL | null {
     const glowMask = prog(FS_GLOWMASK, ['uIn', 'uThr']);
     const fxOut = prog(FS_FXOUT, ['uIn', 'uSrc', 'uSel', 'uSize', 'uMode', 'uHasSel', 'uKeep', 'uA', 'uB', 'uTint']);
     const cell = prog(FS_CELL, ['uIn', 'uSrcSize', 'uDir', 'uF', 'uPremul']);
+    const lut3 = prog(FS_LUT3D, ['uIn', 'uSel', 'uLut3', 'uHasSel', 'uMin', 'uMax', 'uN', 'uS']);
     const simple = prog(FS_SIMPLE, ['uIn', 'uSel', 'uAux', 'uSize', 'uOp', 'uHasSel', 'uI0', 'uF0', 'uF1', 'uF2', 'uC', 'uStopC', 'uStopP']);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
@@ -528,7 +554,7 @@ function init(): GL | null {
     const vp = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array;
     const maxSize = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) as number, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number, vp[0], vp[1]);
     canvas.addEventListener('webglcontextlost', () => { shared = undefined; });
-    return { canvas, gl, enh, lut, hsl, tone, show, blur, down, premul, avg2, glowMask, fxOut, simple, cell, fmt, maxSize, fbo: gl.createFramebuffer()! };
+    return { canvas, gl, enh, lut, hsl, tone, show, blur, down, premul, avg2, glowMask, fxOut, simple, cell, lut3, fmt, maxSize, fbo: gl.createFramebuffer()! };
   } catch (e) {
     console.warn('PhotoPane: GPU adjustments unavailable', e);
     return null;
@@ -792,11 +818,56 @@ export class GpuChain {
     if (own) this.free(own);
   }
 
+  /** The 3D LUT as a texture, uploaded once per LUT. */
+  private lut3Tex: WebGLTexture | null = null;
+  private lut3Of: Lut3D | null = null;
+  private lut3d(lut: Lut3D, strength: number, input: WebGLTexture, out: WebGLTexture) {
+    const { gl } = this.st;
+    const N = lut.size;
+    if (this.lut3Of !== lut || !this.lut3Tex) {
+      if (this.lut3Tex) { gl.deleteTexture(this.lut3Tex); this.textures.delete(this.lut3Tex); }
+      const t = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_3D, t);
+      for (const p of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER]) gl.texParameteri(gl.TEXTURE_3D, p, gl.LINEAR);
+      for (const p of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(gl.TEXTURE_3D, p, gl.CLAMP_TO_EDGE);
+      // red changes fastest in .cube data: x = red, y = green, z = blue
+      const rgba = new Float32Array(N * N * N * 4);
+      for (let i = 0; i < N * N * N; i++) { rgba[i * 4] = lut.data[i * 3]; rgba[i * 4 + 1] = lut.data[i * 3 + 1]; rgba[i * 4 + 2] = lut.data[i * 3 + 2]; rgba[i * 4 + 3] = 1; }
+      gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA16F, N, N, N, 0, gl.RGBA, gl.FLOAT, rgba);
+      this.textures.add(t);
+      this.lut3Tex = t; this.lut3Of = lut;
+    }
+    const p = this.st.lut3;
+    gl.useProgram(p.p);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.st.fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, out, 0);
+    gl.viewport(0, 0, this.w, this.h);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, input); gl.uniform1i(p.u.uIn, 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.sel ?? input); gl.uniform1i(p.u.uSel, 1);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_3D, this.lut3Tex); gl.uniform1i(p.u.uLut3, 2);
+    gl.uniform1i(p.u.uHasSel, this.sel ? 1 : 0);
+    gl.uniform3f(p.u.uMin, lut.min[0], lut.min[1], lut.min[2]); gl.uniform3f(p.u.uMax, lut.max[0], lut.max[1], lut.max[2]);
+    gl.uniform1f(p.u.uN, N); gl.uniform1f(p.u.uS, strength);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_3D, null);
+  }
+
   /** One stage from texture `input` (named `key` for the blur cache) into `out`. */
   private stage(d: GpuStageDesc, input: WebGLTexture, key: string, out: WebGLTexture, docW: number, docH: number) {
     const { gl } = this.st;
     const sel = this.sel ?? input;
     if (d.kind === 'fx') { this.fx(d.job, d.keep, input, out); return; }
+    if (d.kind === 'gmap') {
+      const data = new Uint8Array(256 * 4);
+      for (let i = 0; i < 256; i++) { data[i * 4] = d.table[i * 3]; data[i * 4 + 1] = d.table[i * 3 + 1]; data[i * 4 + 2] = d.table[i * 3 + 2]; data[i * 4 + 3] = 255; }
+      gl.bindTexture(gl.TEXTURE_2D, this.lutTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+      this.pass(this.st.simple, out, this.w, this.h, [['uIn', input], ['uSel', sel], ['uAux', this.lutTex]], u => {
+        gl.uniform2i(u.uSize, this.w, this.h); gl.uniform1i(u.uOp, 10); gl.uniform1i(u.uHasSel, this.sel ? 1 : 0); gl.uniform1f(u.uF0, d.strength);
+      });
+      return;
+    }
+    if (d.kind === 'lut3d') { this.lut3d(d.lut, d.strength, input, out); return; }
     if (d.kind === 'hsl') {
       const p = d.p;
       this.pass(this.st.hsl, out, this.w, this.h, [['uIn', input], ['uSel', sel]], u => {

@@ -366,7 +366,8 @@ export function halftone(src: Buf, dst: Buf, w: number, h: number, cell: number,
 
 export type RGBc = [number, number, number];
 /** Gradient map: luminance → colour along the stops (0..1 positions), mixed by strength. */
-export function gradientMap(src: Buf, dst: Buf, stops: { p: number; c: RGBc }[], strength: number) {
+/** The gradient map's colour for each brightness 0…255 (RGB triples). */
+export function gradientTable(stops: { p: number; c: RGBc }[]): Uint8ClampedArray {
   const lut = new Uint8ClampedArray(256 * 3);
   for (let i = 0; i < 256; i++) {
     const t = i / 255;
@@ -376,6 +377,11 @@ export function gradientMap(src: Buf, dst: Buf, stops: { p: number; c: RGBc }[],
     const f = b.p > a.p ? Math.min(1, Math.max(0, (t - a.p) / (b.p - a.p))) : 0;
     for (let c = 0; c < 3; c++) lut[i * 3 + c] = a.c[c] + (b.c[c] - a.c[c]) * f;
   }
+  return lut;
+}
+
+export function gradientMap(src: Buf, dst: Buf, stops: { p: number; c: RGBc }[], strength: number) {
+  const lut = gradientTable(stops);
   const s = strength / 100;
   for (let i = 0; i < src.length; i += 4) {
     const L = Math.round(lum(src[i], src[i + 1], src[i + 2]));

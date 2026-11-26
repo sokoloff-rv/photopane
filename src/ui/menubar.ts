@@ -75,9 +75,13 @@ export class MenuBar {
       // maximize) with the window buttons at its right
       for (const n of [this.el, logo, gap]) n.setAttribute('data-tauri-drag-region', '');
       this.el.classList.add('titlebar');
-      void windowControls().then(c => { if (c) this.el.append(c); });
+      // made once: the bar is drawn again on start right after its first drawing, and each drawing used to make
+      // its own set, so two sets showed until the next redraw (appending the same element twice only moves it)
+      this.controls ??= windowControls();
+      void this.controls.then(c => { if (c) this.el.append(c); });
     }
   }
+  private controls: Promise<HTMLElement | null> | null = null;
 
   /** `noKeys`: the Filter menu lists every filter equally, so no shortcut stands out (they still work). */
   private show(wrap: HTMLElement, items: Item[], noKeys = false) {

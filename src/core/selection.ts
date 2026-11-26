@@ -42,17 +42,39 @@ export class Selection {
     return new Selection(c, { x: 0, y: 0, w, h });
   }
 
-  static fromAlphaArray(alpha: Uint8Array, w: number, h: number): Selection | null {
+  /**
+   * A selection from per-pixel strengths (the array is kept as the selection's alpha: it must not change
+   * afterwards). `box`: where the strengths can be non-zero (a fill's area) — only that part is scanned and
+   * drawn, and the bounds are found from the array instead of reading the mask canvas back.
+   */
+  static fromAlphaArray(alpha: Uint8Array, w: number, h: number, box?: { x0: number; y0: number; x1: number; y1: number }): Selection | null {
+    const bx0 = box?.x0 ?? 0, by0 = box?.y0 ?? 0, bx1 = box?.x1 ?? w, by1 = box?.y1 ?? h;
+    let minX = w, minY = h, maxX = -1, maxY = -1;
+    for (let y = by0; y < by1; y++) {
+      const row = y * w;
+      for (let x = bx0; x < bx1; x++) {
+        if (!alpha[row + x]) continue;
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; maxY = y;
+      }
+    }
+    if (maxX < 0) return null;
+    const bw = maxX - minX + 1, bh = maxY - minY + 1;
     const c = createCanvas(w, h);
     const g = ctx2d(c);
-    const img = g.createImageData(w, h);
+    const img = g.createImageData(bw, bh);
     const d = img.data;
-    for (let i = 0, j = 0; i < alpha.length; i++, j += 4) {
-      const a = alpha[i];
-      if (a) { d[j] = d[j + 1] = d[j + 2] = 255; d[j + 3] = a; }
+    for (let y = 0, j = 0; y < bh; y++) {
+      const row = (minY + y) * w + minX;
+      for (let x = 0; x < bw; x++, j += 4) {
+        const a = alpha[row + x];
+        if (a) { d[j] = d[j + 1] = d[j + 2] = 255; d[j + 3] = a; }
+      }
     }
-    g.putImageData(img, 0, 0);
-    return Selection.fromMask(c);
+    g.putImageData(img, minX, minY);
+    const s = new Selection(c, { x: minX, y: minY, w: bw, h: bh });
+    s._alpha = alpha;
+    return s;
   }
 
   /** Combine current selection with a new shape mask according to the mode. */

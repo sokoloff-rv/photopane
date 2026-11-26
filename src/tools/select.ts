@@ -437,8 +437,9 @@ export class WandTool extends Tool<WandOpts> {
     if (this.o.allLayers || !l || l.isGroup) {
       img = d.compositeRead().getImageData(0, 0, d.width, d.height);
     } else img = d.layerImageData(l);
-    const cov = floodMask(img, e.x, e.y, this.o.tolerance, this.o.contiguous, this.o.antialias);
-    applySelection(Selection.fromAlphaArray(cov, d.width, d.height), mode);
+    const box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+    const cov = floodMask(img, e.x, e.y, this.o.tolerance, this.o.contiguous, this.o.antialias, box);
+    applySelection(Selection.fromAlphaArray(cov, d.width, d.height, box), mode);
   }
 
   options() {

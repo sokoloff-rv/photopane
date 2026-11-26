@@ -344,11 +344,17 @@ export class BucketTool extends Tool<BucketOpts> {
     let img: ImageData;
     if (this.o.allLayers || target.isMask) img = d.compositeRead().getImageData(0, 0, d.width, d.height);
     else img = d.layerImageData(target.layer);
-    const cov = floodMask(img, e.x, e.y, this.o.tolerance, this.o.contiguous, this.o.antialias);
-    const buf = createCanvas(d.width, d.height);
-    ctx2d(buf).putImageData(coverageToImageData(cov, d.width, d.height, app.fg.r, app.fg.g, app.fg.b), 0, 0);
-    applyBuffer(target, buf, 0, 0, this.o.opacity / 100, app.fg);
-    target.surface.markDirtyDoc({ x: 0, y: 0, w: d.width, h: d.height });
+    // only the filled area: the paint, and what history keeps
+    const b = { x0: 0, y0: 0, x1: 0, y1: 0 };
+    const cov = floodMask(img, e.x, e.y, this.o.tolerance, this.o.contiguous, this.o.antialias, b);
+    const bw = b.x1 - b.x0, bh = b.y1 - b.y0;
+    if (bw <= 0 || bh <= 0) return;
+    const part = new Uint8Array(bw * bh);
+    for (let y = 0; y < bh; y++) part.set(cov.subarray((b.y0 + y) * d.width + b.x0, (b.y0 + y) * d.width + b.x1), y * bw);
+    const buf = createCanvas(bw, bh);
+    ctx2d(buf).putImageData(coverageToImageData(part, bw, bh, app.fg.r, app.fg.g, app.fg.b), 0, 0);
+    applyBuffer(target, buf, b.x0, b.y0, this.o.opacity / 100, app.fg);
+    target.surface.markDirtyDoc({ x: b.x0, y: b.y0, w: bw, h: bh });
     app.commit('h.bucket');
   }
 

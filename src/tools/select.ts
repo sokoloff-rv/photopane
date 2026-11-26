@@ -399,8 +399,8 @@ export class LassoTool extends Tool<LassoOpts> {
     return [
       segmented<LassoType>([
         { value: 'free', icon: 'freeLasso', title: t('opt.lassoFree') },
-        { value: 'poly', icon: 'polyLasso', title: t('opt.lassoPoly') },
         { value: 'magnetic', icon: 'magLasso', title: t('opt.lassoMag') },
+        { value: 'poly', icon: 'polyLasso', title: t('opt.lassoPoly') },
       ], this.o.type, v => { this.cancel(); this.set('type', v); this.cursor = arrowBadgeCursor(this.typeIcon); app.viewport.updateCursor(); app.update('options'); }),
       sep(),
       modeButtons(this.o.mode, m => this.set('mode', m)),

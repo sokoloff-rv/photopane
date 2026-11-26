@@ -175,7 +175,8 @@ export class Doc {
   private _displayDirty: { x: number; y: number; w: number; h: number } | null = null;
 
   setIccProfile(bytes: Uint8Array | null | undefined) {
-    this.iccProfile = bytes ? new Uint8Array(bytes) : null;
+    // kept as given: history compares the object to know whether the profile changed
+    this.iccProfile = bytes ?? null;
     this.colorProfile = parseIcc(this.iccProfile);
     this._displayValid = false;
     this.version++;

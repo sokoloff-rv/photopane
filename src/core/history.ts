@@ -16,6 +16,8 @@ interface LayerSnap {
 interface DocSnap {
   w: number; h: number; layers: LayerSnap[]; activeId: number; editMask: boolean;
   sel: Uint32Array | null; selObj: Selection | null;
+  /** the document's ICC profile (the same bytes object while it is unchanged) */
+  icc?: Uint8Array | null;
 }
 
 export interface HistoryEntry { label: string; snap: DocSnap; bytes: number }
@@ -159,7 +161,7 @@ export class History {
     }
     return {
       w: d.width, h: d.height, layers: d.root.children.map(l => this.snapLayer(l)),
-      activeId: d.activeId, editMask: d.editMask, sel, selObj: d.selection,
+      activeId: d.activeId, editMask: d.editMask, sel, selObj: d.selection, icc: d.iccProfile,
     };
   }
 
@@ -224,6 +226,7 @@ export class History {
     if (snap.selObj && snap.selObj.width === snap.w && snap.selObj.height === snap.h) d.selection = snap.selObj;
     else d.selection = snap.sel ? Selection.fromRle(snap.sel, snap.w, snap.h) : null;
     snap.selObj = d.selection;
+    if (snap.icc !== undefined && snap.icc !== d.iccProfile) d.setIccProfile(snap.icc);
     if (!d.find(d.activeId)) d.activeId = d.root.children[d.root.children.length - 1]?.id ?? -1;
   }
 }

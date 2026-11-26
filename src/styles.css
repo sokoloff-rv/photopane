@@ -497,3 +497,8 @@ body.busy-cursor, body.busy-cursor * { cursor: progress !important; }
 .save-hint { flex: 1; line-height: 1.35; }
 .save-dims { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
 .save-result { display: flex; gap: 10px; align-items: baseline; }
+
+/* Image → Colour Profile */
+.prof-form { gap: 12px; }
+.prof-section { display: flex; flex-direction: column; gap: 6px; }
+.prof-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

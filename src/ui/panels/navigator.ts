@@ -102,12 +102,22 @@ export class NavigatorPanel extends Panel {
     const vp = app.viewport;
     const vx = x + (-d.panX / d.zoom) * scale, vy = y + (-d.panY / d.zoom) * scale;
     const vw = (vp.w / d.zoom) * scale, vh = (vp.h / d.zoom) * scale;
-    g.save();
-    g.beginPath(); g.rect(0, 0, W, H); g.rect(clamp(vx, -1, W), clamp(vy, -1, H), Math.min(vw, W), Math.min(vh, H));
-    g.fillStyle = 'rgba(0,0,0,0.45)'; g.fill('evenodd');
-    g.strokeStyle = 'rgba(255,255,255,0.9)'; g.lineWidth = 1;
-    g.strokeRect(vx, vy, vw, vh);
-    g.restore();
+    // the view's frame and the dimming outside it stay on the picture, as in Photoshop; with the whole picture in
+    // view there is neither. (Drawn over the whole navigator they left lines beside the picture, and the corner
+    // clamped while the size was kept dimmed a line along the right and bottom edges.)
+    const x0 = clamp(vx, x, x + w), y0 = clamp(vy, y, y + h);
+    const x1 = Math.max(x0, clamp(vx + vw, x, x + w)), y1 = Math.max(y0, clamp(vy + vh, y, y + h));
+    const whole = x0 <= x + 0.5 && y0 <= y + 0.5 && x1 >= x + w - 0.5 && y1 >= y + h - 0.5;
+    if (!whole) {
+      g.save();
+      g.beginPath(); g.rect(x, y, w, h); g.rect(x0, y0, x1 - x0, y1 - y0);
+      g.fillStyle = 'rgba(0,0,0,0.45)'; g.fill('evenodd');
+      if (x1 - x0 >= 1 && y1 - y0 >= 1) {
+        g.strokeStyle = 'rgba(255,255,255,0.9)'; g.lineWidth = 1;
+        g.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0 - 1, y1 - y0 - 1);
+      }
+      g.restore();
+    }
     const dz = app.viewport.deviceZoom();
     if (document.activeElement !== this.slider) this.slider.value = String(Math.round(Math.log2(dz) * 100));
     if (document.activeElement !== this.pct) this.pct.value = Math.round(dz * 1000) / 10 + '%';

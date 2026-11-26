@@ -459,7 +459,15 @@ export class StampTool extends Tool<StampOpts> {
   brushSize() { return this.o.size; }
 
   down(e: PEvent) {
-    if (e.alt) { this.source = { x: e.x, y: e.y }; this.offset = null; toast(t('stamp.sourceSet'), 'info', 1200); app.update('overlay'); return; }
+    if (e.alt) {
+      this.source = { x: e.x, y: e.y }; this.offset = null;
+      toast(t('stamp.sourceSet'), 'info', 1200);
+      // with the source marker hidden, a short cross at the sampled point still shows that it was taken
+      this.flashUntil = performance.now() + 700;
+      setTimeout(() => app.update('overlay'), 720);
+      app.update('overlay');
+      return;
+    }
     if (!this.source) { toast(t('stamp.needSource')); return; }
     const target = app.paintTarget();
     if (!target) return;
@@ -509,9 +517,22 @@ export class StampTool extends Tool<StampOpts> {
     s.touched({ x: x - size / 2, y: y - size / 2, w: size, h: size });
   }
 
+  private flashUntil = 0;
+
   overlay(g: CanvasRenderingContext2D) {
-    // the source marker can be hidden to see the picture under it better
-    if (this.o.showSource === false) return;
+    // the source marker can be hidden to see the picture under it better; just after Alt+click a cross
+    // still flashes at the sampled point
+    if (this.o.showSource === false) {
+      if (this.source && performance.now() < this.flashUntil) {
+        const v = app.viewport, p = v.toScreen(this.source.x, this.source.y);
+        g.save();
+        g.beginPath(); g.moveTo(p.x - 8, p.y); g.lineTo(p.x + 8, p.y); g.moveTo(p.x, p.y - 8); g.lineTo(p.x, p.y + 8);
+        g.strokeStyle = 'rgba(0,0,0,.65)'; g.lineWidth = 3; g.stroke();
+        g.strokeStyle = '#fff'; g.lineWidth = 1.2; g.stroke();
+        g.restore();
+      }
+      return;
+    }
     const v = app.viewport;
     this.drawPreview(g);
     let p: { x: number; y: number } | null = null;

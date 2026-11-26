@@ -76,6 +76,7 @@ export function fontPicker(current: string, sys: SystemFonts, onPick: (family: s
       onPick(fam);
     };
 
+    let footSeq = 0;
     const downloadAll = async (families: string[]) => {
       if (!(await confirmDialog(t('gf.downloadAllAsk', families.length), t('gf.downloadAllOk')))) return;
       let stop = false;
@@ -110,10 +111,17 @@ export function fontPicker(current: string, sys: SystemFonts, onPick: (family: s
         }
         if (!items.length) list.append(el('div', { class: 'font-empty' }, t('gf.empty')));
         else {
-          // everything in the list (all, or the found / the chosen category) in one go, for offline work
-          const all = el('button', { class: 'btn sm' }, t('gf.downloadAll', items.length));
-          all.addEventListener('click', () => void downloadAll(items.map(g => g.family)));
-          foot.append(all);
+          // the fonts of the list not downloaded yet (all, or the found / the chosen category) in one go, for
+          // offline work; no button once all of them are downloaded
+          const seq = ++footSeq;
+          void Promise.all(items.map(g => isGoogleCached(g.family))).then(cached => {
+            if (seq !== footSeq) return;
+            const missing = items.filter((_, i) => !cached[i]).map(g => g.family);
+            if (!missing.length) return;
+            const all = el('button', { class: 'btn sm' }, t('gf.downloadAll', missing.length));
+            all.addEventListener('click', () => void downloadAll(missing));
+            foot.append(all);
+          });
         }
       } else {
         const items = sys.list().filter(f => !q || f.toLowerCase().includes(q));

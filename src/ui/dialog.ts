@@ -22,6 +22,11 @@ export interface DialogOptions {
   passthrough?: boolean;
   /** Where the window was dragged is remembered under this name (default: the side key or the title). */
   posKey?: string;
+  /**
+   * An information window that stays open while you work (Show Metadata): no dimming, clicks go through
+   * around it, it blocks no other window or shortcut, and takes Esc / Enter only when it has the focus.
+   */
+  floating?: boolean;
 }
 
 /* ---------- remembered window positions (kept in this browser / app profile) ---------- */
@@ -109,7 +114,7 @@ function sideGuard(e: Event) {
 const GUARDED = ['pointerdown', 'click', 'dblclick', 'contextmenu'];
 
 export function openDialog(o: DialogOptions): { close: () => void; root: HTMLElement } {
-  openCount++;
+  if (!o.floating) openCount++;
   const ok = el('button', { class: 'btn primary' }, o.okLabel || t('dlg.ok'));
   const cancel = o.cancelLabel === null ? null : el('button', { class: 'btn' }, o.cancelLabel || t('dlg.cancel'));
   const closeX = el('button', { class: 'icon-btn dlg-x' }, icon('x', 16));
@@ -118,7 +123,9 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
     header,
     el('div', { class: 'dlg-body' }, o.body),
     el('div', { class: 'dlg-foot' }, ...(o.extraButtons || []), el('div', { style: { flex: '1' } }), cancel, ok));
-  const overlay = el('div', { class: 'dlg-overlay' + (o.side ? ' side' : '') + (o.passthrough ? ' pass' : '') }, card);
+  const overlay = el('div', { class: 'dlg-overlay' + (o.side ? ' side' : '') + (o.passthrough || o.floating ? ' pass' : '') }, card);
+  // under the correction windows and other dialogs, outside their keyboard order
+  if (o.floating) overlay.style.zIndex = '290';
   if (o.side) {
     // next to the side windows already open, towards the left
     const offset = sides.reduce((x, d) => x + d.card.offsetWidth + 12, 0);
@@ -132,11 +139,12 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
   const posKey = o.posKey ?? o.sideKey ?? o.title;
   const saved = savedPositions()[posKey];
   if (saved) placeCard(card, saved.x, saved.y);
-  raise(card);
+  if (!o.floating) raise(card);
   let closed = false;
   const close = () => {
     if (closed) return;
-    closed = true; openCount--;
+    closed = true;
+    if (!o.floating) openCount--;
     const si = sides.findIndex(d => d.card === card);
     if (si >= 0) {
       sides.splice(si, 1);
@@ -166,7 +174,8 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
     if (r !== false) close();
   };
   const onKey = (e: KeyboardEvent) => {
-    if (stack[stack.length - 1] !== card) return;   // another dialog is on top
+    if (o.floating) { if (!card.contains(document.activeElement)) return; }
+    else if (stack[stack.length - 1] !== card) return;   // another dialog is on top
     if (document.body.dataset.popup) return;          // a popup menu of the dialog handles its own keys
     // typing in a field outside the window (the zoom value in the navigator or status bar) is that field's own
     const tgt = e.target as HTMLElement | null;

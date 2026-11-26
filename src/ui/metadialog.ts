@@ -5,9 +5,12 @@ import { t, getLang } from '../i18n';
 import { openDialog } from './dialog';
 import { readExif } from '../io/exifread';
 
+let open: { close: () => void } | null = null;
+
 export function metadataDialog() {
   const d = app.doc;
   if (!d) return;
+  open?.close();
   const rows: [string, string][] = [];
   const add = (key: string, v: string | undefined | null) => { if (v) rows.push([t(key), v]); };
   const fmt = (n: number, digits = 1) => n.toLocaleString(getLang() === 'ru' ? 'ru-RU' : 'en-US', { maximumFractionDigits: digits });
@@ -43,5 +46,7 @@ export function metadataDialog() {
 
   const table = el('div', { class: 'meta-table' }, ...rows.map(([k, v]) => el('div', { class: 'meta-row' }, el('span', { class: 'muted' }, k), el('span', { class: 'meta-val' }, v))));
   const body = el('div', { class: 'form' }, table, x ? null : el('div', { class: 'muted sm' }, t('meta.none')));
-  openDialog({ title: t('meta.title'), body, width: 440, okLabel: t('dlg.close'), cancelLabel: null });
+  // a window to keep beside the picture while working, like Adjust, not a blocking dialog
+  const dlg = openDialog({ title: t('meta.title'), body, width: 440, okLabel: t('dlg.close'), cancelLabel: null, floating: true, posKey: 'metadata', onCancel: () => { open = null; }, onOk: () => { open = null; } });
+  open = dlg;
 }

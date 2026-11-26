@@ -369,6 +369,8 @@ const D: Record<string, [string, string]> = {
   'cmd.autoColor': ['Автоматическая цветовая коррекция', 'Auto Color'],
   'cmd.imageSize': ['Размер изображения', 'Image Size'],
   'cmd.metadata': ['Показать метаданные', 'Show Metadata'],
+  'cmd.psdAssoc': ['Открывать файлы PSD в PhotoPane', 'Open PSD Files in PhotoPane'],
+  'app.psdAssocDone': ['PhotoPane зарегистрирован для файлов PSD. Если они всё ещё открываются другой программой: «Открыть с помощью → Выбрать другое приложение → PhotoPane», галочка «Всегда».', 'PhotoPane is registered for PSD files. If they still open in another program: "Open with → Choose another app → PhotoPane" with "Always".'],
   'cmd.colorProfile': ['Цветовой профиль…', 'Colour Profile…'],
   'cmd.indexedColors': ['Индексированные цвета', 'Indexed Colours'],
   'prof.current': ['Профиль документа: {0}', 'Document profile: {0}'],

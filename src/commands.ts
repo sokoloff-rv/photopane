@@ -17,6 +17,7 @@ import { batchDialog } from './ui/batchdialog';
 import { printDoc } from './io/print';
 import { metadataDialog } from './ui/metadialog';
 import { colorProfileDialog } from './ui/profiledialog';
+import { associatePsd } from './io/desktop';
 import { hslMixerDialog, toningDialog } from './ui/colordialogs';
 import { aiSettingsDialog, upscaleDialog, removeBackground, selectSubject, removeObject } from './ui/aidialogs';
 import {
@@ -402,6 +403,10 @@ export function registerCommands(app: App) {
 
   /* ---------- Help ---------- */
   R('shortcuts', () => shortcutsDialog(app));
+  R('psdAssoc', async () => {
+    try { await associatePsd(); toast(t('app.psdAssocDone'), 'info', 6000); }
+    catch (e: any) { toast(`${t('app.error')}: ${e?.message || e}`, 'error', 5000); }
+  });
   R('about', () => openDialog({ title: 'PhotoPane', body: el('p', { class: 'dlg-text' }, t('about.text', __APP_VERSION__)), cancelLabel: null, width: 360 }));
 
   void placeImage;

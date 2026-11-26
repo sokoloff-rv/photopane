@@ -502,3 +502,10 @@ body.busy-cursor, body.busy-cursor * { cursor: progress !important; }
 .prof-form { gap: 12px; }
 .prof-section { display: flex; flex-direction: column; gap: 6px; }
 .prof-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Windows desktop: the menu bar is the title bar, with the window buttons at its right */
+.menubar.titlebar { padding-right: 0; }
+.win-controls { display: flex; align-self: stretch; margin-left: 6px; }
+.win-btn { width: 46px; border: 0; background: transparent; color: var(--text2); display: grid; place-items: center; padding: 0; border-radius: 0; }
+.win-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+.win-btn.close:hover { background: #c42b1c; color: #fff; }

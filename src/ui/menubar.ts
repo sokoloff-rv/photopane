@@ -1,4 +1,5 @@
 import { app } from '../app';
+import { windowsDesktop, windowControls } from '../io/desktop';
 import { el } from '../core/util';
 import { t, getLang } from '../i18n';
 import { icon } from './icons';
@@ -7,6 +8,9 @@ type Item = string | { sub: string; items: Item[] };
 
 // One obvious path per action: selection commands live in the canvas context menu, layer commands in the
 // Layers panel (buttons and right-click menu), language in the corner switch. Shortcuts keep working.
+/** Items only the Windows desktop app shows. */
+const DESKTOP_ONLY = new Set(['psdAssoc']);
+
 const MENUS: { key: string; items: Item[] }[] = [
   { key: 'menu.file', items: ['new', 'newFromClipboard', 'open', '-', 'place', '-', 'save', 'saveAs', 'export', '-', 'print', '-', 'batch', '-', 'close'] },
   { key: 'menu.edit', items: ['undo', 'redo', '-', 'cut', 'copy', 'copyMerged', 'paste', 'clear', '-', 'settings'] },
@@ -23,7 +27,7 @@ const MENUS: { key: string; items: Item[] }[] = [
     'desaturate', 'sepia', 'invert', 'posterize', 'threshold', 'gradientMap', 'lut',
   ] },
   { key: 'menu.view', items: ['zoomIn', 'zoomOut', 'fit', 'actual', '-', 'compare', '-', 'rulers', 'showGuides', 'snap', 'clearGuides', '-', 'resetLayout'] },
-  { key: 'menu.help', items: ['shortcuts', 'about'] },
+  { key: 'menu.help', items: ['shortcuts', 'psdAssoc', '-', 'about'] },
 ];
 
 export function prettyKey(k: string) {
@@ -63,7 +67,15 @@ export class MenuBar {
     }
     const lang = el('button', { class: 'chip', title: t('cmd.language') }, icon('languages', 14), el('span', {}, getLang().toUpperCase()));
     lang.addEventListener('click', () => app.run('language'));
-    this.el.append(logo, menus, el('div', { style: { flex: '1' } }), lang);
+    const gap = el('div', { style: { flex: '1' } });
+    this.el.append(logo, menus, gap, lang);
+    if (windowsDesktop()) {
+      // the Windows app has no system frame: the menu bar is the title bar (drag to move, double click to
+      // maximize) with the window buttons at its right
+      for (const n of [this.el, logo, gap]) n.setAttribute('data-tauri-drag-region', '');
+      this.el.classList.add('titlebar');
+      void windowControls().then(c => { if (c) this.el.append(c); });
+    }
   }
 
   /** `noKeys`: the Filter menu lists every filter equally, so no shortcut stands out (they still work). */
@@ -86,6 +98,7 @@ export class MenuBar {
         list.append(sub);
         continue;
       }
+      if (DESKTOP_ONLY.has(it) && !windowsDesktop()) continue;
       const c = app.commands.get(it);
       const enabled = !!c && (!c.enabled || c.enabled()) && !app.commandLocked(it);
       const checked = !!c?.checked?.();

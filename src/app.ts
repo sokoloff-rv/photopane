@@ -18,6 +18,7 @@ import { LayersPanel } from './ui/panels/layers';
 import { installPanelResizers } from './ui/panels/panel';
 import { installEffects } from './core/effects';
 import { registerCommands } from './commands';
+import { initDesktop } from './io/desktop';
 import { dialogOpen, toast, confirmDialog, sideDialogs, sideDialogOpen, nudgeSideDialog } from './ui/dialog';
 import { handlePaste, openFiles } from './io/files';
 
@@ -125,7 +126,7 @@ export class App {
     // text fields keep theirs (copy, paste)
     window.addEventListener('contextmenu', e => { if (!(e.target as HTMLElement)?.closest?.('input, textarea, [contenteditable="true"]')) e.preventDefault(); });
     window.addEventListener('beforeunload', e => { if (this.docs.some(d => d.dirty)) { e.preventDefault(); e.returnValue = ''; } });
-    if ((window as any).__TAURI_INTERNALS__) void this.guardWindowClose();
+    if ((window as any).__TAURI_INTERNALS__) { void this.guardWindowClose(); void initDesktop(); }
     window.addEventListener('blur', () => { if (this.spaceDown) { this.spaceDown = false; this.viewport.updateCursor(); } });
     // drag & drop files
     // only files from outside show the drop frame (a layer dragged in the Layers panel is not a file)

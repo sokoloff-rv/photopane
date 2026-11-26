@@ -7,6 +7,7 @@ import { rgbToHsl, hslToRgb } from '../core/color';
 import { numberField, checkbox, select, sep } from '../ui/controls';
 import { toast } from '../ui/dialog';
 import { Layer, hasEffects } from '../core/layer';
+import { GpuRetouch, RetouchKind, PresentParams } from '../core/gpuretouch';
 
 const falloff = (d: number, h: number) => {
   if (d >= 1) return 0;
@@ -30,6 +31,11 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
    * the area changed by a pointer move is written into the layer.
    */
   protected work: CanvasRenderingContext2D | null = null;
+  /**
+   * The stroke on the video card (see core/gpuretouch.ts): then there is no CPU copy (`backup`, `work`) and
+   * the dabs and results are drawn by shaders. Null: the CPU does the stroke.
+   */
+  protected gpu: GpuRetouch | null = null;
   private moveRect: Rect | null = null;
   protected changed(r: Rect) { this.moveRect = rectUnion(this.moveRect, r); this.total = rectUnion(this.total, r); }
   protected margin = 0;
@@ -44,13 +50,18 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
     const d = app.doc!;
     tg.surface.ensureCovers({ x: 0, y: 0, w: d.width, h: d.height });
     this.target = tg;
-    // the dabs read the stroke's starting pixels: a CPU canvas, so the first read does not wait for the GPU
-    this.backup = createCanvas(tg.surface.w, tg.surface.h);
-    this.backup.getContext('2d', { willReadFrequently: true })!.drawImage(tg.surface.canvas, 0, 0);
-    this.work = createCanvas(tg.surface.w, tg.surface.h).getContext('2d', { willReadFrequently: true })!;
-    this.work.drawImage(this.backup, 0, 0);
+    const kind = this.gpuKind();
+    this.gpu = kind ? GpuRetouch.begin(tg.surface, d.width, d.height, d.selection, kind) : null;
+    if (this.gpu) { this.backup = null; this.work = null; this.sel = null; }
+    else {
+      // the dabs read the stroke's starting pixels: a CPU canvas, so the first read does not wait for the GPU
+      this.backup = createCanvas(tg.surface.w, tg.surface.h);
+      this.backup.getContext('2d', { willReadFrequently: true })!.drawImage(tg.surface.canvas, 0, 0);
+      this.work = createCanvas(tg.surface.w, tg.surface.h).getContext('2d', { willReadFrequently: true })!;
+      this.work.drawImage(this.backup, 0, 0);
+      this.sel = d.selection ? d.selection.alpha() : null;
+    }
     this.moveRect = null;
-    this.sel = d.selection ? d.selection.alpha() : null;
     this.total = null;
     this.path = new DabPath(() => Math.max(1, this.o.size * this.spacing()));
     this.start(e);
@@ -61,6 +72,20 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
 
   protected spacing() { return 0.15; }
   protected start(_e: PEvent) {}
+
+  /** What the video card does for this brush (null: the CPU only). */
+  protected gpuKind(): RetouchKind | null { return null; }
+  /** The settings the video card draws a pointer move's area with. */
+  protected gpuParams(): PresentParams { return { kind: this.gpuKind()! }; }
+  /** One dab on the video card (Blur, Smudge; the coverage brushes have their own dab()). */
+  protected gpuDab(_x: number, _y: number) {}
+  /** A dab's centre (surface pixels) and its area, `m` pixels wider; null when it misses the surface. */
+  protected dabArea(x: number, y: number, m: number) {
+    const s = this.target!.surface, r = this.o.size / 2, lx = x - s.x, ly = y - s.y;
+    const x0 = Math.max(0, Math.floor(lx - r) - m), y0 = Math.max(0, Math.floor(ly - r) - m);
+    const x1 = Math.min(s.w, Math.ceil(lx + r) + m), y1 = Math.min(s.h, Math.ceil(ly + r) + m);
+    return x1 > x0 && y1 > y0 ? { lx, ly, r, x0, y0, x1, y1 } : null;
+  }
 
   move(e: PEvent) {
     if (!this.target) return;
@@ -77,11 +102,17 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
     if (this.total) this.target.surface.markDirty(this.total);
     this.target = null;
     this.work = null; this.backup = null;
+    this.gpu?.end(); this.gpu = null;
     app.commit(this.label);
   }
 
   cancel() {
-    if (this.target && this.backup) {
+    if (this.target && this.gpu) {
+      // the layer as it was, from the copy on the video card
+      if (this.total) this.gpu.present(this.total, 'orig', this.target.surface.ctx);
+      this.target.layer.touch();
+      app.update('canvas');
+    } else if (this.target && this.backup) {
       const g = this.target.surface.ctx;
       g.globalCompositeOperation = 'copy'; g.drawImage(this.backup, 0, 0); g.globalCompositeOperation = 'source-over';
       this.target.layer.touch();
@@ -89,6 +120,7 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
     }
     this.target = null;
     this.work = null; this.backup = null;
+    this.gpu?.end(); this.gpu = null;
   }
 
   busy() { return !!this.target; }
@@ -96,10 +128,11 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
   /** The area the last pointer move changed goes from the working copy into the layer and onto the screen. */
   private flush() {
     const r = this.moveRect, tg = this.target;
-    if (!r || !tg || !this.work) return;
+    if (!r || !tg || (!this.work && !this.gpu)) return;
     this.moveRect = null;
     const s = tg.surface;
-    s.ctx.putImageData(this.work.getImageData(r.x, r.y, r.w, r.h), r.x, r.y);
+    if (this.gpu) this.gpu.present(r, this.gpuParams(), s.ctx);
+    else s.ctx.putImageData(this.work!.getImageData(r.x, r.y, r.w, r.h), r.x, r.y);
     tg.layer.touch();
     let fx = false;
     for (let l: Layer | null = tg.layer; l && !fx; l = l.parent) fx = hasEffects(l.effects);
@@ -108,6 +141,7 @@ abstract class PixelBrush<O extends PixOpts> extends Tool<O> {
 
   /** Process one dab: weights per pixel and the operation. */
   protected dab(x: number, y: number) {
+    if (this.gpu) { this.gpuDab(x, y); return; }
     const s = this.target!.surface;
     const d = app.doc!;
     const r = this.o.size / 2;
@@ -166,6 +200,13 @@ export class BlurTool extends PixelBrush<PixOpts> {
   readonly label: string = 'tool.blur';
   protected margin = 2;
   constructor() { super({ size: 60, hardness: 50, strength: 50 }); }
+  protected gpuKind(): RetouchKind | null { return 'blur'; }
+  protected gpuDab(x: number, y: number) {
+    const a = this.dabArea(x, y, this.margin);
+    if (!a) return;
+    this.gpu!.blurDab(a.lx, a.ly, a.r, this.o.hardness / 100, this.o.strength / 100, a.x0, a.y0, a.x1, a.y1);
+    this.changed({ x: a.x0, y: a.y0, w: a.x1 - a.x0, h: a.y1 - a.y0 });
+  }
   protected op(img: ImageData, wt: Float32Array, w: number, h: number) {
     const src = img.data.slice();
     const d = img.data;
@@ -190,6 +231,15 @@ export class SmudgeTool extends PixelBrush<PixOpts> {
   constructor() { super({ size: 50, hardness: 40, strength: 50 }); }
   protected spacing() { return 0.08; }
   protected start() { this.buf = null; }
+  protected gpuKind(): RetouchKind | null { return 'smudge'; }
+  protected gpuDab(x: number, y: number) {
+    const s = this.target!.surface, lx = x - s.x, ly = y - s.y;
+    const D = Math.ceil(this.o.size) + 2;
+    const bx = Math.round(lx) - Math.floor(D / 2), by = Math.round(ly) - Math.floor(D / 2);
+    this.gpu!.smudgeDab(lx, ly, this.o.size / 2, this.o.hardness / 100, this.o.strength / 100, bx, by, D);
+    const x0 = Math.max(0, bx), y0 = Math.max(0, by), x1 = Math.min(s.w, bx + D), y1 = Math.min(s.h, by + D);
+    if (x1 > x0 && y1 > y0) this.changed({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  }
   protected op(img: ImageData, wt: Float32Array, w: number, h: number, x0: number, y0: number, cx: number, cy: number) {
     const D = Math.ceil(this.o.size) + 2;
     const d = img.data;
@@ -226,10 +276,25 @@ abstract class CoverageBrush<O extends PixOpts> extends PixelBrush<O> {
   /** Area whose coverage changed since the pixels were last updated (surface coordinates). */
   protected dirty: { x0: number; y0: number; x1: number; y1: number } | null = null;
   protected start(_e?: PEvent) {
+    this.dirty = null;
+    if (this.gpu) return;   // the coverage is a texture on the video card
     const s = this.target!.surface;
     this.covW = s.w;
     this.cov = new Float32Array(s.w * s.h);
-    this.dirty = null;
+  }
+
+  /** Color Replacement: the sample (surface pixel) and tolerance its dabs keep to on the video card. */
+  protected gpuReplace(): { sample: [number, number] | null; tol: number } | undefined { return undefined; }
+
+  /** On the video card a pointer move only marks its area; flush() draws it. True when the GPU has the stroke. */
+  protected gpuEndMove(): boolean {
+    if (!this.gpu) return false;
+    const dr = this.dirty;
+    if (dr && this.target) {
+      this.dirty = null;
+      this.changed({ x: dr.x0, y: dr.y0, w: dr.x1 - dr.x0, h: dr.y1 - dr.y0 });
+    }
+    return true;
   }
 
   /**
@@ -238,6 +303,14 @@ abstract class CoverageBrush<O extends PixOpts> extends PixelBrush<O> {
    * So a dab only updates the coverage; the pixels of all dabs of a pointer move are computed once.
    */
   protected dab(x: number, y: number) {
+    if (this.gpu) {
+      const a = this.dabArea(x, y, 0);
+      if (!a) return;
+      this.gpu.covDab(a.lx, a.ly, a.r, this.o.hardness / 100, this.o.strength / 100, a.x0, a.y0, a.x1, a.y1, this.gpuReplace());
+      const dr = this.dirty;
+      this.dirty = dr ? { x0: Math.min(dr.x0, a.x0), y0: Math.min(dr.y0, a.y0), x1: Math.max(dr.x1, a.x1), y1: Math.max(dr.y1, a.y1) } : { x0: a.x0, y0: a.y0, x1: a.x1, y1: a.y1 };
+      return;
+    }
     const s = this.target!.surface;
     const d = app.doc!;
     const r = this.o.size / 2, ir = 1 / r;
@@ -269,6 +342,7 @@ abstract class CoverageBrush<O extends PixOpts> extends PixelBrush<O> {
   }
 
   protected endMove() {
+    if (this.gpuEndMove()) return;
     const dr = this.dirty;
     if (!dr || !this.target) return;
     this.dirty = null;
@@ -315,6 +389,10 @@ export class DodgeTool extends CoverageBrush<DBOpts> {
   readonly label: string = 'tool.dodge';
   protected dir = 1;
   constructor(defaults?: any) { super(defaults ?? { size: 80, hardness: 0, strength: 50, range: 'midtones' }); }
+  protected gpuKind(): RetouchKind | null { return 'tone'; }
+  protected gpuParams(): PresentParams {
+    return { kind: 'tone', dodge: this.dir > 0, range: this.o.range === 'shadows' ? 0 : this.o.range === 'highlights' ? 2 : 1 };
+  }
 
   protected tone(orig: Uint8ClampedArray, d: Uint8ClampedArray, p: number, c: number) {
     const range = this.o.range, dodge = this.dir > 0;
@@ -402,8 +480,10 @@ export class SharpenTool extends CoverageBrush<PixOpts> {
   readonly key = 'R';
   readonly label = 'tool.sharpen';
   constructor() { super({ size: 60, hardness: 50, strength: 50 }); }
+  protected gpuKind(): RetouchKind | null { return 'sharpen'; }
 
   protected endMove() {
+    if (this.gpuEndMove()) return;
     const dr = this.dirty;
     if (!dr || !this.target) return;
     this.dirty = null;
@@ -471,21 +551,31 @@ export class ReplaceTool extends DodgeTool {
   readonly key = 'B';
   readonly label = 'tool.replace';
   private sample: [number, number, number] | null = null;
+  /** Where the sample was taken (surface pixel): the video card reads the colour there. */
+  private samplePos: [number, number] | null = null;
   private toneArgs = { tol: 0, fh: 0, fs: 0 };
   constructor() { super({ size: 40, hardness: 60, strength: 100, tolerance: 30, sampling: 'continuous', range: 'midtones' }); }
-  protected start(e?: PEvent) { super.start(); if (e) this.sample = this.sampleAt(e.x, e.y); }
-  /** The colour to replace, read from the picture before the stroke. */
-  private sampleAt(x: number, y: number): [number, number, number] | null {
+  protected start(e?: PEvent) { super.start(); this.sample = null; this.samplePos = null; if (e) this.takeSample(e.x, e.y); }
+  /** The colour to replace, from the picture before the stroke; off the layer the last sample stays. */
+  private takeSample(x: number, y: number) {
     const s = this.target!.surface;
     const lx = Math.floor(x - s.x), ly = Math.floor(y - s.y);
-    if (lx < 0 || ly < 0 || lx >= s.w || ly >= s.h) return null;
+    if (lx < 0 || ly < 0 || lx >= s.w || ly >= s.h) return;
+    this.samplePos = [lx, ly];
+    if (this.gpu) return;
     const p = this.backup!.getContext('2d')!.getImageData(lx, ly, 1, 1).data;
-    return [p[0], p[1], p[2]];
+    this.sample = [p[0], p[1], p[2]];
   }
   protected dab(x: number, y: number) {
-    if ((this.o as any).sampling === 'continuous') this.sample = this.sampleAt(x, y) || this.sample;
+    if ((this.o as any).sampling === 'continuous') this.takeSample(x, y);
     super.dab(x, y);
   }
+  protected gpuKind(): RetouchKind | null { return 'replace'; }
+  protected gpuParams(): PresentParams {
+    const [fgH, fgS] = rgbToHsl(app.fg.r / 255, app.fg.g / 255, app.fg.b / 255);
+    return { kind: 'replace', fgH, fgS };
+  }
+  protected gpuReplace() { return { sample: this.samplePos, tol: (this.o as any).tolerance * 2.55 }; }
   /**
    * The tolerance is decided per dab, with the sample under that dab, and kept in the stroke's coverage:
    * deciding it per pointer move with the latest sample undid pixels recoloured under an earlier sample.

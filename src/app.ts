@@ -245,6 +245,8 @@ export class App {
     if (this.doc === doc) return;
     this.tool.cancel();
     this.doc = doc;
+    // the pointer's look depends on whether there is a picture (closing the last one shows the welcome screen)
+    this.viewport.updateCursor();
     this.update('all');
   }
 
@@ -256,6 +258,8 @@ export class App {
     const i = this.docs.indexOf(doc);
     this.docs.splice(i, 1);
     if (this.doc === doc) { this.doc = null; this.setDoc(this.docs[Math.min(i, this.docs.length - 1)] || null); }
+    // setDoc(null) changes nothing when the last picture closes (doc is already null): the pointer here
+    this.viewport.updateCursor();
     this.update('all');
   }
 

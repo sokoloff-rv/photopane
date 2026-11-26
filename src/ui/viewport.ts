@@ -532,7 +532,10 @@ export class Viewport {
   isPanTool() { return app.spaceDown || app.tool.id === 'hand'; }
 
   updateCursor() {
-    const c = app.colorPick ? iconCursor('eyedropper', 2, 22) : this.isPanTool() ? (this.dragging === 'pan' ? 'grabbing' : 'grab') : app.tool.brushSize() > 0 ? 'none' : app.tool.cursor;
+    // no picture (the welcome screen): the usual arrow; a brush hid it to draw its circle, and with nothing
+    // to draw on there was no circle either, so the pointer vanished over the empty area
+    const c = !this.doc ? 'default'
+      : app.colorPick ? iconCursor('eyedropper', 2, 22) : this.isPanTool() ? (this.dragging === 'pan' ? 'grabbing' : 'grab') : app.tool.brushSize() > 0 ? 'none' : app.tool.cursor;
     this.overlay.style.cursor = c;
     this.renderOverlay();
   }

@@ -133,7 +133,7 @@ export async function writeClipboard(canvas: HTMLCanvasElement) {
 type Fmt = 'psd' | 'png' | 'jpeg' | 'webp' | 'pdf';
 const MIME: Record<Fmt, string> = { psd: 'image/vnd.adobe.photoshop', png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp', pdf: 'application/pdf' };
 const EXT: Record<Fmt, string> = { psd: '.psd', png: '.png', jpeg: '.jpg', webp: '.webp', pdf: '.pdf' };
-const fmtOf = (name: string): Fmt => (/\.psd$/i.test(name) ? 'psd' : /\.png$/i.test(name) ? 'png' : /\.webp$/i.test(name) ? 'webp' : 'jpeg');
+const fmtOf = (name: string): Fmt => (/\.psd$/i.test(name) ? 'psd' : /\.png$/i.test(name) ? 'png' : /\.webp$/i.test(name) ? 'webp' : /\.pdf$/i.test(name) ? 'pdf' : 'jpeg');
 
 function flattenedFor(d: Doc, fmt: Fmt): HTMLCanvasElement {
   const c = createCanvas(d.width, d.height);
@@ -249,18 +249,18 @@ export function exportDialog(_setAsDocFile = false) { fileDialog(false); }
 
 /**
  * Save As: the file the document is kept in (PSD with layers by default); Ctrl+S then writes there.
- * Export As: a copy to publish or send (PNG, JPEG, WebP or a PDF page), optionally at another size; the
+ * Export As: a copy to publish or send (a PDF page, JPEG, PNG or WebP), optionally at another size; the
  * document stays linked to its own file. Both: the file name, the format as buttons with a one-line hint,
  * quality where it matters and the resulting file size.
  */
 function fileDialog(saveAs: boolean) {
   const d = app.doc;
   if (!d) return;
-  const formats: Fmt[] = saveAs ? ['psd', 'jpeg', 'png', 'webp'] : ['jpeg', 'png', 'webp', 'pdf'];
+  const formats: Fmt[] = saveAs ? ['psd', 'pdf', 'jpeg', 'png', 'webp'] : ['pdf', 'jpeg', 'png', 'webp'];
   // a document with layers, text, masks or effects is saved as PSD unless another format is picked here:
   // a remembered JPEG would flatten it and mark it saved (layers lost on closing without a warning)
   const layered = d.layers.length > 1 || d.layers.some(l => l.kind === 'text' || !!l.mask || hasEffects(l.effects));
-  let fmt: Fmt = saveAs ? (layered ? 'psd' : (app.settings.saveFmt as Fmt) || 'psd') : ((app.settings.exportFmt as Fmt) || 'jpeg');
+  let fmt: Fmt = saveAs ? (layered ? 'psd' : (app.settings.saveFmt as Fmt) || 'psd') : ((app.settings.exportFmt as Fmt) || 'pdf');
   if (!formats.includes(fmt)) fmt = formats[0];
   let quality = app.settings.jpegQuality ?? 92;
   let keepExif = app.settings.keepExif ?? false;

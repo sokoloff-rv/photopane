@@ -8,6 +8,7 @@ import { numberField, segmented, checkbox, colorSwatch, sep } from '../ui/contro
 import { snap45 } from './select';
 
 type ShapeKind = 'rect' | 'ellipse' | 'triangle' | 'line';
+const SHAPE_ICONS: Record<ShapeKind, string> = { rect: 'square', ellipse: 'circle', triangle: 'shapeTriangle', line: 'line' };
 interface ShapeOpts { kind: ShapeKind; fill: boolean; fillColor: RGB; strokeWidth: number; strokeColor: RGB; radius: number }
 
 const counters: Record<ShapeKind, number> = { rect: 1, ellipse: 1, triangle: 1, line: 1 };
@@ -15,7 +16,8 @@ const counters: Record<ShapeKind, number> = { rect: 1, ellipse: 1, triangle: 1, 
 export class ShapeTool extends Tool<ShapeOpts> {
   readonly id = 'shape';
   readonly key = 'U';
-  get iconName() { return 'shape'; }
+  // the toolbar shows the chosen shape (as the marquee and the lasso show their type)
+  get iconName() { return SHAPE_ICONS[this.o.kind] ?? 'shape'; }
   private a: { x: number; y: number } | null = null;
   private b: { x: number; y: number } | null = null;
   private live = { shift: false, alt: false };

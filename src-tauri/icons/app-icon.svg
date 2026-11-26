@@ -5,10 +5,10 @@
       <stop offset="1" stop-color="#17171a"/>
     </linearGradient>
   </defs>
-  <!-- the dark tile -->
-  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#tile)"/>
-  <rect x="66" y="66" width="892" height="892" rx="206" fill="none" stroke="#ffffff" stroke-opacity="0.09" stroke-width="4"/>
-  <!-- the mark from the menu bar: a large white square in front of an outlined one -->
-  <rect x="398" y="398" width="430" height="430" rx="96" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="54"/>
-  <rect x="188" y="188" width="480" height="480" rx="108" fill="#ffffff"/>
+  <!-- the dark tile: almost the whole icon, as large as its neighbours in the taskbar -->
+  <rect x="24" y="24" width="976" height="976" rx="227" fill="url(#tile)"/>
+  <rect x="26" y="26" width="972" height="972" rx="225" fill="none" stroke="#ffffff" stroke-opacity="0.09" stroke-width="4"/>
+  <!-- the mark from the menu bar (a large white square in front of an outlined one), a fifth of the tile clear around it -->
+  <rect x="403.4" y="403.4" width="378.0" height="378.0" rx="84.4" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="47.5"/>
+  <rect x="218.9" y="218.9" width="421.9" height="421.9" rx="94.9" fill="#ffffff"/>
 </svg>

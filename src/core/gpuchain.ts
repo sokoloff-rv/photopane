@@ -7,13 +7,19 @@
  */
 import type { EnhanceParams } from './adjust';
 import { HslParams, ToneParams, tintChroma } from './colorgrade';
+import type { FxJob } from './fxjobs';
 
 /** One step of the chain as the GPU sees it. */
 export type GpuStageDesc =
   | { kind: 'enhance'; p: EnhanceParams }
   | { kind: 'lut'; r: Uint8ClampedArray; g: Uint8ClampedArray; b: Uint8ClampedArray }
   | { kind: 'hsl'; p: HslParams }
-  | { kind: 'tone'; p: ToneParams };
+  | { kind: 'tone'; p: ToneParams }
+  /** a filter job (core/fxjobs.ts) the GPU can run: full size, in real time; `keep` = preserve transparency */
+  | { kind: 'fx'; job: FxJob; keep: boolean };
+
+/** Filters run on the GPU (the same jobs as the worker's, so the windows need no GPU code of their own). */
+export const GPU_FX = new Set<string>(['gaussian', 'unsharp', 'motionBlur', 'radialBlur', 'highPass', 'glow']);
 
 const VS = `#version 300 es
 in vec2 p;
@@ -39,6 +45,78 @@ void main() {
     ws += 2.0 * w;
   }
   o = acc / ws;
+}`;
+
+/* Straight RGBA → premultiplied (the start of the filters that average neighbours). */
+const FS_PREMUL = `#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D uIn;
+out vec4 o;
+void main() { vec4 c = texelFetch(uIn, ivec2(gl_FragCoord.xy), 0); o = vec4(c.rgb * c.a, c.a); }`;
+
+/*
+ * One step of motion / radial blur, as motionBlur() and radialBlur() in core/fx.ts: the mean of two
+ * bilinear samples of the premultiplied picture, shifted along a line (0), away from / towards a centre (1)
+ * or turned around it (2). Halving the step pass after pass builds the long blur from a few cheap passes.
+ */
+const FS_AVG2 = `#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D uIn; uniform ivec2 uSize; uniform int uMode;
+uniform vec2 uOff, uC; uniform float uS, uCos, uSin;
+out vec4 o;
+vec4 at(vec2 p) { return texture(uIn, (p + 0.5) / vec2(uSize)); }
+void main() {
+  vec2 x = floor(gl_FragCoord.xy);
+  vec2 a, b;
+  if (uMode == 0) { a = x + uOff; b = x - uOff; }
+  else {
+    vec2 v = x - uC;
+    if (uMode == 1) { a = uC + v * (1.0 + uS); b = uC + v * (1.0 - uS); }
+    else { a = uC + vec2(v.x * uCos - v.y * uSin, v.x * uSin + v.y * uCos); b = uC + vec2(v.x * uCos + v.y * uSin, -v.x * uSin + v.y * uCos); }
+  }
+  o = (at(a) + at(b)) * 0.5;
+}`;
+
+/* Glow: the bright parts that will glow (glow() in core/fx.ts), straight RGBA. */
+const FS_GLOWMASK = `#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D uIn; uniform float uThr;
+out vec4 o;
+void main() {
+  vec4 s = texelFetch(uIn, ivec2(gl_FragCoord.xy), 0);
+  float L = dot(s.rgb, vec3(0.299, 0.587, 0.114));
+  float k = L <= uThr ? 0.0 : min(1.0, (L - uThr) / max(0.02, 1.0 - uThr));
+  o = vec4(s.rgb * k, s.a);
+}`;
+
+/*
+ * The end of a filter: the blurred (premultiplied, possibly reduced) picture against the source.
+ * 0 = the blur itself (Gaussian, motion, radial; uKeep = preserve transparency), 1 = Unsharp Mask,
+ * 2 = High Pass, 3 = Glow (screen blend); then blended with the selection. Straight RGBA out.
+ */
+const FS_FXOUT = `#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D uIn, uSrc, uSel; uniform ivec2 uSize; uniform int uMode, uHasSel, uKeep;
+uniform float uA, uB; uniform vec3 uTint;
+out vec4 o;
+void main() {
+  ivec2 q = ivec2(gl_FragCoord.xy);
+  vec4 s = texelFetch(uSrc, q, 0);
+  vec4 b = texture(uIn, (vec2(q) + 0.5) / vec2(uSize));
+  vec3 bs = b.a > 1e-4 ? b.rgb / b.a : vec3(0.0);
+  vec4 res;
+  if (uMode == 0) res = vec4(clamp(bs, 0.0, 1.0), uKeep == 1 ? s.a : b.a);
+  else if (uMode == 1) {
+    vec3 d = s.rgb - bs;
+    res = vec4(clamp(mix(s.rgb, s.rgb + d * uA, step(vec3(uB), abs(d) * 510.0)), 0.0, 1.0), s.a);
+  }
+  else if (uMode == 2) res = vec4(clamp(128.0 / 255.0 + s.rgb - bs, 0.0, 1.0), s.a);
+  else {
+    vec3 g = min(vec3(1.0), bs * uTint * uA);
+    res = vec4(1.0 - (1.0 - s.rgb) * (1.0 - g), s.a);
+  }
+  if (uHasSel == 1) res = mix(s, res, texelFetch(uSel, q, 0).r);
+  o = res;
 }`;
 
 /* Box downsample by an integer factor, premultiplying the straight-alpha source. */
@@ -284,6 +362,7 @@ interface Prog { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null>
 interface GL {
   canvas: HTMLCanvasElement; gl: WebGL2RenderingContext;
   enh: Prog; lut: Prog; hsl: Prog; tone: Prog; show: Prog; blur: Prog; down: Prog;
+  premul: Prog; avg2: Prog; glowMask: Prog; fxOut: Prog;
   /** internal format for the wide blur: half float when it can be rendered to */
   fmt: { internal: number; type: number };
   maxSize: number;
@@ -322,6 +401,10 @@ function init(): GL | null {
     const show = prog(FS_SHOW, ['uIn', 'uBase', 'uSize', 'uSplit']);
     const blur = prog(FS_BLUR, ['uIn', 'uSize', 'uDir', 'uSigma', 'uPremul']);
     const down = prog(FS_DOWN, ['uIn', 'uSize', 'uF']);
+    const premul = prog(FS_PREMUL, ['uIn']);
+    const avg2 = prog(FS_AVG2, ['uIn', 'uSize', 'uMode', 'uOff', 'uC', 'uS', 'uCos', 'uSin']);
+    const glowMask = prog(FS_GLOWMASK, ['uIn', 'uThr']);
+    const fxOut = prog(FS_FXOUT, ['uIn', 'uSrc', 'uSel', 'uSize', 'uMode', 'uHasSel', 'uKeep', 'uA', 'uB', 'uTint']);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
@@ -333,7 +416,7 @@ function init(): GL | null {
     const vp = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array;
     const maxSize = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) as number, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number, vp[0], vp[1]);
     canvas.addEventListener('webglcontextlost', () => { shared = undefined; });
-    return { canvas, gl, enh, lut, hsl, tone, show, blur, down, fmt, maxSize, fbo: gl.createFramebuffer()! };
+    return { canvas, gl, enh, lut, hsl, tone, show, blur, down, premul, avg2, glowMask, fxOut, fmt, maxSize, fbo: gl.createFramebuffer()! };
   } catch (e) {
     console.warn('PhotoPane: GPU adjustments unavailable', e);
     return null;
@@ -353,6 +436,9 @@ export class GpuChain {
   private largeKey = '';
   private textures = new Set<WebGLTexture>();
   private disposed = false;
+  /** full-size working pair for the filters (premultiplied, half float where possible), made on first use */
+  private fa: WebGLTexture | null = null;
+  private fb: WebGLTexture | null = null;
 
   static create(w: number, h: number, ox: number, oy: number, sel: Uint8Array | null): GpuChain | null {
     if (shared === undefined) shared = init();
@@ -447,10 +533,99 @@ export class GpuChain {
     return this.large;
   }
 
+  private work(): [WebGLTexture, WebGLTexture] {
+    const { gl, fmt } = this.st;
+    this.fa ??= this.texture(fmt.internal, this.w, this.h, gl.RGBA, fmt.type, null, gl.LINEAR);
+    this.fb ??= this.texture(fmt.internal, this.w, this.h, gl.RGBA, fmt.type, null, gl.LINEAR);
+    return [this.fa, this.fb];
+  }
+
+  /**
+   * Gaussian of a straight-alpha texture, premultiplied out. Large radii run on a reduced copy (a box
+   * average then a smaller Gaussian, sampled back bilinearly): the same look, a few taps instead of hundreds.
+   * Returns the texture, its size, and whether the caller must free it.
+   */
+  private fxGauss(src: WebGLTexture, sigma: number): { tex: WebGLTexture; own: boolean } {
+    const { gl, blur, down, fmt } = this.st;
+    const { w, h } = this;
+    const [fa, fb] = this.work();
+    if (sigma < 0.3) {
+      this.pass(this.st.premul, fb, w, h, [['uIn', src]], () => {});
+      return { tex: fb, own: false };
+    }
+    const f = sigma > 4 ? Math.max(1, Math.floor(sigma / 2.5)) : 1;
+    if (f === 1) {
+      this.pass(blur, fa, w, h, [['uIn', src]], u => { gl.uniform2i(u.uSize, w, h); gl.uniform2i(u.uDir, 1, 0); gl.uniform1f(u.uSigma, sigma); gl.uniform1i(u.uPremul, 1); });
+      this.pass(blur, fb, w, h, [['uIn', fa]], u => { gl.uniform2i(u.uSize, w, h); gl.uniform2i(u.uDir, 0, 1); gl.uniform1f(u.uSigma, sigma); gl.uniform1i(u.uPremul, 0); });
+      return { tex: fb, own: false };
+    }
+    const lw = Math.ceil(w / f), lh = Math.ceil(h / f);
+    const reduced = this.texture(fmt.internal, lw, lh, gl.RGBA, fmt.type, null, gl.NEAREST);
+    this.pass(down, reduced, lw, lh, [['uIn', src]], u => { gl.uniform2i(u.uSize, w, h); gl.uniform1i(u.uF, f); });
+    // the box average already blurs by f²/12; the Gaussian adds the rest
+    const out = this.gauss(reduced, lw, lh, Math.sqrt(Math.max(0.25, sigma * sigma - f * f / 12)) / f, false, false, gl.LINEAR);
+    this.free(reduced);
+    return { tex: out, own: true };
+  }
+
+  /** A filter job on the GPU from straight-alpha `input` into `out` (straight RGBA8), blended with the selection. */
+  private fx(job: FxJob, keep: boolean, input: WebGLTexture, out: WebGLTexture) {
+    const { gl } = this.st;
+    const { w, h } = this;
+    const op = job[0];
+    const num = (i: number) => Number(job[i]) || 0;
+    const finish = (blurred: WebGLTexture, mode: number, a = 0, b = 0, tint: [number, number, number] = [1, 1, 1]) => {
+      this.pass(this.st.fxOut, out, w, h, [['uIn', blurred], ['uSrc', input], ['uSel', this.sel ?? input]], u => {
+        gl.uniform2i(u.uSize, w, h); gl.uniform1i(u.uMode, mode); gl.uniform1i(u.uHasSel, this.sel ? 1 : 0); gl.uniform1i(u.uKeep, keep ? 1 : 0);
+        gl.uniform1f(u.uA, a); gl.uniform1f(u.uB, b); gl.uniform3f(u.uTint, tint[0], tint[1], tint[2]);
+      });
+    };
+    if (op === 'gaussian' || op === 'unsharp' || op === 'highPass') {
+      const sigma = op === 'unsharp' ? num(2) : num(1);
+      const g = this.fxGauss(input, sigma);
+      if (op === 'gaussian') finish(g.tex, 0);
+      else if (op === 'unsharp') finish(g.tex, 1, num(1) / 100, num(3));
+      else finish(g.tex, 2);
+      if (g.own) this.free(g.tex);
+      return;
+    }
+    if (op === 'glow') {
+      // the bright parts, blurred, screened over the picture (glow() in core/fx.ts)
+      const mask = this.rgba8();
+      this.pass(this.st.glowMask, mask, w, h, [['uIn', input]], u => gl.uniform1f(u.uThr, num(1) / 255));
+      const g = this.fxGauss(mask, num(2));
+      finish(g.tex, 3, num(3) / 100, 0, job[4] ? [1, 0.62, 0.42] : [1, 1, 1]);
+      if (g.own) this.free(g.tex);
+      this.free(mask);
+      return;
+    }
+    // motion / radial blur: halving steps over the premultiplied picture, ping-pong between the working pair
+    const [fa, fb] = this.work();
+    this.pass(this.st.premul, fa, w, h, [['uIn', input]], () => {});
+    let src = fa, dst = fb;
+    const step = (set: (u: Prog['u']) => void) => {
+      this.pass(this.st.avg2, dst, w, h, [['uIn', src]], u => { gl.uniform2i(u.uSize, w, h); set(u); });
+      const t = src; src = dst; dst = t;
+    };
+    if (op === 'motionBlur') {
+      const an = num(1) * Math.PI / 180, dist = num(2);
+      const dx = Math.cos(an), dy = -Math.sin(an);
+      for (let st = dist / 4; st >= 0.35; st /= 2) step(u => { gl.uniform1i(u.uMode, 0); gl.uniform2f(u.uOff, dx * st, dy * st); });
+    } else {
+      const cx = num(1), cy = num(2), amount = num(3), mode = job[4] === 'spin' ? 2 : 1;
+      const R = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy));
+      for (let st = mode === 1 ? amount / 100 * 0.2 : amount / 100 * (20 * Math.PI / 180); st * R >= 0.5; st /= 2) {
+        step(u => { gl.uniform1i(u.uMode, mode); gl.uniform2f(u.uC, cx, cy); gl.uniform1f(u.uS, st); gl.uniform1f(u.uCos, Math.cos(st)); gl.uniform1f(u.uSin, Math.sin(st)); });
+      }
+    }
+    finish(src, 0);
+  }
+
   /** One stage from texture `input` (named `key` for the blur cache) into `out`. */
   private stage(d: GpuStageDesc, input: WebGLTexture, key: string, out: WebGLTexture, docW: number, docH: number) {
     const { gl } = this.st;
     const sel = this.sel ?? input;
+    if (d.kind === 'fx') { this.fx(d.job, d.keep, input, out); return; }
     if (d.kind === 'hsl') {
       const p = d.p;
       this.pass(this.st.hsl, out, this.w, this.h, [['uIn', input], ['uSel', sel]], u => {

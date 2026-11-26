@@ -16,7 +16,7 @@ import type { Doc } from './document';
 import { createCanvas, ctx2d, readPixels } from './util';
 import { t } from '../i18n';
 import { toast } from '../ui/dialog';
-import { GpuChain, GpuStageDesc } from './gpuchain';
+import { GpuChain, GpuStageDesc, GPU_FX } from './gpuchain';
 import { runJob, FxJob } from './fxjobs';
 import { keepAlpha } from './fx';
 import { splitCompareTool } from '../tools/splitcompare';
@@ -174,7 +174,7 @@ export class AdjustChain {
   inputOf(stage: Stage, use: (data: Uint8ClampedArray) => void) {
     const i = this.stages.indexOf(stage), n = i < 0 ? this.stages.length : i;
     const heavy = this.w * this.h > DRAFT_PIXELS * 1.8 &&
-      this.stages.slice(0, n).some((s, j) => s.spec.job && this.outs.get(s.id)?.key !== this.keyAt(j));
+      this.stages.slice(0, n).some((s, j) => this.cpuHeavy(s) && this.outs.get(s.id)?.key !== this.keyAt(j));
     if (!heavy || !this.startWorker()) { use(this.computeSync(n)); return; }
     document.body.classList.add('busy-cursor');
     void this.computeAsync(n).then(d => {
@@ -210,6 +210,16 @@ export class AdjustChain {
     return k;
   }
 
+  /** How the GPU runs a stage: its own description (Adjust, Levels…) or its filter job when the GPU knows it. */
+  private gpuDesc(st: Stage): GpuStageDesc | null {
+    if (st.spec.gpu) return st.spec.gpu();
+    if (!st.spec.job) return null;
+    const job = st.spec.job(this.ctx());
+    return GPU_FX.has(job[0]) ? { kind: 'fx', job, keep: !!st.spec.keepAlpha?.() } : null;
+  }
+  /** A stage that has to be computed on the CPU (in the worker on large layers). */
+  private cpuHeavy(st: Stage) { return !!st.spec.job && !(this.gpuDesc(st) && this.getGpu()); }
+
   private getGpu(): GpuChain | null {
     if (this.gpu === undefined) {
       this.gpu = GpuChain.create(this.w, this.h, this.ox, this.oy, this.sel);
@@ -233,9 +243,10 @@ export class AdjustChain {
     if (AdjustChain.current !== this) return;
     if (!this.stages.length) { this.showData(this.base); return; }
     const doc = this.doc;
-    // Adjust, Levels and Curves only: everything on the GPU
-    if (this.stages.every(s => s.spec.gpu) && this.getGpu()) {
-      const c = this.gpu!.display(this.stages.map((s, i) => ({ d: s.spec.gpu!(), key: this.keyAt(i) })), this.baseKey, this.splitCut(), doc.width, doc.height);
+    // only stages the GPU can run (Adjust, Levels, Curves, HSL, Toning, the blurs…): everything on the GPU
+    const descs = this.stages.map(s => this.gpuDesc(s));
+    if (descs.every(Boolean) && this.getGpu()) {
+      const c = this.gpu!.display(descs.map((d, i) => ({ d: d!, key: this.keyAt(i) })), this.baseKey, this.splitCut(), doc.width, doc.height);
       if (c) { this.drawCanvas(c); this.last = { kind: 'gpu' }; return; }
       this.dropGpu();
     }
@@ -245,7 +256,7 @@ export class AdjustChain {
     // A heavy filter on a large layer: computed at full size in the worker. Meanwhile the picture keeps the
     // last full result (never a reduced draft, which looked like the filter's own result) and the windows
     // show that it is being computed.
-    if (this.stages.some(s => s.spec.job) && this.w * this.h > DRAFT_PIXELS * 1.8) {
+    if (this.stages.some(s => this.cpuHeavy(s)) && this.w * this.h > DRAFT_PIXELS * 1.8) {
       setComputing(true);
       clearTimeout(this.fullTimer);
       this.fullTimer = window.setTimeout(() => void this.runFull(), 60);
@@ -335,8 +346,9 @@ export class AdjustChain {
 
   /** One stage at full size on the main thread (GPU when it has a GPU form). */
   private stageSync(st: Stage, input: Uint8ClampedArray): Uint8ClampedArray {
-    if (st.spec.gpu && this.getGpu()) {
-      const r = this.gpu!.run(st.spec.gpu(), input, this.doc.width, this.doc.height);
+    const desc = this.gpuDesc(st);
+    if (desc && this.getGpu()) {
+      const r = this.gpu!.run(desc, input, this.doc.width, this.doc.height);
       if (r) return r;
       this.dropGpu();
     }
@@ -373,8 +385,8 @@ export class AdjustChain {
       const hit = this.outs.get(st.id);
       if (hit && hit.key === key) { input = hit.data; continue; }
       let out: Uint8ClampedArray | null = null;
-      if (st.spec.job && this.startWorker()) {
-        const raw = await this.inWorker(st.spec.job(this.ctx()), input);
+      if (this.cpuHeavy(st) && this.startWorker()) {
+        const raw = await this.inWorker(st.spec.job!(this.ctx()), input);
         if (AdjustChain.current !== this || this.stages[i] !== st || this.keyAt(i) !== key) return null;
         if (raw) out = this.finish(st, input, raw);
         // still valid for this stage even if a later window moved meanwhile: kept, not computed again

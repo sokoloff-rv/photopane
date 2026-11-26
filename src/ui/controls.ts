@@ -2,6 +2,7 @@ import { el, clamp } from '../core/util';
 import { icon } from './icons';
 import { RGB, css } from '../core/color';
 import { openColorPicker } from './colorpicker';
+import { sizeToPos, posToSize } from './sizecurve';
 
 /** Compact numeric field with a scrubbable label and a popup slider (Photoshop-style). */
 export function numberField(opts: {
@@ -10,8 +11,8 @@ export function numberField(opts: {
   /** Usual values to pick from (a list opens instead of the slider); typing any value still works. */
   presets?: number[];
   /**
-   * Sizes (1…2500 px): the slider moves on a logarithmic scale, so the usual 10–200 px take a good part of
-   * the track instead of its first few percent (as in Photoshop); typing any value still works.
+   * Sizes (1…2500 px): the slider moves on Photoshop's kind of scale (ui/sizecurve.ts): 200 px at 80 % of the
+   * track, almost even below it; typing any value still works.
    */
   log?: boolean;
 }): HTMLElement & { set(v: number): void } {
@@ -20,10 +21,9 @@ export function numberField(opts: {
   const dec = step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0;
   const input = el('input', { class: 'num-input', type: 'text', value: value.toFixed(dec), style: { width: (opts.width ?? 44) + 'px' } }) as HTMLInputElement;
   const lg = !!opts.log && opts.min > 0;
-  const span = Math.log(opts.max / opts.min);
-  /** slider position (0…1000 on a log scale) ↔ value */
-  const toPos = (v: number) => (lg ? Math.round(1000 * Math.log(clamp(v, opts.min, opts.max) / opts.min) / span) : v);
-  const fromPos = (p: number) => (lg ? opts.min * Math.exp(span * p / 1000) : p);
+  /** slider position (0…1000 on the size scale) ↔ value */
+  const toPos = (v: number) => (lg ? Math.round(sizeToPos(v, opts.min, opts.max)) : v);
+  const fromPos = (p: number) => (lg ? posToSize(p, opts.min, opts.max) : p);
   const range = el('input', lg
     ? { class: 'range', type: 'range', min: 0, max: 1000, step: 1, value: toPos(value) }
     : { class: 'range', type: 'range', min: opts.min, max: opts.max, step, value }) as HTMLInputElement;

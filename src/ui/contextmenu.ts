@@ -1,4 +1,5 @@
 import { app } from '../app';
+import { sizeToPos, posToSize } from './sizecurve';
 import { el, clamp } from '../core/util';
 import { t } from '../i18n';
 import { PEvent } from '../tools/tool';
@@ -108,11 +109,10 @@ function brushPopover(x: number, y: number) {
   const changed = () => { app.saveSettings(); app.update('options', 'overlay'); };
   const row = (label: string, key: string, min: number, max: number, unit: string) => {
     const val = el('span', { class: 'ctx-val mono' }, `${o[key]} ${unit}`);
-    // the size on a log scale (as in the options bar): small and medium brushes get most of the track
+    // the size on the same scale as the options bar (ui/sizecurve.ts): 200 px at 80 % of the track
     const lg = key === 'size';
-    const span = Math.log(max / min);
-    const toPos = (v: number) => (lg ? Math.round(1000 * Math.log(clamp(v, min, max) / min) / span) : v);
-    const fromPos = (p: number) => (lg ? Math.round(min * Math.exp(span * p / 1000)) : p);
+    const toPos = (v: number) => (lg ? Math.round(sizeToPos(v, min, max)) : v);
+    const fromPos = (p: number) => (lg ? Math.round(posToSize(p, min, max)) : p);
     const r = el('input', { type: 'range', class: 'range', min: lg ? 0 : min, max: lg ? 1000 : max, value: toPos(o[key]) }) as HTMLInputElement;
     r.addEventListener('input', () => { o[key] = fromPos(+r.value); val.textContent = `${o[key]} ${unit}`; changed(); });
     return el('div', { class: 'ctx-row' }, el('div', { class: 'ctx-row-head' }, el('span', {}, label), val), r);

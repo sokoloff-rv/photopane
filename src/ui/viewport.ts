@@ -206,6 +206,20 @@ export class Viewport {
     this.snapPan();
   }
 
+  /**
+   * After a crop: the zoom stays as it was and the picture is placed at panX, panY (kept within the usual
+   * bounds; centred if it now fits). Fitting the picture to the window instead changed the zoom every time.
+   */
+  place(zoom: number, panX: number, panY: number) {
+    const d = this.doc;
+    if (!d) return;
+    d.zoom = clamp(zoom, 0.01, 64);
+    d.panX = panX; d.panY = panY;
+    d.fitted = true; d.autoFit = false;
+    this.snapPan();
+    app.update('view');
+  }
+
   setZoom(z: number, sx = this.w / 2, sy = this.h / 2) {
     const d = this.doc;
     if (!d) return;

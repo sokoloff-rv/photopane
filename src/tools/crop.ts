@@ -174,6 +174,8 @@ export class CropTool extends Tool<CropOpts> {
     const extends_ = r.x < 0 || r.y < 0 || r.x + r.w > d.width || r.y + r.h > d.height;
     const before = extends_ && this.o.fill === 'ai' ? cloneCanvas(d.composite()) : null;
     const rr = { ...r };
+    // the view keeps its zoom, and what is left of the picture stays where it was on the screen
+    const z = d.zoom, sx = d.panX + rr.x * z, sy = d.panY + rr.y * z;
     if (!whole) cropDocument(d, r, this.o.deletePixels);
     if (extends_ && this.o.fill === 'bg') {
       const l = new Layer('raster', t('layers.background'), d.width, d.height);
@@ -183,8 +185,11 @@ export class CropTool extends Tool<CropOpts> {
     }
     if (px && (d.width !== W || d.height !== H)) resizeDocument(d, W, H, 'auto');
     app.commit('tool.crop');
-    app.viewport.fit(false);
-    this.reset();
+    app.viewport.place(z, sx, sy);
+    // done: the frame goes (a new one is dragged out, or a preset puts one); it used to come back at once
+    // around the whole picture, as if the crop were still waiting
+    this.rect = null; this.drag = null; this.docId = d.id;
+    app.update('overlay', 'options');
     // AI outpainting of the new area (Stability AI) as its own history step
     if (before && !px) outpaintAfterCrop(before, rr);
   }
@@ -409,6 +414,9 @@ export class PerspCropTool extends Tool {
     const len = (a: P, b: P) => Math.hypot(b.x - a.x, b.y - a.y);
     const W = Math.max(1, Math.round((len(q[0], q[1]) + len(q[3], q[2])) / 2));
     const H = Math.max(1, Math.round((len(q[0], q[3]) + len(q[1], q[2])) / 2));
+    // the view keeps its zoom; the straightened result is centred where the frame's centre was
+    const z = d.zoom;
+    const c = app.viewport.toScreen((q[0].x + q[1].x + q[2].x + q[3].x) / 4, (q[0].y + q[1].y + q[2].y + q[3].y) / 4);
     const inv = homography(rectQuad({ x: 0, y: 0, w: W, h: H }), q); // dst -> src
     const dst = { x: 0, y: 0, w: W, h: H };
     const conv = (s: Surface) => {
@@ -427,7 +435,7 @@ export class PerspCropTool extends Tool {
     d.guides = { h: [], v: [] };
     d.invalidate();
     app.commit('tool.perspCrop');
-    app.viewport.fit(false);
+    app.viewport.place(z, c.x - W * z / 2, c.y - H * z / 2);
     // done: show the result without a frame (a new one is dragged out to crop again)
     this.clear();
   }

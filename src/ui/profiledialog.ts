@@ -96,5 +96,5 @@ export function colorProfileDialog() {
       apply));
   refresh();
   void parseIcc;
-  openDialog({ title: t('cmd.colorProfile'), body, width: 440, okLabel: t('dlg.close'), cancelLabel: null });
+  openDialog({ title: t('prof.title'), body, width: 440, okLabel: t('dlg.close'), cancelLabel: null, autoFocus: false });
 }

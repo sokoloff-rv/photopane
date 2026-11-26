@@ -41,6 +41,22 @@ export function numberField(opts: {
     opts.onChange(v, final);
   };
   root.set = (v: number) => { value = v; input.value = v.toFixed(dec); range.value = String(toPos(v)); };
+  /**
+   * The popup opens under the field, right-aligned; where that would leave the window or panel the field is
+   * in (a field near the left edge of a dialog), it opens from the left edge of the box instead.
+   */
+  const placePopup = () => {
+    pop.style.left = ''; pop.style.right = '';
+    let left = 0;
+    for (let n = root.parentElement; n; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') { left = n.getBoundingClientRect().left; break; }
+    }
+    if (pop.getBoundingClientRect().left < left + 4) {
+      const box = root.querySelector('.num-box') as HTMLElement;
+      pop.style.right = 'auto'; pop.style.left = box.offsetLeft + 'px';
+    }
+  };
   if (list) {
     const fill = () => {
       list.innerHTML = '';
@@ -79,6 +95,7 @@ export function numberField(opts: {
     if (open) {
       (root as any)._fill?.();
       root.classList.add('open');
+      placePopup();
       const close = (ev: Event) => { if (!root.contains(ev.target as Node)) { root.classList.remove('open'); document.removeEventListener('pointerdown', close, true); } };
       document.addEventListener('pointerdown', close, true);
     }

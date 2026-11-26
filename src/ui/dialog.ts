@@ -29,6 +29,8 @@ export interface DialogOptions {
   floating?: boolean;
   /** Keys the window lets its tool have (Delete removes a Field Blur pin); return true when handled. */
   keys?: (e: KeyboardEvent) => boolean;
+  /** false: no field takes the focus on opening (the window is mostly buttons, its field is a side option). */
+  autoFocus?: boolean;
 }
 
 /* ---------- remembered window positions (kept in this browser / app profile) ---------- */
@@ -214,7 +216,7 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   });
-  setTimeout(() => (card.querySelector('input:not([type=checkbox]):not([type=range])') as HTMLInputElement | null)?.select?.(), 30);
+  if (o.autoFocus !== false) setTimeout(() => (card.querySelector('input:not([type=checkbox]):not([type=range])') as HTMLInputElement | null)?.select?.(), 30);
   return { close, root: card };
 }
 

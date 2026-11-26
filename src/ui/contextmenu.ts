@@ -1,5 +1,5 @@
 import { app } from '../app';
-import { sizeToPos, posToSize } from './sizecurve';
+import { sizeToPos, posToSize, MAX_BRUSH_SIZE } from './sizecurve';
 import { el, clamp } from '../core/util';
 import { t } from '../i18n';
 import { PEvent } from '../tools/tool';
@@ -86,12 +86,12 @@ export function showContextMenu(x: number, y: number, items: CtxItem[]) {
 /** Brush size / hardness popover (Photoshop shows a brush picker on right click). */
 /** Sliders for every brush-like tool option, in the order the options bar shows them. */
 const BRUSH_SLIDERS: { key: string; label: string; min: number; max: number; unit: string }[] = [
-  { key: 'size', label: 'opt.size', min: 1, max: 1000, unit: 'px' },
+  { key: 'size', label: 'opt.size', min: 1, max: MAX_BRUSH_SIZE, unit: 'px' },
   { key: 'hardness', label: 'opt.hardness', min: 0, max: 100, unit: '%' },
   { key: 'opacity', label: 'opt.opacity', min: 1, max: 100, unit: '%' },
   { key: 'flow', label: 'opt.flow', min: 1, max: 100, unit: '%' },
   { key: 'strength', label: 'opt.strength', min: 1, max: 100, unit: '%' },
-  { key: 'tolerance', label: 'opt.tolerance', min: 0, max: 100, unit: '%' },
+  { key: 'tolerance', label: 'opt.tolerance', min: 1, max: 100, unit: '%' },
 ];
 const BRUSH_CHECKS: { key: string; label: string }[] = [
   { key: 'pressure', label: 'opt.pressure' }, { key: 'aligned', label: 'opt.aligned' }, { key: 'allLayers', label: 'opt.allLayers' },

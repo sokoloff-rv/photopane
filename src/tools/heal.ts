@@ -4,6 +4,7 @@ import { Tool, PEvent } from './tool';
 import { DabPath } from './paint';
 import { createCanvas, ctx2d, readPixels } from '../core/util';
 import { numberField } from '../ui/controls';
+import { MAX_BRUSH_SIZE } from '../ui/sizecurve';
 import { toast } from '../ui/dialog';
 import { healPixels } from '../core/heal';
 
@@ -139,7 +140,7 @@ export class HealTool extends Tool<HealOpts> {
 
   options() {
     return [
-      numberField({ label: t('opt.size'), value: this.o.size, min: 1, max: 1000, unit: 'px', log: true, onChange: v => { this.set('size', v); app.update('overlay'); } }),
+      numberField({ label: t('opt.size'), value: this.o.size, min: 1, max: MAX_BRUSH_SIZE, unit: 'px', log: true, onChange: v => { this.set('size', v); app.update('overlay'); } }),
       numberField({ label: t('opt.hardness'), value: this.o.hardness, min: 0, max: 100, unit: '%', onChange: v => this.set('hardness', v) }),
     ];
   }

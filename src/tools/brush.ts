@@ -3,6 +3,7 @@ import { t } from '../i18n';
 import { Tool, PEvent } from './tool';
 import { brushTip, DabPath, StrokeSession, sampleColor } from './paint';
 import { numberField, checkbox, sep } from '../ui/controls';
+import { MAX_BRUSH_SIZE } from '../ui/sizecurve';
 
 interface BrushOpts { size: number; hardness: number; opacity: number; flow: number; pressure: boolean }
 
@@ -90,7 +91,7 @@ export class BrushTool extends Tool<BrushOpts> {
   options() {
     const o = this.o;
     return [
-      numberField({ label: t('opt.size'), value: o.size, min: 1, max: 2500, unit: 'px', log: true, onChange: v => { this.set('size', v); app.update('overlay'); } }),
+      numberField({ label: t('opt.size'), value: o.size, min: 1, max: MAX_BRUSH_SIZE, unit: 'px', log: true, onChange: v => { this.set('size', v); app.update('overlay'); } }),
       numberField({ label: t('opt.hardness'), value: o.hardness, min: 0, max: 100, unit: '%', onChange: v => this.set('hardness', v) }),
       sep(),
       numberField({ label: t('opt.opacity'), value: o.opacity, min: 1, max: 100, unit: '%', onChange: v => this.set('opacity', v) }),

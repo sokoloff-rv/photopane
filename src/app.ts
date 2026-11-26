@@ -21,6 +21,7 @@ import { registerCommands } from './commands';
 import { initDesktop } from './io/desktop';
 import { dialogOpen, toast, confirmDialog, sideDialogs, sideDialogOpen, nudgeSideDialog } from './ui/dialog';
 import { handlePaste, openFiles } from './io/files';
+import { MAX_BRUSH_SIZE } from './ui/sizecurve';
 
 export interface Command {
   id: string;
@@ -520,7 +521,7 @@ export class App {
       else if (typeof o.size === 'number') {
         const s = o.size;
         const stepv = s < 10 ? 1 : s < 50 ? 5 : s < 100 ? 10 : s < 300 ? 25 : 50;
-        o.size = Math.max(1, Math.min(2500, s + (key === ']' ? stepv : -stepv)));
+        o.size = Math.max(1, Math.min(MAX_BRUSH_SIZE, s + (key === ']' ? stepv : -stepv)));
       }
       this.saveSettings();
       this.update('options', 'overlay');

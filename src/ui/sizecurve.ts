@@ -9,6 +9,9 @@
  *
  * Positions are 0…1000 (the range inputs use that many steps).
  */
+/** The largest brush size, the same in the options bar, the right-click window and with the [ ] keys. */
+export const MAX_BRUSH_SIZE = 2500;
+
 const KNEE = 0.8;
 const KNEE_SIZE = 200;
 /** the slight acceleration below the knee (1 = even) */

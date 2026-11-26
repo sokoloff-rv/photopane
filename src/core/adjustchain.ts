@@ -56,6 +56,42 @@ export class Stage {
 /** Layers above about this size (× 1.8) compute heavy filters in the worker, smaller ones at once. */
 const DRAFT_PIXELS = 0.6e6;
 
+/** A filter worker. kill() stops a job that is no longer wanted; the next run starts a fresh worker. */
+class FxRunner {
+  private w: Worker | null = null;
+  private failed = false;
+  private jobs = new Map<number, (d: Uint8ClampedArray | null) => void>();
+  private id = 0;
+  get busy() { return this.jobs.size > 0; }
+  available(): boolean {
+    if (!this.w && !this.failed) {
+      try {
+        const w = new Worker(new URL('./fxworker.ts', import.meta.url), { type: 'module' });
+        w.onmessage = (e: MessageEvent) => {
+          const { id, dst } = e.data as { id: number; dst: Uint8ClampedArray };
+          this.jobs.get(id)?.(dst);
+          this.jobs.delete(id);
+        };
+        w.onerror = () => { this.failed = true; this.kill(); };
+        this.w = w;
+      } catch { this.failed = true; }
+    }
+    return !!this.w;
+  }
+  run(job: FxJob, input: Uint8ClampedArray, w: number, h: number): Promise<Uint8ClampedArray | null> {
+    return new Promise(res => {
+      const id = ++this.id;
+      this.jobs.set(id, res);
+      const src = input.slice();
+      this.w!.postMessage({ id, job, src, w, h }, [src.buffer]);
+    });
+  }
+  kill() {
+    this.w?.terminate(); this.w = null;
+    this.jobs.forEach(r => r(null)); this.jobs.clear();
+  }
+}
+
 /** The correction and filter windows show a thin running bar while a full-size result is being computed. */
 function setComputing(on: boolean) {
   document.querySelectorAll('.dlg-overlay.side .dlg').forEach(c => c.classList.toggle('computing', on));
@@ -118,10 +154,14 @@ export class AdjustChain {
   private last: { kind: 'gpu' } | { kind: 'full'; data: Uint8ClampedArray } | null = null;
   private outImg: ImageData | null = null;
   private baseCanvas: HTMLCanvasElement | null = null;
-  private worker: Worker | null = null;
-  private workerFailed = false;
-  private jobs = new Map<number, (d: Uint8ClampedArray | null) => void>();
-  private jobId = 0;
+  /** full-size results of filters the GPU does not run; previews at screen size have a worker of their own */
+  private full = new FxRunner();
+  private prev = new FxRunner();
+  private previewSeq = 0;
+  /** the change (gen) whose full result is on screen: a slower preview of it is not drawn over it */
+  private fullShownGen = -1;
+  private settlingBusy = false;
+  private barTimer = 0;
   private settling: Promise<void> = Promise.resolve();
   private splitListeners = new Set<(on: boolean) => void>();
 
@@ -147,6 +187,8 @@ export class AdjustChain {
   changed(stage: Stage) {
     stage.version++;
     this.gen++;
+    // a full-size result for the old settings is no longer wanted: stop it instead of waiting for it
+    if (this.fullBusy && !this.settlingBusy) this.full.kill();
     this.request();
   }
 
@@ -177,7 +219,7 @@ export class AdjustChain {
     const i = this.stages.indexOf(stage), n = i < 0 ? this.stages.length : i;
     const heavy = this.w * this.h > DRAFT_PIXELS * 1.8 &&
       this.stages.slice(0, n).some((s, j) => this.cpuHeavy(s) && this.outs.get(s.id)?.key !== this.keyAt(j));
-    if (!heavy || !this.startWorker()) { use(this.computeSync(n)); return; }
+    if (!heavy || !this.full.available()) { use(this.computeSync(n)); return; }
     document.body.classList.add('busy-cursor');
     void this.computeAsync(n).then(d => {
       document.body.classList.remove('busy-cursor');
@@ -255,13 +297,15 @@ export class AdjustChain {
     const lastSt = this.stages[this.stages.length - 1];
     const hit = this.outs.get(lastSt.id);
     if (hit && hit.key === this.keyAt(this.stages.length - 1)) { this.showFull(hit.data); return; }
-    // A heavy filter on a large layer: computed at full size in the worker. Meanwhile the picture keeps the
-    // last full result (never a reduced draft, which looked like the filter's own result) and the windows
-    // show that it is being computed.
+    // A filter the GPU does not run, on a large layer: what the screen shows is computed at once at the
+    // screen's own resolution (it looks the same as the full result at this zoom), the full-size result follows
+    // in the worker once the sliders rest. A thin bar shows only if that takes a while.
     if (this.stages.some(s => this.cpuHeavy(s)) && this.w * this.h > DRAFT_PIXELS * 1.8) {
-      setComputing(true);
+      void this.preview();
       clearTimeout(this.fullTimer);
-      this.fullTimer = window.setTimeout(() => void this.runFull(), 60);
+      this.fullTimer = window.setTimeout(() => void this.runFull(), 400);
+      clearTimeout(this.barTimer);
+      this.barTimer = window.setTimeout(() => { if (this.fullBusy || this.fullTimer) setComputing(true); }, 300);
       return;
     }
     this.showFull(this.computeSync(this.stages.length));
@@ -272,6 +316,7 @@ export class AdjustChain {
    * a change meanwhile asks for one more run after it with the latest settings (not a queue of stale ones).
    */
   private async runFull() {
+    this.fullTimer = 0;
     if (this.fullBusy) { this.fullAgain = true; return; }
     this.fullBusy = true;
     try {
@@ -279,12 +324,82 @@ export class AdjustChain {
         this.fullAgain = false;
         const gen = this.gen;
         const data = await this.computeAsync(this.stages.length, gen);
-        if (data && gen === this.gen && AdjustChain.current === this) this.showFull(data);
+        if (data && gen === this.gen && AdjustChain.current === this) { this.showFull(data); this.fullShownGen = gen; }
       } while (this.fullAgain && AdjustChain.current === this);
     } finally {
       this.fullBusy = false;
-      if (!this.fullAgain) setComputing(false);
+      this.fullTimer = 0;
+      if (!this.fullAgain) { clearTimeout(this.barTimer); setComputing(false); }
     }
+  }
+
+  /**
+   * The visible part of the layer at the resolution it has on screen (zoomed in: the visible part at full
+   * size), the filters the GPU does not run in the preview worker. Drawn over that part of the layer.
+   */
+  private async preview() {
+    const my = ++this.previewSeq, gen = this.gen;
+    const v = app.viewport, d = this.doc;
+    if (v.doc !== d) return;
+    const k = Math.min(1, d.zoom * (window.devicePixelRatio || 1));
+    const a = v.toDoc(0, 0), b = v.toDoc(v.w, v.h);
+    const m = 24;   // layer pixels around the view, for the filters' neighbourhood
+    const cl = (x: number, hi: number) => Math.max(0, Math.min(hi, x));
+    const rx = cl(Math.floor(a.x - this.ox) - m, this.w), ry = cl(Math.floor(a.y - this.oy) - m, this.h);
+    const rw = cl(Math.ceil(b.x - this.ox) + m, this.w) - rx, rh = cl(Math.ceil(b.y - this.oy) + m, this.h) - ry;
+    if (rw <= 0 || rh <= 0) return;
+    const pw = Math.max(1, Math.round(rw * k)), ph = Math.max(1, Math.round(rh * k));
+    const pc = createCanvas(pw, ph), pg = pc.getContext('2d', { willReadFrequently: true })!;
+    pg.imageSmoothingEnabled = true; pg.imageSmoothingQuality = 'high';
+    pg.drawImage(this.baseImage(), rx, ry, rw, rh, 0, 0, pw, ph);
+    let cur: Uint8ClampedArray = pg.getImageData(0, 0, pw, ph).data;
+    let sel: Uint8Array | null = null;
+    if (this.sel) {
+      const big = createCanvas(rw, rh), mi = new ImageData(rw, rh);
+      for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) mi.data[(y * rw + x) * 4 + 3] = this.sel[(ry + y) * this.w + rx + x];
+      ctx2d(big).putImageData(mi, 0, 0);
+      const sc = createCanvas(pw, ph), sg = sc.getContext('2d', { willReadFrequently: true })!;
+      sg.imageSmoothingEnabled = true; sg.imageSmoothingQuality = 'high';
+      sg.drawImage(big, 0, 0, pw, ph);
+      const sa = sg.getImageData(0, 0, pw, ph).data;
+      sel = new Uint8Array(pw * ph);
+      for (let i = 0; i < sel.length; i++) sel[i] = sa[i * 4 + 3];
+    }
+    const c: StageCtx = { w: pw, h: ph, ox: (this.ox + rx) * k, oy: (this.oy + ry) * k, k };
+    for (const st of this.stages) {
+      let out: Uint8ClampedArray | null;
+      if (this.cpuHeavy(st)) {
+        if (this.prev.busy) this.prev.kill();   // an older preview is no longer wanted
+        if (!this.prev.available()) return;
+        out = await this.prev.run(st.spec.job!(c), cur, pw, ph);
+        if (!out || my !== this.previewSeq || AdjustChain.current !== this) return;
+      } else {
+        out = new Uint8ClampedArray(cur.length);
+        if (st.spec.job) runJob(st.spec.job(c), cur, out, pw, ph); else st.spec.cpu(c)(cur, out);
+      }
+      if (st.spec.keepAlpha?.()) keepAlpha(cur, out);
+      blendSel(cur, out, sel);
+      cur = out;
+    }
+    if (my !== this.previewSeq || AdjustChain.current !== this || this.fullShownGen === gen) return;
+    const res = createCanvas(pw, ph);
+    ctx2d(res).putImageData(new ImageData(cur as Uint8ClampedArray<ArrayBuffer>, pw, ph), 0, 0);
+    const g = this.target.surface.ctx;
+    g.save();
+    g.globalCompositeOperation = 'copy';
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.beginPath(); g.rect(rx, ry, rw, rh); g.clip();
+    g.drawImage(res, rx, ry, rw, rh);
+    g.restore();
+    this.drawSplitFromBase();
+    this.target.layer.touch();
+    app.update('canvas');
+  }
+
+  /** The chain input as a canvas (previews, the before/after line). */
+  private baseImage(): HTMLCanvasElement {
+    if (!this.baseCanvas) { this.baseCanvas = createCanvas(this.w, this.h); ctx2d(this.baseCanvas).putImageData(new ImageData(new Uint8ClampedArray(this.base), this.w, this.h), 0, 0); }
+    return this.baseCanvas;
   }
 
   /** Redraw after the before/after line moved, without recomputing. */
@@ -309,12 +424,11 @@ export class AdjustChain {
   private drawSplitFromBase() {
     const cut = this.splitCut();
     if (!cut) return;
-    if (!this.baseCanvas) { this.baseCanvas = createCanvas(this.w, this.h); ctx2d(this.baseCanvas).putImageData(new ImageData(new Uint8ClampedArray(this.base), this.w, this.h), 0, 0); }
     const g = this.target.surface.ctx;
     g.save();
     g.globalCompositeOperation = 'copy';
     g.beginPath(); g.rect(0, 0, cut, this.h); g.clip();
-    g.drawImage(this.baseCanvas, 0, 0);
+    g.drawImage(this.baseImage(), 0, 0);
     g.restore();
   }
 
@@ -387,9 +501,10 @@ export class AdjustChain {
       const hit = this.outs.get(st.id);
       if (hit && hit.key === key) { input = hit.data; continue; }
       let out: Uint8ClampedArray | null = null;
-      if (this.cpuHeavy(st) && this.startWorker()) {
-        const raw = await this.inWorker(st.spec.job!(this.ctx()), input);
+      if (this.cpuHeavy(st) && this.full.available()) {
+        const raw = await this.full.run(st.spec.job!(this.ctx()), input, this.w, this.h);
         if (AdjustChain.current !== this || this.stages[i] !== st || this.keyAt(i) !== key) return null;
+        if (!raw && gen !== undefined && gen !== this.gen) return null;   // stopped: the settings changed
         if (raw) out = this.finish(st, input, raw);
         // still valid for this stage even if a later window moved meanwhile: kept, not computed again
         if (out) this.outs.set(st.id, { key, data: out });
@@ -401,33 +516,6 @@ export class AdjustChain {
     return input;
   }
 
-  private startWorker(): boolean {
-    if (this.worker || this.workerFailed) return !!this.worker;
-    try {
-      const w = new Worker(new URL('./fxworker.ts', import.meta.url), { type: 'module' });
-      w.onmessage = (e: MessageEvent) => {
-        const { id, dst } = e.data as { id: number; dst: Uint8ClampedArray };
-        this.jobs.get(id)?.(dst);
-        this.jobs.delete(id);
-      };
-      w.onerror = () => {
-        this.workerFailed = true; w.terminate(); this.worker = null;
-        this.jobs.forEach(r => r(null)); this.jobs.clear();
-      };
-      this.worker = w;
-    } catch { this.workerFailed = true; }
-    return !!this.worker;
-  }
-
-  private inWorker(job: FxJob, input: Uint8ClampedArray): Promise<Uint8ClampedArray | null> {
-    return new Promise(res => {
-      const id = ++this.jobId;
-      this.jobs.set(id, res);
-      const src = input.slice();
-      this.worker!.postMessage({ id, job, src, w: this.w, h: this.h }, [src.buffer]);
-    });
-  }
-
   /* ---------------- committing ---------------- */
 
   /** Write the finished stages at the front of the chain into the layer, one history step each. */
@@ -437,8 +525,9 @@ export class AdjustChain {
         const st = this.stages[0];
         document.body.classList.add('busy-cursor');
         let data: Uint8ClampedArray | null;
+        this.settlingBusy = true;
         try { data = await this.computeAsync(1); }
-        finally { document.body.classList.remove('busy-cursor'); }
+        finally { document.body.classList.remove('busy-cursor'); this.settlingBusy = false; }
         if (this.stages[0] !== st) continue;   // the chain changed while it was computed
         data ??= this.computeSync(1);
         const s = this.target.surface;
@@ -479,8 +568,8 @@ export class AdjustChain {
     if (this.split != null) this.endSplit();
     this.showData(this.base);
     this.gpu?.dispose();
-    this.worker?.terminate();
-    this.jobs.forEach(r => r(null));
+    this.full.kill(); this.prev.kill();
+    clearTimeout(this.barTimer);
     this.outs.clear();
   }
 }

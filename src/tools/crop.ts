@@ -243,10 +243,11 @@ export class CropTool extends Tool<CropOpts> {
   keydown(e: KeyboardEvent) {
     if (e.key === 'Enter') { this.apply(); return true; }
     if (e.key === 'Escape') { if (this.rect) { this.clear(); return true; } return false; }
-    // arrows move the frame by a pixel, with Shift by ten (as in Photoshop)
+    // arrows move the frame by a screen pixel, with Shift by ten (as in Photoshop): in image pixels at the
+    // current zoom, so the frame moves visibly on a large picture too, and never by less than one image pixel
     const k = e.key;
     if (this.rect && !this.drag && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(k) && !e.ctrlKey && !e.altKey) {
-      const n = e.shiftKey ? 10 : 1;
+      const n = Math.max(1, Math.round((e.shiftKey ? 10 : 1) / app.viewport.deviceZoom()));
       this.rect = { ...this.rect, x: this.rect.x + (k === 'ArrowLeft' ? -n : k === 'ArrowRight' ? n : 0), y: this.rect.y + (k === 'ArrowUp' ? -n : k === 'ArrowDown' ? n : 0) };
       app.update('overlay', 'options');
       return true;

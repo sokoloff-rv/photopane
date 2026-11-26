@@ -12,7 +12,12 @@ const CACHE = 'photopane-models-v1';
 
 type Ort = typeof import('onnxruntime-web/webgpu');
 let ortP: Promise<Ort> | null = null;
-let sessionP: Promise<{ ort: Ort; s: import('onnxruntime-web').InferenceSession }> | null = null;
+let sessionP: Promise<{ ort: Ort; s: import('onnxruntime-web').InferenceSession; gpu: boolean }> | null = null;
+/**
+ * WebGPU failed while running on this machine (some laptop GPUs and drivers create the session but fail on
+ * the first tile): from then on the model runs on the CPU (WebAssembly).
+ */
+let gpuFailed = false;
 
 /** Let the UI update between tiles; unlike setTimeout it is not throttled in a background window. */
 function yieldToUi(): Promise<void> {
@@ -49,10 +54,11 @@ async function session(onDownload: (p: number) => void) {
       const ort = await ortP;
       ort.env.wasm.wasmPaths = { wasm: wasmUrl, mjs: mjsUrl };
       const bytes = new Uint8Array(await modelBytes(onDownload));
-      let s;
-      try { s = await ort.InferenceSession.create(bytes, { executionProviders: ['webgpu', 'wasm'] }); }
-      catch { s = await ort.InferenceSession.create(bytes, { executionProviders: ['wasm'] }); }
-      return { ort, s };
+      if (!gpuFailed && 'gpu' in navigator) {
+        try { return { ort, s: await ort.InferenceSession.create(bytes, { executionProviders: ['webgpu'] }), gpu: true }; }
+        catch (e) { console.warn('PhotoPane: WebGPU upscaling unavailable, using the CPU', e); }
+      }
+      return { ort, s: await ort.InferenceSession.create(bytes, { executionProviders: ['wasm'] }), gpu: false };
     })();
     sessionP.catch(() => { sessionP = null; });
   }
@@ -64,7 +70,8 @@ async function session(onDownload: (p: number) => void) {
  * images fit in memory; `onProgress` gets 0..1, `cancelled()` stops between tiles.
  */
 export async function esrgan4x(src: HTMLCanvasElement, onProgress: (stage: 'download' | 'run', p: number) => void, cancelled: () => boolean): Promise<HTMLCanvasElement | null> {
-  const { ort, s } = await session(p => onProgress('download', p));
+  let sess = await session(p => onProgress('download', p));
+  const { ort } = sess;
   const W = src.width, H = src.height;
   const data = src.getContext('2d')!.getImageData(0, 0, W, H).data;
   const out = document.createElement('canvas');
@@ -73,7 +80,7 @@ export async function esrgan4x(src: HTMLCanvasElement, onProgress: (stage: 'down
   const T = 256, P = 12;
   const tiles: { x: number; y: number; w: number; h: number }[] = [];
   for (let y = 0; y < H; y += T) for (let x = 0; x < W; x += T) tiles.push({ x, y, w: Math.min(T, W - x), h: Math.min(T, H - y) });
-  const inName = s.inputNames[0], outName = s.outputNames[0];
+  const inName = sess.s.inputNames[0], outName = sess.s.outputNames[0];
   for (let ti = 0; ti < tiles.length; ti++) {
     if (cancelled()) return null;
     const tl = tiles[ti];
@@ -89,7 +96,17 @@ export async function esrgan4x(src: HTMLCanvasElement, onProgress: (stage: 'down
       const i = ((y0 + y) * W + x0 + x) * 4, k = y * tw + x;
       input[k] = data[i] / 255; input[tw * th + k] = data[i + 1] / 255; input[2 * tw * th + k] = data[i + 2] / 255;
     }
-    const res = await s.run({ [inName]: new ort.Tensor('float32', input, [1, 3, th, tw]) });
+    const feeds = { [inName]: new ort.Tensor('float32', input, [1, 3, th, tw]) };
+    let res;
+    try { res = await sess.s.run(feeds); }
+    catch (e) {
+      if (!sess.gpu) throw e;
+      // WebGPU failed on this machine: the same model on the CPU, from this tile on
+      console.warn('PhotoPane: WebGPU upscaling failed, using the CPU', e);
+      gpuFailed = true; sessionP = null;
+      sess = await session(p => onProgress('download', p));
+      res = await sess.s.run(feeds);
+    }
     const o = res[outName].data as Float32Array;
     const OW = tw * 4, OH = th * 4, plane = OW * OH;
     // keep only the tile's own area

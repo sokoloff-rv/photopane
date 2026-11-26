@@ -37,6 +37,7 @@ export function aiSettingsDialog() {
   const st = keyInput(s.stabilityKey, 'sk-…'), tz = keyInput(s.topazKey, '');
   let engine = s.upscaleEngine || 'local';
   const body = el('div', { class: 'form ai-settings' },
+    el('p', { class: 'dlg-text' }, t('ai.intro')),
     el('div', { class: 'adj-section' }, t('ai.keys')),
     el('label', { class: 'ai-label' }, 'Stability AI'), st.row,
     el('div', { class: 'muted sm' }, t('ai.stabilityUse')),

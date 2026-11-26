@@ -96,5 +96,6 @@ export function colorProfileDialog() {
       apply));
   refresh();
   void parseIcc;
-  openDialog({ title: t('cmd.colorProfile'), body, width: 440, okLabel: t('dlg.close'), cancelLabel: null, autoFocus: false });
+  // beside the picture, without dimming it: converting or assigning a profile is seen on the picture at once
+  openDialog({ title: t('cmd.colorProfile'), body, width: 440, okLabel: t('dlg.close'), cancelLabel: null, autoFocus: false, side: true, sideKey: 'colorProfile' });
 }

@@ -264,10 +264,13 @@ export function toast(text: string, kind: 'info' | 'error' = 'info', ms = 2600) 
 /* ---------------- busy overlay with progress and cancel ---------------- */
 export function busy(text: string, onCancel?: () => void) {
   const label = el('div', { class: 'busy-text' }, text);
+  // a second line under the status (what a cloud operation costs), empty and hidden until set
+  const sub = el('div', { class: 'busy-note muted sm' });
+  sub.style.display = 'none';
   const bar = el('div', { class: 'busy-bar' }, el('div', { class: 'busy-fill' }));
   const cancel = onCancel ? el('button', { class: 'btn sm' }, t('dlg.cancel')) : null;
   cancel?.addEventListener('click', () => onCancel?.());
-  const root = el('div', { class: 'busy' }, el('div', { class: 'busy-card' }, el('div', { class: 'busy-spin' }), label, bar, cancel));
+  const root = el('div', { class: 'busy' }, el('div', { class: 'busy-card' }, el('div', { class: 'busy-spin' }), label, sub, bar, cancel));
   document.body.append(root);
   // shortcuts (Ctrl+N, Ctrl+Z…) wait too: the result is written when it arrives
   const release = holdDialog();
@@ -277,6 +280,7 @@ export function busy(text: string, onCancel?: () => void) {
       bar.style.visibility = p === undefined ? 'hidden' : 'visible';
       if (p !== undefined) (bar.firstChild as HTMLElement).style.width = Math.round(p * 100) + '%';
     },
+    note(text: string) { sub.textContent = text; sub.style.display = text ? '' : 'none'; },
     close() { root.remove(); release(); },
   };
 }

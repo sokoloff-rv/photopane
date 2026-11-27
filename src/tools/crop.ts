@@ -14,7 +14,8 @@ import { openDialog } from '../ui/dialog';
 import { el } from '../core/util';
 import { resizeDocument } from '../ui/docdialogs';
 import { outpaintAfterCrop, outpaintPlan, aiSettingsDialog } from '../ui/aidialogs';
-import { hasKey } from '../ai/cloud';
+import { hasKey, STABILITY_PRICE } from '../ai/cloud';
+import { tn } from '../i18n';
 import { toast } from '../ui/dialog';
 import { extendWithContent } from '../ui/contentfill';
 import { cloneCanvas } from '../core/util';
@@ -360,7 +361,7 @@ export class CropTool extends Tool<CropOpts> {
       checkbox(t('opt.deleteCropped'), this.o.deletePixels, v => this.set('deletePixels', v)),
       select([
         { value: 'transparent', label: t('opt.extendTransparent') }, { value: 'bg', label: t('opt.extendBg') },
-        { value: 'content', label: t('opt.extendContent') }, { value: 'ai', label: t('opt.extendAi') },
+        { value: 'content', label: t('opt.extendContent') }, { value: 'ai', label: `${t('opt.extendAi')} (${tn('ai.credits', STABILITY_PRICE.outpaint)})` },
       ], this.o.fill, v => this.set('fill', v as any)),
       spacer(),
       textButton(t('dlg.cancel'), () => this.clear()),

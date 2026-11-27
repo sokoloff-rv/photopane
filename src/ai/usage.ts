@@ -8,7 +8,7 @@ import type { Service } from './cloud';
 
 /** credits and requests */
 type Count = [number, number];
-interface Usage { days: Record<string, Partial<Record<Service, Count>>>; total: Partial<Record<Service, Count>>; since: string }
+interface Usage { days: Record<string, Partial<Record<Service, Count>>>; total: Partial<Record<Service, Count>> }
 
 /** a local date as YYYY-MM-DD (sorts as text) */
 export const dayKey = (d = new Date()) =>
@@ -20,7 +20,6 @@ function usage(): Usage {
   const u = (app.settings.aiUsage ||= {}) as Usage;
   u.days ||= {};
   u.total ||= {};
-  u.since ||= dayKey();
   return u;
 }
 
@@ -49,6 +48,3 @@ export function spentOver(s: Service, days: number | null): { credits: number; r
   }
   return { credits, requests };
 }
-
-/** The day counting began (YYYY-MM-DD). */
-export const usageSince = () => usage().since;

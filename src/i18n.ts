@@ -667,7 +667,7 @@ const D: Record<string, [string, string]> = {
 
   'hint.move': ['Перетаскивайте слой. Ctrl — автовыбор слоя, стрелки — сдвиг на 1 px (Shift — 10 px)', 'Drag to move the layer. Ctrl auto-selects, arrows nudge 1 px (Shift: 10 px)'],
   'hint.marquee': ['Shift — добавить, Alt — вычесть, Shift+Alt — пересечь. Во время рисования Shift — квадрат, Alt — от центра', 'Shift adds, Alt subtracts, Shift+Alt intersects. While dragging: Shift constrains, Alt draws from center'],
-  'hint.lasso': ['Обычное — обведите с зажатой кнопкой; прямолинейное — кликайте по точкам; магнитное — кликните и ведите вдоль края. Enter или двойной клик — замкнуть, Backspace — убрать точку, Esc — отмена', 'Freehand: drag around; polygonal: click points; magnetic: click and move along an edge. Enter or double-click closes, Backspace removes a point, Esc cancels'],
+  'hint.lasso': ['Обычное — обведите с зажатой кнопкой; прямолинейное — кликайте по точкам; магнитное — кликните и ведите вдоль края. Ctrl — перетащить точку, Enter или двойной клик — замкнуть, Backspace — убрать точку, Esc — отмена', 'Freehand: drag around; polygonal: click points; magnetic: click and move along an edge. Ctrl drags a point, Enter or double-click closes, Backspace removes a point, Esc cancels'],
   'hint.wand': ['Кликните по области похожего цвета. Shift — добавить, Alt — вычесть', 'Click an area of similar color. Shift adds, Alt subtracts'],
   'hint.eyedropper': ['Клик — основной цвет, Alt+клик — фоновый', 'Click picks foreground, Alt+click picks background'],
   'hint.brush': ['[ ] — размер, Shift+[ ] — жёсткость, Shift+клик — прямая линия, Alt — пипетка', '[ ] size, Shift+[ ] hardness, Shift+click straight line, Alt eyedropper'],

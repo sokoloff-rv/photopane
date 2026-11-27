@@ -162,6 +162,11 @@ const LASSO_ICONS: Record<LassoType, string> = { free: 'freeLasso', poly: 'polyL
  * One lasso tool; the type is chosen in the options bar (like the marquee's rectangle/ellipse):
  * freehand (drag), polygonal (click points) and magnetic (move along an edge: the path follows the
  * strongest contrast between the last anchor and the cursor, anchors are added automatically).
+ *
+ * With Ctrl (Cmd) held, an open polygonal or magnetic outline waits and its points can be dragged (as the pen's
+ * points with Ctrl in Photoshop): a point missed fifteen points back is put right without removing all the
+ * later ones. A magnetic outline's two stretches beside the point follow the edge again; a polygon's stay
+ * straight. Released, the outline goes on from its last point.
  */
 export class LassoTool extends Tool<LassoOpts> {
   readonly id = 'lasso';
@@ -182,16 +187,33 @@ export class LassoTool extends Tool<LassoOpts> {
   private grad: Uint8Array | null = null;
   private gw = 0;
   private gh = 0;
+  // Ctrl: dragging points
+  /** Ctrl held over an open outline: it waits, its points can be taken */
+  private editing = false;
+  /** the point under the cursor while editing (index into handles()), or -1 */
+  private hot = -1;
+  /** the point being dragged */
+  private grab: number | null = null;
 
   constructor() { super({ type: 'free', mode: 'new', feather: 0, antialias: true }); }
 
   busy() { return this.pts.length > 0; }
-  cancel() { this.pts = []; this.anchors = []; this.wire = []; this.hoverPt = null; this.dragging = false; app.update('overlay'); }
+  cancel() {
+    this.pts = []; this.anchors = []; this.wire = []; this.hoverPt = null; this.dragging = false;
+    this.editing = false; this.hot = -1; this.grab = null; this.setEditCursor(false);
+    app.update('overlay');
+  }
   activate() { this.cursor = arrowBadgeCursor(this.typeIcon); }
   deactivate() { this.cancel(); this.grad = null; }
 
   down(e: PEvent) {
     const type = this.o.type;
+    // Ctrl on an open outline: take the point under the cursor (a Ctrl+click elsewhere adds nothing)
+    if (type !== 'free' && this.pts.length && e.ctrl) {
+      const h = this.handleAt(e.sx, e.sy);
+      if (h >= 0) { this.grab = h; this.wire = []; this.hoverPt = null; app.update('overlay'); }
+      return;
+    }
     if (type === 'free') {
       this.mode = modeFromEvent(e, this.o.mode);
       this.pts = [{ x: e.x, y: e.y }];
@@ -230,11 +252,21 @@ export class LassoTool extends Tool<LassoOpts> {
 
   hover(e: PEvent) {
     if (!this.pts.length) return;
+    if (this.o.type !== 'free' && e.ctrl) {
+      // the outline waits while Ctrl is held; the point under the cursor is shown
+      this.editing = true;
+      this.hot = this.handleAt(e.sx, e.sy);
+      this.setEditCursor(this.hot >= 0);
+      app.update('overlay');
+      return;
+    }
+    if (this.editing) { this.editing = false; this.hot = -1; this.setEditCursor(false); }
     if (this.o.type === 'poly') this.hoverPt = e.shift ? snap45(this.pts[this.pts.length - 1], { x: e.x, y: e.y }) : { x: e.x, y: e.y };
     else if (this.o.type === 'magnetic') { this.updateWire({ x: e.x, y: e.y }); app.update('overlay'); }
   }
 
   move(e: PEvent) {
+    if (this.grab !== null) { this.moveHandle(this.grab, { x: e.x, y: e.y }); app.update('overlay'); return; }
     if (this.o.type !== 'free') { this.hover(e); return; }
     if (!this.dragging || !this.pts.length) return;
     const last = this.pts[this.pts.length - 1];
@@ -244,6 +276,7 @@ export class LassoTool extends Tool<LassoOpts> {
   }
 
   up() {
+    if (this.grab !== null) { this.grab = null; app.update('overlay'); return; }
     if (this.o.type !== 'free' || !this.dragging) return;
     this.dragging = false;
     const d = app.doc!;
@@ -263,6 +296,11 @@ export class LassoTool extends Tool<LassoOpts> {
   keydown(e: KeyboardEvent) {
     if (!this.pts.length) return nudgeSelection(e);
     if (this.o.type === 'free') return false;
+    if (e.key === 'Control' || e.key === 'Meta') {
+      // the outline stops following the cursor at once, before the mouse moves
+      if (!this.editing) { this.editing = true; this.wire = []; this.hoverPt = null; app.update('overlay'); }
+      return false;
+    }
     if (e.key === 'Enter') { this.close(); return true; }
     if (e.key === 'Escape') { this.cancel(); return true; }
     if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -273,6 +311,56 @@ export class LassoTool extends Tool<LassoOpts> {
       return true;
     }
     return false;
+  }
+
+  keyup(e: KeyboardEvent) {
+    if ((e.key === 'Control' || e.key === 'Meta') && this.editing) {
+      this.editing = false; this.hot = -1; this.setEditCursor(false);
+      // the outline follows the cursor again from where it is
+      const v = app.viewport;
+      if (this.pts.length && v.pointer.inside) {
+        const c = v.toDoc(v.pointer.sx, v.pointer.sy);
+        if (this.o.type === 'magnetic') this.updateWire(c); else this.hoverPt = c;
+      }
+      app.update('overlay');
+    }
+  }
+
+  /** The points that can be dragged: every point of a polygon, the anchors of a magnetic outline. */
+  private handles(): P[] { return this.o.type === 'poly' ? this.pts : this.anchors.map(i => this.pts[i]); }
+
+  /** The point within a few screen pixels of (sx, sy), the nearest one; -1 if none. */
+  private handleAt(sx: number, sy: number): number {
+    const v = app.viewport;
+    let best = -1, bd = 8;
+    this.handles().forEach((p, i) => {
+      const s = v.toScreen(p.x, p.y), dd = Math.hypot(s.x - sx, s.y - sy);
+      if (dd < bd) { bd = dd; best = i; }
+    });
+    return best;
+  }
+
+  private setEditCursor(on: boolean) {
+    const c = on ? 'move' : arrowBadgeCursor(this.typeIcon);
+    if (this.cursor !== c) { this.cursor = c; app.viewport.updateCursor(); }
+  }
+
+  /**
+   * Point h moved to p. A polygon's point just moves. A magnetic anchor takes the two stretches beside it along
+   * with it: from the anchor before to p and from p to the anchor after, each found along the edge again; the
+   * anchors after it shift by the change in the number of points.
+   */
+  private moveHandle(h: number, p: P) {
+    if (this.o.type === 'poly') { this.pts[h] = p; return; }
+    const A = this.anchors, last = A.length - 1;
+    const before = h > 0 ? this.pts.slice(0, A[h - 1] + 1) : [];
+    const toP = h > 0 ? this.liveWire(this.pts[A[h - 1]], p).slice(1) : [p];
+    const fromP = h < last ? this.liveWire(p, this.pts[A[h + 1]]).slice(1, -1) : [];
+    const after = h < last ? this.pts.slice(A[h + 1]) : [];
+    const shift = before.length + toP.length + fromP.length - (h < last ? A[h + 1] : 0);
+    this.pts = [...before, ...toP, ...fromP, ...after];
+    A[h] = before.length + toP.length - 1;
+    for (let i = h + 1; i <= last; i++) A[i] += shift;
   }
 
   private close() {
@@ -397,8 +485,9 @@ export class LassoTool extends Tool<LassoOpts> {
     if (!this.pts.length) return;
     const v = app.viewport;
     const sp = this.pts.map(p => v.toScreen(p.x, p.y));
-    if (this.o.type === 'poly' && this.hoverPt) sp.push(v.toScreen(this.hoverPt.x, this.hoverPt.y));
-    if (this.o.type === 'magnetic') for (const p of this.wire.slice(1)) sp.push(v.toScreen(p.x, p.y));
+    const edit = this.editing || this.grab !== null;
+    if (!edit && this.o.type === 'poly' && this.hoverPt) sp.push(v.toScreen(this.hoverPt.x, this.hoverPt.y));
+    if (!edit && this.o.type === 'magnetic') for (const p of this.wire.slice(1)) sp.push(v.toScreen(p.x, p.y));
     if (sp.length < 2 && this.o.type === 'free') return;
     g.save();
     g.beginPath();
@@ -408,8 +497,14 @@ export class LassoTool extends Tool<LassoOpts> {
     g.strokeStyle = '#fff'; g.stroke();
     g.setLineDash([4, 4]); g.strokeStyle = '#000'; g.stroke();
     g.setLineDash([]);
-    const marks = this.o.type === 'poly' ? this.pts : this.o.type === 'magnetic' ? this.anchors.map(i => this.pts[i]) : [];
-    for (const m of marks) { const p = v.toScreen(m.x, m.y); g.fillStyle = '#fff'; g.fillRect(p.x - 2, p.y - 2, 4, 4); g.strokeStyle = '#000'; g.strokeRect(p.x - 2.5, p.y - 2.5, 5, 5); }
+    const marks = this.o.type === 'free' ? [] : this.handles();
+    // with Ctrl the points grow and the one under the cursor (or held) is marked: they can be dragged
+    const r = edit ? 3.5 : 2, on = this.grab ?? this.hot;
+    marks.forEach((m, i) => {
+      const p = v.toScreen(m.x, m.y);
+      g.fillStyle = edit && i === on ? '#5b8cff' : '#fff'; g.fillRect(p.x - r, p.y - r, 2 * r, 2 * r);
+      g.strokeStyle = '#000'; g.strokeRect(p.x - r - 0.5, p.y - r - 0.5, 2 * r + 1, 2 * r + 1);
+    });
     // highlight the first point when the path can be closed there
     const tip = sp[sp.length - 1];
     if (this.o.type !== 'free' && this.pts.length > 2 && Math.hypot(sp[0].x - tip.x, sp[0].y - tip.y) < 8) {

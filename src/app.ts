@@ -320,13 +320,19 @@ export class App {
     this.viewportB.el.classList.toggle('pane-active', !!this.split && this.viewport === this.viewportB);
   }
 
-  /** The inactive pane follows the active one's zoom and position. */
+  /**
+   * The inactive pane follows the active one's zoom and position. When one side was resized (upscaled 2× or
+   * 4×, Image Size), it is shown at the zoom that makes both pictures the same size on screen, so they still
+   * match point for point; a crop changes the proportions, and then the zoom is simply the same.
+   */
   private syncPartner() {
     const s = this.split!;
     const other = this.viewport === this.viewportA ? this.viewportB : this.viewportA;
     const d = this.doc, od = other.doc;
     if (d && od && (d === s.a || d === s.b)) {
-      od.zoom = d.zoom; od.panX = d.panX; od.panY = d.panY; od.autoFit = d.autoFit; od.fitted = true;
+      const kx = od.width / d.width, ky = od.height / d.height;
+      const k = Math.abs(kx - ky) <= 0.01 * Math.max(kx, ky) ? (kx + ky) / 2 : 1;
+      od.zoom = d.zoom / k; od.panX = d.panX; od.panY = d.panY; od.autoFit = d.autoFit; od.fitted = true;
       od.viewW = d.viewW; od.viewH = d.viewH;
     }
     other.render();

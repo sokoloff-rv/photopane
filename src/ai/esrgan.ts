@@ -137,6 +137,7 @@ export async function esrganUpscale(src: HTMLCanvasElement, factor: 2 | 4, onPro
     onProgress('run', (ti + 1) / tiles.length);
     await yieldToUi();
   }
+  if (cancelled()) return null;
   // alpha: bicubic from the source
   let transparent = false;
   for (let i = 3; i < data.length; i += 4) if (data[i] < 255) { transparent = true; break; }

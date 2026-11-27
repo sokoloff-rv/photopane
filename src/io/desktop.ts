@@ -26,6 +26,16 @@ async function openPaths(paths: string[]) {
 /** At start: the files PhotoPane was launched with, and the ones a later launch passes on. */
 export async function initDesktop() {
   if (!inTauri()) return;
+  // the window starts hidden, already in place (main.rs): shown once the interface is drawn, it appears
+  // whole, at its size, without a white frame first
+  requestAnimationFrame(() => requestAnimationFrame(async () => {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const w = getCurrentWindow();
+      await w.show();
+      await w.setFocus();
+    } catch (e) { console.warn('PhotoPane: show window', e); }
+  }));
   try {
     const { invoke } = await import('@tauri-apps/api/core');
     const { listen } = await import('@tauri-apps/api/event');

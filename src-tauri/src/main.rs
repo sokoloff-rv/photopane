@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{Emitter, Manager};
+use tauri_plugin_window_state::StateFlags;
 
 /// File paths in a command line (a double-clicked .psd, "Open with"), without the program and flags.
 fn files_in(args: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -58,8 +59,27 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
-        // the window opens where and as large as it was closed (also maximized)
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // the window opens where and as large as it was closed (also maximized). It starts hidden (tauri.conf.json)
+        // and is put in place while hidden; the page shows it once its first frame is drawn. Shown at once, it
+        // came up white at the default size, then moved, then maximized.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED | StateFlags::FULLSCREEN)
+                .build(),
+        )
+        .setup(|app| {
+            // should the page never show the window (a script that failed), it is shown anyway
+            if let Some(w) = app.get_webview_window("main") {
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(4));
+                    if !w.is_visible().unwrap_or(true) {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                });
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![startup_files, associate_psd])
         .build(tauri::generate_context!())
         .expect("error while building PhotoPane")

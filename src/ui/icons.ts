@@ -6,7 +6,7 @@ import {
   Lasso, CornerDownRight, SquarePlus, Link2, Maximize, FilePlus, Image as ImageIcon, Settings, ArrowUpDown,
   TextAlignStart, TextAlignCenter, TextAlignEnd, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, Ruler, Magnet, RotateCw, RotateCcw,
-  Italic, Underline, Strikethrough, CaseUpper, SlidersHorizontal, CloudDownload,
+  Italic, Underline, Strikethrough, CaseUpper, SlidersHorizontal, CloudDownload, RefreshCw,
 } from 'lucide';
 
 type IconNode = Parameters<typeof createElement>[0];
@@ -50,7 +50,7 @@ const lucideMap: Record<string, IconNode> = {
   alignL: TextAlignStart, alignC: TextAlignCenter, alignR: TextAlignEnd,
   layAlignL: AlignStartVertical, layAlignCX: AlignCenterVertical, layAlignR: AlignEndVertical,
   layAlignT: AlignStartHorizontal, layAlignCY: AlignCenterHorizontal, layAlignB: AlignEndHorizontal,
-  ruler: Ruler, magnet: Magnet, rotCW: RotateCw, rotCCW: RotateCcw,
+  ruler: Ruler, magnet: Magnet, rotCW: RotateCw, rotCCW: RotateCcw, refresh: RefreshCw,
 };
 
 export function icon(name: string, size = 18): HTMLElement {

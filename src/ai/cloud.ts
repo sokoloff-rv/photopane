@@ -121,8 +121,6 @@ export async function blobCanvas(b: Blob): Promise<HTMLCanvasElement> {
 /* ---------------- credits: what is left, what an operation costs, what PhotoPane spent ---------------- */
 /** Stability's price of each operation in credits, from its price list (2× upscaling is the 4× result halved). */
 export const STABILITY_PRICE = { upscale: 2, removeBg: 5, outpaint: 4 } as const;
-/** a Stability credit in dollars (Topaz's depends on the plan) */
-export const STABILITY_CREDIT_USD = 0.01;
 
 /** a request that may hang (no answer) given up after a while: for the figures around the work, not the work */
 export function within<T>(p: Promise<T>, ms = 8000): Promise<T> {

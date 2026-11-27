@@ -534,7 +534,7 @@ body.busy-cursor, body.busy-cursor * { cursor: progress !important; }
 .crop-num { padding: 0 6px; }
 /* long preset names (1080 × 1920 — Stories / Reels) are cut in the bar; the open list shows them whole */
 .crop-preset { max-width: 175px; }
-.ai-balance { display: flex; align-items: center; gap: 8px; min-height: 22px; }
-.ai-balance > span { flex: 1; min-width: 0; }
+.ai-balance { display: flex; align-items: center; gap: 4px; min-height: 22px; }
+.ai-balance .ai-refresh { width: 22px; height: 22px; flex: none; }
 .ai-usage { display: flex; flex-direction: column; gap: 2px; }
 .busy-note { margin-top: -6px; }

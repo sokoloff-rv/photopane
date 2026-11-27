@@ -1,9 +1,9 @@
 import { app } from '../app';
 import { el, createCanvas, ctx2d, cloneCanvas } from '../core/util';
-import { t, tn, fmtNum, getLang } from '../i18n';
+import { t, tn, fmtNum } from '../i18n';
 import { openDialog, toast, confirmDialog, busy } from './dialog';
 export { busy };
-import { select } from './controls';
+import { select, iconButton } from './controls';
 import { Layer, hasEffects } from '../core/layer';
 import type { Doc } from '../core/document';
 import { Selection } from '../core/selection';
@@ -14,17 +14,16 @@ import { applySelection } from '../tools/select';
 import {
   aiSettings, hasKey, NeedKeyError, canvasBlob, blobCanvas, stabilityRemoveBg, stabilityUpscale,
   topazUpscale, topazModelFor, stabilityOutpaint, Service, STABILITY, sendableBlob,
-  NAME, STABILITY_PRICE, STABILITY_CREDIT_USD, accountBalance, topazEstimate, onSpent, within, Balance, keyOf,
+  NAME, STABILITY_PRICE, accountBalance, topazEstimate, onSpent, within, Balance, keyOf,
 } from '../ai/cloud';
 import { spentOver } from '../ai/usage';
 
 /* ---------------- credits ---------------- */
-const usd = (credits: number) => '$' + (credits * STABILITY_CREDIT_USD).toLocaleString(getLang() === 'ru' ? 'ru-RU' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** «1 234,5 кредита (≈ $12,35)» for Stability, whose credit has a price; «57 кредитов» for Topaz */
-const creditsText = (s: Service, credits: number, digits = 0) => tn('ai.credits', credits, digits) + (s === 'stability' ? ` (≈ ${usd(credits)})` : '');
+const creditsText = (credits: number, digits = 0) => tn('ai.credits', credits, digits);
 /** «Стоимость: 5 кредитов (≈ $0,05)»: said where a cloud operation is called, and while it runs */
-export const costText = (s: Service, credits: number) => t('ai.cost', creditsText(s, credits));
-const balanceText = (s: Service, b: Balance) => creditsText(s, b.credits, 1) + (b.reserved ? `, ${t('ai.reserved', fmtNum(b.reserved))}` : '');
+export const costText = (credits: number) => t('ai.cost', creditsText(credits));
+const balanceText = (b: Balance) => creditsText(b.credits, 1) + (b.reserved ? `, ${t('ai.reserved', fmtNum(b.reserved))}` : '');
 /** an error said under the service's name: without the name again */
 const withoutName = (s: Service, e: unknown) => {
   const m = String((e as Error)?.message ?? e).replace(NAME[s] + ': ', '');
@@ -72,7 +71,9 @@ export function aiSettingsDialog(onSaved?: () => void) {
   // what is left on each key, asked when the window opens and when a key is changed (a check of the key too)
   const balanceLine = (svc: Service, input: HTMLInputElement) => {
     const text = el('span', {});
-    const again = el('button', { class: 'btn sm', type: 'button' }, t('ai.refresh'));
+    // (right after the figure: the arrow is read as part of it)
+    const again = iconButton('refresh', t('ai.refresh'), () => load(), 'ai-refresh');
+    again.type = 'button';
     const line = el('div', { class: 'ai-balance sm' }, text, again);
     let seq = 0;
     const load = () => {
@@ -83,7 +84,7 @@ export function aiSettingsDialog(onSaved?: () => void) {
       text.className = 'muted';
       text.textContent = t('ai.balanceLoading');
       within(accountBalance(svc, key)).then(
-        b => { if (my === seq) text.textContent = t('ai.balance', balanceText(svc, b)); },
+        b => { if (my === seq) text.textContent = t('ai.balance', balanceText(b)); },
         e => { if (my === seq) { text.className = 'warn-text'; text.textContent = withoutName(svc, e); } });
     };
     // a key pasted or typed is asked about once it stays the same a moment (a balance asked for the key before
@@ -94,7 +95,6 @@ export function aiSettingsDialog(onSaved?: () => void) {
       text.className = 'muted'; text.textContent = t('ai.balanceLoading');
     });
     input.addEventListener('change', () => { clearTimeout(wait); load(); });
-    again.addEventListener('click', load);
     load();
     return line;
   };
@@ -107,7 +107,7 @@ export function aiSettingsDialog(onSaved?: () => void) {
     for (const svc of ['stability', 'topaz'] as Service[]) {
       const u = spentOver(svc, period === 'all' ? null : +period);
       usage.append(el('div', {}, el('span', { class: 'muted' }, NAME[svc] + ': '),
-        u.requests ? `${creditsText(svc, u.credits)}, ${tn('ai.requests', u.requests)}` : t('ai.usageNone')));
+        u.requests ? `${creditsText(u.credits)}, ${tn('ai.requests', u.requests)}` : t('ai.usageNone')));
     }
   };
   showUsage();
@@ -155,14 +155,14 @@ async function upscaleCanvas(src: HTMLCanvasElement, scale: 2 | 4, engine: 'loca
   if (engine === 'stability') {
     const why = upscaleProblem('stability', src.width, src.height);
     if (why) throw new Error(why);
-    ui.note(costText('stability', STABILITY_PRICE.upscale));
+    ui.note(costText(STABILITY_PRICE.upscale));
     let out = await blobCanvas(await stabilityUpscale(blob));
     if (scale === 2) { const half = createCanvas(src.width * 2, src.height * 2); const g = ctx2d(half); g.imageSmoothingQuality = 'high'; g.drawImage(out, 0, 0, half.width, half.height); out = half; }
     return out;
   }
   const model = topazModelFor(src).model;
   // (the estimate the window asked for, kept)
-  void within(topazEstimate(src.width, src.height, src.width * scale, src.height * scale, model)).then(c => ui.note(costText('topaz', c)), () => {});
+  void within(topazEstimate(src.width, src.height, src.width * scale, src.height * scale, model)).then(c => ui.note(costText(c)), () => {});
   return blobCanvas(await topazUpscale(blob, src.width, src.height, src.width * scale, src.height * scale, model));
 }
 
@@ -236,7 +236,7 @@ export function upscaleDialog() {
       price = await within(topazEstimate(d.width, d.height, d.width * scale, d.height * scale, topazPick!.model)).catch(() => null);
       if (my !== costSeq) return;
     }
-    const priceText = price == null ? t('ai.costUnknown') : costText(s, price);
+    const priceText = price == null ? t('ai.costUnknown') : costText(price);
     cost.textContent = priceText;
     if (!hasKey(s)) return;
     const b = await balanceOf(s);
@@ -381,7 +381,7 @@ export async function removeBackground() {
   if (!hasKey('stability')) { guarded(() => Promise.reject(new NeedKeyError('stability'))); return; }
   if (l.mask && !(await confirmDialog(t('ai.replaceMask')))) return;
   const ui = busy(t('ai.removingBg'));
-  ui.note(costText('stability', STABILITY_PRICE.removeBg));
+  ui.note(costText(STABILITY_PRICE.removeBg));
   try {
     const src = createCanvas(d.width, d.height);
     ctx2d(src).drawImage(l.canvas, l.x, l.y);
@@ -404,7 +404,7 @@ export async function selectSubject() {
   if (!hasKey('stability')) { guarded(() => Promise.reject(new NeedKeyError('stability'))); return; }
   const ui = busy(t('ai.selecting'));
   // (the same request as background removal)
-  ui.note(costText('stability', STABILITY_PRICE.removeBg));
+  ui.note(costText(STABILITY_PRICE.removeBg));
   try {
     const alpha = await subjectAlpha(d.composite(), ui);
     if (!alpha) return;
@@ -471,7 +471,7 @@ export async function outpaintAfterCrop(before: HTMLCanvasElement, r: Frame) {
   let src = inner;
   if (sw !== iw || sh !== ih) { src = createCanvas(sw, sh); const g = ctx2d(src); g.imageSmoothingQuality = 'high'; g.drawImage(inner, 0, 0, sw, sh); }
   const ui = busy(t('ai.outpainting'));
-  ui.note(costText('stability', STABILITY_PRICE.outpaint));
+  ui.note(costText(STABILITY_PRICE.outpaint));
   try {
     const res = await guarded(async () => blobCanvas(await stabilityOutpaint(await sendableBlob(src), ext)));
     if (!res) return;

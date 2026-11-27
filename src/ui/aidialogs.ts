@@ -36,10 +36,12 @@ let usageView: (() => void) | null = null;
 // every charge said as it happens, with what is left on the key it was made with (a cancelled request is charged
 // too, the service has done it). The balances are asked at once, the notices given in the order of the charges.
 const said: Record<Service, Promise<void>> = { stability: Promise.resolve(), topaz: Promise.resolve() };
-onSpent((s, credits, key) => {
+onSpent((s, price, key) => {
   usageView?.();
-  const balance = within(accountBalance(s, key)).catch(() => null);
-  said[s] = said[s].then(() => balance).then(b => {
+  // (the balance after the price: Topaz has charged by the time it is known)
+  const both = price.then(async credits => ({ credits, b: await within(accountBalance(s, key)).catch(() => null) }));
+  said[s] = said[s].then(() => both).then(({ credits, b }) => {
+    usageView?.();
     const what = credits == null ? t('ai.spentUnknown') : t('ai.spent', tn('ai.credits', credits));
     toast(`${NAME[s]}: ${what}${b ? ', ' + t('ai.left', tn('ai.credits', b.credits, 1)) : ''}`, 'info', 5000);
   });
@@ -249,6 +251,9 @@ export function upscaleDialog() {
     return p;
   };
   let costSeq = 0;
+  // the Topaz request the price was said for: size, scale and model (OK sends only that one)
+  const quote = (m: string) => `${d.width}x${d.height}|${scale}|${m}`;
+  let quoted = '';
   const showCost = async (why: string | null) => {
     const my = ++costSeq;
     short.style.display = 'none';
@@ -260,8 +265,10 @@ export function upscaleDialog() {
       cost.textContent = t('ai.costLoading');
       // (OK waits for the price: nothing paid is sent before it is said; the estimate gives up by itself)
       pricing = true; updateOk();
+      const asked = quote(topazPick!.model);
       price = await topazEstimate(d.width, d.height, d.width * scale, d.height * scale, topazPick!.model).catch(() => null);
       if (my !== costSeq) return;
+      quoted = asked;
       pricing = false; updateOk();
     }
     const priceText = price == null ? t('ai.costUnknown') : costText(price);
@@ -307,6 +314,12 @@ export function upscaleDialog() {
       }
       // (Enter reaches here even while OK is off)
       if (pricing) return false;
+      // the picture changed since the price was said (a paste still being decoded, a step undone): the model
+      // and the price are said anew first
+      if (engine === 'topaz') {
+        const pick = topazModelFor(d.colorProfile ? d.displayComposite() : d.composite());
+        if (quoted !== quote(pick.model)) { topazPick = pick; refresh(); return false; }
+      }
       const why = upscaleProblem(engine, d.width, d.height) ?? sizeProblem(d, engine, scale);
       if (why) { toast(why, 'error', 6000); return false; }
       // the document of this window (another may have been opened from outside meanwhile)

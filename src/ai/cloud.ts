@@ -5,7 +5,7 @@
  */
 import { app } from '../app';
 import { t } from '../i18n';
-import { recordSpent } from './usage';
+import { recordSpent, dayKey } from './usage';
 
 export type Service = 'stability' | 'topaz';
 export const NAME: Record<Service, string> = { stability: 'Stability AI', topaz: 'Topaz Labs' };
@@ -129,16 +129,20 @@ export function within<T>(p: Promise<T>, ms = 8000): Promise<T> {
   return Promise.race([p, late]).finally(() => clearTimeout(timer));
 }
 
-type SpentListener = (s: Service, credits: number | null, key: string) => void;
+/**
+ * Told of every charge as it is made, in that order, with the key it was made with; `credits` comes when the
+ * price is known (`null`: it could not be found out), already recorded by then.
+ */
+type SpentListener = (s: Service, credits: Promise<number | null>, key: string) => void;
 let spentListener: SpentListener | null = null;
-/** Told of every charge (`null`: the price could not be found out), with the key it was made with. */
 export const onSpent = (fn: SpentListener) => { spentListener = fn; };
 /** A charge made with `key`: the request counted at once, the credits when known (`price` may still be asked). */
 function spent(s: Service, key: string, price: number | Promise<number>) {
-  if (typeof price === 'number') { recordSpent(s, price); spentListener?.(s, price, key); return; }
-  // (the request is counted now: a reload before the price comes keeps it at least)
+  if (typeof price === 'number') { recordSpent(s, price); spentListener?.(s, Promise.resolve(price), key); return; }
+  // (the request is counted now, a reload before the price comes keeps it at least; the credits go to its day)
+  const day = dayKey();
   recordSpent(s, 0);
-  price.then(c => { recordSpent(s, c, false); spentListener?.(s, c, key); }, () => spentListener?.(s, null, key));
+  spentListener?.(s, price.then(c => { recordSpent(s, c, false, day); return c; }, () => null), key);
 }
 
 export interface Balance { credits: number; reserved: number }

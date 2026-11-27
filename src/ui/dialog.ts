@@ -188,8 +188,8 @@ export function openDialog(o: DialogOptions): { close: () => void; root: HTMLEle
     if (tgt && tgt !== document.body && !card.contains(tgt) && tgt.matches?.('input, select, textarea, [contenteditable]')) return;
     // stopImmediatePropagation: the window below, now on top, must not take the same key and close too
     if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); void doCancel(); }
-    // (Enter in a search field searches: it is not the window's OK)
-    else if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement) && !(e.target as HTMLElement)?.matches?.('input[type=search]')) {
+    // (Enter in a search field searches, on a link opens it: it is not the window's OK)
+    else if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement) && !(e.target instanceof HTMLAnchorElement) && !(e.target as HTMLElement)?.matches?.('input[type=search]')) {
       e.preventDefault(); e.stopImmediatePropagation();
       (document.activeElement as HTMLElement)?.blur?.();
       setTimeout(doOk, 0);

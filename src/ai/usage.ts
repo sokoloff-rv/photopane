@@ -26,10 +26,13 @@ function load(): Usage {
   return { days: u?.days ?? {}, total: u?.total ?? {} };
 }
 
-/** One request charged `credits` (0 when the price could not be found out), or credits added to one counted. */
-export function recordSpent(s: Service, credits: number, request = true) {
+/**
+ * One request charged `credits` (0 when the price could not be found out), or credits added to one counted
+ * (on the day it was made, `day0`).
+ */
+export function recordSpent(s: Service, credits: number, request = true, day0 = dayKey()) {
   const u = load();
-  const day = (u.days[dayKey()] ||= {});
+  const day = (u.days[day0] ||= {});
   const a = (day[s] ||= [0, 0]); a[0] += credits; if (request) a[1] += 1;
   const tot = (u.total[s] ||= [0, 0]); tot[0] += credits; if (request) tot[1] += 1;
   // the days of the last year and a bit are kept (the totals stay)

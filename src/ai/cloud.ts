@@ -46,9 +46,10 @@ async function errorText(r: Response): Promise<string> {
     const j = await r.clone().json();
     return (Array.isArray(j.errors) ? j.errors.join('; ') : '') || j.message || j.detail || j.error || j.name || r.statusText;
   } catch {
-    // a page instead of an answer (a firewall in front of the service): its HTML is no message
+    // a page instead of an answer (a firewall or proxy in front of the service): its HTML is no message
     const text = (await r.text().catch(() => '')).trim();
-    return (text && !text.startsWith('<') ? text.slice(0, 200) : '') || r.statusText || `HTTP ${r.status}`;
+    const html = /html/i.test(r.headers.get('content-type') ?? '') || /<[a-z!/][^>]*>/i.test(text);
+    return (text && !html ? text.slice(0, 200) : '') || r.statusText || `HTTP ${r.status}`;
   }
 }
 

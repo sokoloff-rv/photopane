@@ -88,9 +88,11 @@ export async function esrganUpscale(src: HTMLCanvasElement, factor: 2 | 4, onPro
   for (let ti = 0; ti < tiles.length; ti++) {
     if (cancelled()) return null;
     const tl = tiles[ti];
-    // fully transparent tiles stay empty (sparse layers: frames, logos, text effects)
+    // fully transparent tiles stay empty (sparse layers: frames, logos, text effects); the context around counts,
+    // since the enlarged alpha of a neighbour's edge reaches a little into the tile and needs its colour there
     let empty = true;
-    for (let y = tl.y; y < tl.y + tl.h && empty; y++) for (let x = tl.x; x < tl.x + tl.w; x++) if (data[(y * W + x) * 4 + 3]) { empty = false; break; }
+    const ex0 = Math.max(0, tl.x - 2), ey0 = Math.max(0, tl.y - 2), ex1 = Math.min(W, tl.x + tl.w + 2), ey1 = Math.min(H, tl.y + tl.h + 2);
+    for (let y = ey0; y < ey1 && empty; y++) for (let x = ex0; x < ex1; x++) if (data[(y * W + x) * 4 + 3]) { empty = false; break; }
     if (empty) { onProgress('run', (ti + 1) / tiles.length); continue; }
     // tile with context around it
     const x0 = Math.max(0, tl.x - P), y0 = Math.max(0, tl.y - P), x1 = Math.min(W, tl.x + tl.w + P), y1 = Math.min(H, tl.y + tl.h + P);

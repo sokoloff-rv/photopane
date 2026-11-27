@@ -7,6 +7,7 @@ import { select } from './controls';
 import { Layer, hasEffects } from '../core/layer';
 import type { Doc } from '../core/document';
 import { Selection } from '../core/selection';
+import { convertPixels } from '../core/colorspace';
 import { flatten } from '../core/ops';
 import { resizeDocument } from './docdialogs';
 import { applySelection } from '../tools/select';
@@ -90,9 +91,9 @@ async function upscaleCanvas(src: HTMLCanvasElement, scale: 2 | 4, engine: 'loca
  * the canvas needs no flattening.
  */
 function cloudFlattens(d: Doc): boolean {
-  const rs = d.layers.filter(l => !l.isGroup);
-  if (rs.length !== 1) return true;
-  const l = rs[0];
+  if (d.root.children.length !== 1) return true;
+  const l = d.root.children[0];
+  if (l.isGroup) return true;
   return l.kind === 'text' || !!l.mask || !l.visible || l.opacity !== 1 || l.blend !== 'normal' || hasEffects(l.effects)
     || l.x !== 0 || l.y !== 0 || l.canvas.width !== d.width || l.canvas.height !== d.height;
 }
@@ -101,7 +102,8 @@ function cloudFlattens(d: Doc): boolean {
 function sizeProblem(d: Doc, engine: 'local' | 'topaz' | 'stability', scale: number): string | null {
   const big = (w: number, h: number) => w * scale > MAX_SIDE || h * scale > MAX_SIDE || w * h * scale * scale > MAX_PX;
   if (big(d.width, d.height)) return t('ai.tooBig');
-  if (engine === 'local' && d.layers.some(l => !l.isGroup && l.kind !== 'text' && big(l.canvas.width, l.canvas.height))) return t('ai.tooBig');
+  // (every surface the resize makes, layers, text and masks, kept beyond the canvas by a crop too)
+  if (d.layers.some(l => (!l.isGroup && big(l.canvas.width, l.canvas.height)) || (l.mask && big(l.mask.w, l.mask.h)))) return t('ai.tooBig');
   return null;
 }
 
@@ -169,10 +171,25 @@ async function runUpscale(d: Doc, engine: 'local' | 'topaz' | 'stability', scale
     // cloud engines: one call with the picture as seen (the size the window checked and named the Topaz model
     // for, nothing a mask hides); the document is flattened only once the result has come
     if (engine !== 'local') {
-      const c = await guarded(() => upscaleCanvas(cloneCanvas(d.composite()), scale, engine, ui, () => stop));
-      if (!c) { ui.close(); if (stop) toast(t('ai.cancelled')); return; }
+      // the services take sRGB: a document in another profile is sent as it looks, and the result is put back
+      // into its profile
+      const src = cloneCanvas(d.colorProfile ? d.displayComposite() : d.composite());
+      // (the current History step: a change made meanwhile adds one; the version counter also moves when the
+      // picture is only redrawn)
+      const step0 = d.history.entries[d.history.index];
+      const c = await guarded(() => upscaleCanvas(src, scale, engine, ui, () => stop));
+      if (!c || stop) { ui.close(); if (stop) toast(t('ai.cancelled')); return; }
+      // (closed, or changed meanwhile: a file placed while the request ran is not replaced by a result
+      // made without it)
       if (!app.docs.includes(d)) return;
-      if (cloudFlattens(d)) { flatten(d, t('layers.background')); app.commit('cmd.flatten', d); }
+      if (d.history.entries[d.history.index] !== step0) { toast(t('ai.changedMeanwhile'), 'error', 6000); return; }
+      if (d.colorProfile) {
+        const g = ctx2d(c), data = g.getImageData(0, 0, c.width, c.height);
+        convertPixels(data.data, null, d.colorProfile);
+        g.putImageData(data, 0, 0);
+      }
+      // one History step: undone, the layers come back as they were (not a flattened copy on white)
+      if (cloudFlattens(d)) flatten(d, t('layers.background'));
       resizeDocument(d, d.width * scale, d.height * scale, 'bicubic');
       const l = d.layers.find(x => !x.isGroup)!;
       l.content.replace(c, 0, 0); l.touch();
@@ -190,6 +207,8 @@ async function runUpscale(d: Doc, engine: 'local' | 'topaz' | 'stability', scale
       if (!c) { ui.close(); if (stop) toast(t('ai.cancelled')); return; }
       results.push({ l, c, x: l.x, y: l.y });
     }
+    // (Cancel pressed after the last tile)
+    if (stop) { toast(t('ai.cancelled')); return; }
     if (!app.docs.includes(d)) return;
     // text, masks and the selection are scaled exactly; raster layers get the AI result
     resizeDocument(d, d.width * scale, d.height * scale, 'bicubic');
@@ -291,12 +310,14 @@ export function outpaintPlan(W: number, H: number, r: Frame): OutpaintPlan | str
   const totalW = iw + e0.left + e0.right, totalH = ih + e0.up + e0.down;
   const k = Math.min(1, Math.sqrt(9_000_000 / (totalW * totalH)), o.maxExtend / Math.max(e0.left, e0.right, e0.up, e0.down, 1));
   const ratio = Math.max(iw, ih) / Math.min(iw, ih);
-  // (the whole picture in the frame: it is the picture that is too long, a frame cannot help; a hair past the
-  // limit is let through: the rounding below brings it to exactly 2.5 : 1)
-  if (ratio > o.maxRatio * 1.002) return t(iw === W && ih === H ? 'ai.outpaintRatioWhole' : 'ai.outpaintRatio', ratio.toFixed(1).replace('.', t('num.dot')));
-  // the numbers as sent, rounded: a side extended stays extended by at least a pixel, and rounding never takes
-  // the part in the frame past 2.5 : 1 (the short side is rounded up when it would)
+  // the numbers as sent, rounded: a side extended stays extended by at least a pixel. Within 2.5 : 1, rounding
+  // never takes the part past it (the short side is rounded up when it would); beyond it, the request is
+  // refused unless its rounded size is within (321 × 128 sent as 320 × 128)
   let sw = Math.max(1, Math.round(iw * k)), sh = Math.max(1, Math.round(ih * k));
+  if (ratio > o.maxRatio && Math.max(sw, sh) / Math.min(sw, sh) > o.maxRatio) {
+    // (the whole picture in the frame: it is the picture that is too long, a frame cannot help)
+    return t(iw === W && ih === H ? 'ai.outpaintRatioWhole' : 'ai.outpaintRatio', ratio.toFixed(1).replace('.', t('num.dot')));
+  }
   if (sw / sh > o.maxRatio) sh = Math.ceil(sw / o.maxRatio);
   if (sh / sw > o.maxRatio) sw = Math.ceil(sh / o.maxRatio);
   if (Math.min(sw, sh) < o.minSide) return t('ai.outpaintSmall');

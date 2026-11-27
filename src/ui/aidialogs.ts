@@ -225,11 +225,13 @@ export async function outpaintAfterCrop(before: HTMLCanvasElement, r: { x: numbe
       left: Math.round(ext.left * k), right: Math.round(ext.right * k), up: Math.round(ext.up * k), down: Math.round(ext.down * k),
     })));
     if (!res) return;
+    // on top of the others: Stability redraws the whole frame a little, the old picture's edges too, so under
+    // the old layers its result showed their hard edge instead of its smooth join
     const l = new Layer('raster', t('ai.outpaintLayer'), d.width, d.height);
     const g = l.content.ctx; g.imageSmoothingQuality = 'high'; g.drawImage(res, 0, 0, d.width, d.height);
-    d.root.children.unshift(l); l.parent = d.root;
-    if (d.root.children[1]) d.root.children[1].clipped = false;
+    d.root.children.push(l); l.parent = d.root;
     l.touch();
+    d.setActive(l);
     app.commit('cmd.outpaint', d);
   } finally { ui.close(); }
 }

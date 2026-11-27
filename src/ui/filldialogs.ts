@@ -5,8 +5,9 @@ import { compositeStroke } from '../tools/paint';
 import { t } from '../i18n';
 import { openDialog } from './dialog';
 import { numberField, select, colorSwatch } from './controls';
+import { contentAwareFillSelection } from './contentfill';
 
-type FillSource = 'fg' | 'bg' | 'color' | 'white' | 'black' | 'gray';
+type FillSource = 'fg' | 'bg' | 'color' | 'content' | 'white' | 'black' | 'gray';
 
 /** Composite a document-sized colored buffer onto the paint target. */
 function applyDocBuffer(buf: HTMLCanvasElement, opacity: number, color: RGB) {
@@ -27,12 +28,15 @@ export function fillDialog() {
   const d = app.doc;
   if (!d) return;
   let src: FillSource = app.settings.fillSrc || 'fg';
+  // Content-Aware fills a selected area: offered only with a selection
+  if (src === 'content' && !d.selection) src = 'fg';
   let custom: RGB = app.settings.fillColor || { r: 128, g: 128, b: 128 };
   let opacity = 100;
   const body = el('div', { class: 'form' },
     el('div', { class: 'form-row' }, el('label', {}, t('dlg.contents')),
       select<FillSource>([
         { value: 'fg', label: t('dlg.fill.fg') }, { value: 'bg', label: t('dlg.fill.bg') }, { value: 'color', label: t('dlg.fill.color') },
+        ...(d.selection ? [{ value: 'content' as FillSource, label: t('dlg.fill.content') }] : []),
         { value: 'white', label: t('dlg.bg.white') }, { value: 'black', label: t('dlg.bg.black') }, { value: 'gray', label: t('dlg.fill.gray') },
       ], src, v => (src = v)),
       colorSwatch(custom, t('dlg.fill.color'), c => { custom = c; src = 'color'; })),
@@ -41,6 +45,8 @@ export function fillDialog() {
     title: t('dlg.fill.title'), body, width: 400,
     onOk: () => {
       app.settings.fillSrc = src; app.settings.fillColor = custom; app.saveSettings();
+      // the window closes at once; the fill runs behind its own progress window
+      if (src === 'content') { void contentAwareFillSelection(opacity / 100); return; }
       const color: RGB = src === 'fg' ? app.fg : src === 'bg' ? app.bg : src === 'color' ? custom
         : src === 'white' ? { r: 255, g: 255, b: 255 } : src === 'black' ? { r: 0, g: 0, b: 0 } : { r: 128, g: 128, b: 128 };
       const buf = createCanvas(d.width, d.height);

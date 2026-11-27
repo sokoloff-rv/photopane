@@ -14,6 +14,7 @@ import { openDialog } from '../ui/dialog';
 import { el } from '../core/util';
 import { resizeDocument } from '../ui/docdialogs';
 import { outpaintAfterCrop } from '../ui/aidialogs';
+import { extendWithContent } from '../ui/contentfill';
 import { cloneCanvas } from '../core/util';
 
 /** A crop preset: an aspect ratio, or an exact size in pixels (the result is resampled to it). */
@@ -55,7 +56,7 @@ function allPresets(): CropPreset[] { return [...RATIOS, ...PIXEL_PRESETS, ...cu
  * are an aspect ratio or a size in pixels), used at once without saving a preset.
  */
 interface CropOpts {
-  ratio: string; portrait: boolean; deletePixels: boolean; fill: 'transparent' | 'bg' | 'ai';
+  ratio: string; portrait: boolean; deletePixels: boolean; fill: 'transparent' | 'bg' | 'content' | 'ai';
   customKind: 'ratio' | 'px'; customW: number; customH: number;
 }
 
@@ -271,6 +272,8 @@ export class CropTool extends Tool<CropOpts> {
     const rr = { ...r };
     // the view keeps its zoom, and what is left of the picture stays where it was on the screen
     const z = d.zoom, sx = d.panX + rr.x * z, sy = d.panY + rr.y * z;
+    // where the old picture lands in the cropped document (cropDocument rounds the frame the same way)
+    const inner = { x: -Math.round(r.x), y: -Math.round(r.y), w: d.width, h: d.height };
     if (!whole) cropDocument(d, r, this.o.deletePixels);
     if (extends_ && this.o.fill === 'bg') {
       const l = new Layer('raster', t('layers.background'), d.width, d.height);
@@ -278,15 +281,21 @@ export class CropTool extends Tool<CropOpts> {
       d.root.children.unshift(l); l.parent = d.root;
       if (d.root.children[1]) d.root.children[1].clipped = false;
     }
-    if (px && (d.width !== W || d.height !== H)) resizeDocument(d, W, H, 'auto');
-    app.commit('tool.crop');
-    app.viewport.place(z, sx, sy);
-    // done: the frame goes (a new one is dragged out, or a preset puts one); it used to come back at once
-    // around the whole picture, as if the crop were still waiting
-    this.rect = null; this.drag = null; this.docId = d.id;
-    app.update('overlay', 'options');
-    // AI outpainting of the new area (Stability AI) as its own history step
-    if (before && !px) outpaintAfterCrop(before, rr);
+    const finish = () => {
+      if (px && (d.width !== W || d.height !== H)) resizeDocument(d, W, H, 'auto');
+      app.commit('tool.crop');
+      app.viewport.place(z, sx, sy);
+      // done: the frame goes (a new one is dragged out, or a preset puts one); it used to come back at once
+      // around the whole picture, as if the crop were still waiting
+      this.rect = null; this.drag = null; this.docId = d.id;
+      app.update('overlay', 'options');
+      // AI outpainting of the new area (Stability AI) as its own history step
+      if (before && !px) outpaintAfterCrop(before, rr);
+    };
+    // the new area is filled from the picture before the crop goes into History, in the same step (the
+    // progress window holds the editor meanwhile; cancelled, the area stays transparent)
+    if (extends_ && this.o.fill === 'content') { this.rect = null; void extendWithContent(d, inner).then(finish); return; }
+    finish();
   }
 
   overlay(g: CanvasRenderingContext2D) {
@@ -340,7 +349,10 @@ export class CropTool extends Tool<CropOpts> {
       r && kind === 'ratio' ? span(`${Math.round(r.w)} × ${Math.round(r.h)} ${t('dlg.px')}`) : null,
       sep(),
       checkbox(t('opt.deleteCropped'), this.o.deletePixels, v => this.set('deletePixels', v)),
-      select([{ value: 'transparent', label: t('opt.extendTransparent') }, { value: 'bg', label: t('opt.extendBg') }, { value: 'ai', label: t('opt.extendAi') }], this.o.fill, v => this.set('fill', v as any)),
+      select([
+        { value: 'transparent', label: t('opt.extendTransparent') }, { value: 'bg', label: t('opt.extendBg') },
+        { value: 'content', label: t('opt.extendContent') }, { value: 'ai', label: t('opt.extendAi') },
+      ], this.o.fill, v => this.set('fill', v as any)),
       spacer(),
       textButton(t('dlg.cancel'), () => this.clear()),
       textButton(t('opt.apply'), () => this.apply(), true),

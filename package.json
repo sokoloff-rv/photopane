@@ -1,6 +1,7 @@
 {
   "name": "photopane",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "version": "0.7.0",
   "type": "module",
   "scripts": {

@@ -88,3 +88,10 @@ npm run desktop:build  # build native installers
 ```
 
 </details>
+
+## License
+
+PhotoPane is free software: you can use, study, change and share it under the terms of the
+[GNU Affero General Public License v3.0](LICENSE) or any later version. Anything built on PhotoPane and
+distributed — as a desktop app or offered to users over a network — must be released under the same license,
+with its source code.

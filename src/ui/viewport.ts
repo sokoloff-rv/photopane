@@ -218,6 +218,18 @@ export class Viewport {
     app.update('view');
   }
 
+  /**
+   * After the picture was resampled by kx, ky (upscaled, or such a step undone): the zoom stays as it was, and
+   * the point that was in the middle of the view stays there. Fitting it to the window instead blew a small
+   * picture up to 347 %, where its pixels showed.
+   */
+  keepView(kx: number, ky: number, d: Doc | null = this.doc) {
+    if (!d) return;
+    const cx = (d.viewW || this.w) / 2, cy = (d.viewH || this.h) / 2;
+    const px = ((cx - d.panX) / d.zoom) * kx, py = ((cy - d.panY) / d.zoom) * ky;
+    this.place(d.zoom, cx - px * d.zoom, cy - py * d.zoom, d);
+  }
+
   setZoom(z: number, sx = this.w / 2, sy = this.h / 2) {
     const d = this.doc;
     if (!d) return;

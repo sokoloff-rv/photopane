@@ -16,11 +16,11 @@
 
 ![PhotoPane workspace showing a layered photo composition with masks, editable text, and layer styles](docs/screenshots/en/main.jpg)
 
-PhotoPane handles everything most people open a heavy photo editor for — fixing light and color, retouching, making clean cutouts, combining layers, and adding editable text — without the bloat. It opens layered Photoshop files, runs offline, and comes in at around an 18 MB download on Windows and macOS. Your images stay on your computer and are never uploaded unless you explicitly run a cloud AI tool with your own API key.
+PhotoPane handles everything most people open a heavy photo editor for — fixing light and color, retouching, making clean cutouts, combining layers, and adding editable text — without the bloat. It opens layered Photoshop files, runs offline, and the installer is only about 9 MB on Windows and 18 MB on macOS. Your images stay on your computer and are never uploaded unless you explicitly run a cloud AI tool with your own API key.
 
 ## Why PhotoPane
 
-- **Lightweight and offline:** Roughly an 18 MB download on Windows and macOS, starts fast, opens layered `.psd` files, and needs no account or subscription.
+- **Lightweight and offline:** An installer of about 9 MB on Windows and 18 MB on macOS, starts fast, opens layered `.psd` files, and needs no account or subscription.
 - **Live GPU adjustment chains:** Keep multiple adjustment and filter windows open at the same time — they stack into a live pipeline with a Before / After split and render smoothly on your graphics card.
 - **Local retouching and upscaling:** Content-Aware Fill and a built-in 2×/4× AI upscaler run directly on your machine with no cloud uploads required.
 - **True side-by-side Compare:** Split the workspace into two independent copies of your document, each with its own full history, synced pan/zoom, and automatic scale matching after upscaling.
@@ -76,7 +76,7 @@ PhotoPane requires no account and collects no telemetry or usage data. All your 
 <details>
 <summary><b>Building from source</b></summary>
 
-PhotoPane is written in plain TypeScript (no UI framework) using Canvas 2D, WebGL2 shaders, Web Workers, ONNX Runtime Web for local upscaling, and [Tauri 2](https://v2.tauri.app/) for the native desktop wrapper — which keeps the desktop download around 18 MB.
+PhotoPane is written in plain TypeScript (no UI framework) using Canvas 2D, WebGL2 shaders, Web Workers, ONNX Runtime Web for local upscaling, and [Tauri 2](https://v2.tauri.app/) for the native desktop wrapper — which keeps the installers small: about 9 MB on Windows and 18 MB on macOS.
 
 **Requirements:** Node.js 22+ (plus Rust 1.77+ and Tauri system dependencies for desktop builds).
 

@@ -364,7 +364,8 @@ async function runUpscale(d: Doc, engine: 'local' | 'topaz' | 'stability', scale
       const l = d.layers.find(x => !x.isGroup)!;
       l.content.replace(c, 0, 0); l.touch();
       app.commit('cmd.upscale', d);
-      if (app.doc === d) app.viewport.fit(false);
+      // the zoom stays (a picture at 100 % is still at 100 %, now larger)
+      app.viewport.keepView(scale, scale, d);
       // (no «Done»: the charge is said as it is made, with what is left)
       return;
     }
@@ -385,7 +386,7 @@ async function runUpscale(d: Doc, engine: 'local' | 'topaz' | 'stability', scale
     resizeDocument(d, d.width * scale, d.height * scale, 'bicubic');
     for (const r of results) { r.l.content.replace(r.c, Math.round(r.x * scale), Math.round(r.y * scale)); r.l.touch(); }
     app.commit('cmd.upscale', d);
-    if (app.doc === d) app.viewport.fit(false);
+    app.viewport.keepView(scale, scale, d);
     toast(t('ai.done'));
   } finally { ui.close(); }
 }

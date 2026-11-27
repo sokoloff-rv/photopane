@@ -54,7 +54,7 @@ async function failure(service: Service, r: Response): Promise<Error> {
   const s = r.status;
   const why = s === 401 ? t('ai.err.key')
     : s === 402 ? t('ai.err.credits')
-    : s === 403 ? (/moderat|flag/i.test(detail) ? t('ai.err.moderated') : t('ai.err.key'))
+    : s === 403 ? (/moderat|flag/i.test(detail) ? t('ai.err.moderated') : service === 'topaz' ? t('ai.err.access', detail) : t('ai.err.key'))
     : s === 413 ? t('ai.err.large')
     : s === 429 ? t('ai.err.busy')
     : s >= 500 ? t('ai.err.server')
@@ -74,17 +74,27 @@ export const canvasBlob = (c: HTMLCanvasElement, type = 'image/png', quality?: n
   new Promise<Blob>((res, rej) => c.toBlob(b => (b ? res(b) : rej(new Error('encode'))), type, quality));
 
 /**
- * The picture as a file a service takes: PNG (exact, with transparency); when that is over its limit for a
- * request (a large photo), WebP, which keeps the transparency, at a quality that fits.
+ * The picture as a file Stability takes: PNG (exact, with transparency); when that is over its limit for a
+ * request (a large photo), WebP, which keeps the transparency, at a quality that fits; where the browser cannot
+ * make WebP (some Linux WebKit builds hand back PNG instead), JPEG over white. Never more than the limit.
  */
 export async function sendableBlob(c: HTMLCanvasElement, maxBytes = STABILITY.maxBytes - 64 * 1024): Promise<Blob> {
   const png = await canvasBlob(c);
   if (png.size <= maxBytes) return png;
-  for (const q of [0.95, 0.88, 0.8]) {
+  for (const q of [0.95, 0.88, 0.8, 0.7]) {
     const b = await canvasBlob(c, 'image/webp', q);
+    if (b.type !== 'image/webp') break;
     if (b.size <= maxBytes) return b;
   }
-  return canvasBlob(c, 'image/webp', 0.7);
+  const flat = document.createElement('canvas');
+  flat.width = c.width; flat.height = c.height;
+  const g = flat.getContext('2d')!;
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(c, 0, 0);
+  for (const q of [0.92, 0.85, 0.75, 0.6]) {
+    const b = await canvasBlob(flat, 'image/jpeg', q);
+    if (b.size <= maxBytes) return b;
+  }
+  throw new Error(`Stability AI: ${t('ai.err.large')}`);
 }
 
 export async function blobCanvas(b: Blob): Promise<HTMLCanvasElement> {
@@ -103,7 +113,7 @@ async function stability(path: string, fields: Record<string, Blob | string | nu
   const fd = new FormData();
   for (const [k, v] of Object.entries(fields)) {
     if (v === undefined || v === '') continue;
-    if (v instanceof Blob) fd.append(k, v, k + (v.type === 'image/webp' ? '.webp' : '.png')); else fd.append(k, String(v));
+    if (v instanceof Blob) fd.append(k, v, k + (v.type === 'image/webp' ? '.webp' : v.type === 'image/jpeg' ? '.jpg' : '.png')); else fd.append(k, String(v));
   }
   const r = await send('stability', path, { method: 'POST', headers: { Authorization: `Bearer ${key}`, Accept: 'image/*' }, body: fd });
   return r.blob();

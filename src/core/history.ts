@@ -18,6 +18,8 @@ interface DocSnap {
   sel: Uint32Array | null; selObj: Selection | null;
   /** the document's ICC profile (the same bytes object while it is unchanged) */
   icc?: Uint8Array | null;
+  /** Doc.scale */
+  scale?: number;
 }
 
 export interface HistoryEntry { label: string; snap: DocSnap; bytes: number }
@@ -161,7 +163,7 @@ export class History {
     }
     return {
       w: d.width, h: d.height, layers: d.root.children.map(l => this.snapLayer(l)),
-      activeId: d.activeId, editMask: d.editMask, sel, selObj: d.selection, icc: d.iccProfile,
+      activeId: d.activeId, editMask: d.editMask, sel, selObj: d.selection, icc: d.iccProfile, scale: d.scale,
     };
   }
 
@@ -220,6 +222,7 @@ export class History {
     const existing = new Map<number, Layer>();
     for (const l of d.root.descendants()) existing.set(l.id, l);
     d.width = snap.w; d.height = snap.h;
+    d.scale = snap.scale ?? 1;
     d.root.children = snap.layers.map(s => this.restoreLayer(s, existing, d.root));
     d.activeId = snap.activeId;
     d.editMask = snap.editMask;

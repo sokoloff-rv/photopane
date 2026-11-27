@@ -38,6 +38,11 @@ export class Doc {
   private _compositeValid = false;
   private _display: HTMLCanvasElement | null = null;
   private _displayValid = false;
+  /**
+   * How many times the picture has been resampled since it was opened (Image Size, AI upscaling multiply it; a
+   * crop does not). Compare shows a side at the zoom that matches the other by this.
+   */
+  scale = 1;
   /** Embedded ICC profile of the document (kept and written back to PSD) */
   iccProfile: Uint8Array | null = null;
   /** Parsed profile when it differs from sRGB; pixels stay in this space, the screen converts */
@@ -266,6 +271,7 @@ export function cloneDoc(src: Doc, name: string): Doc {
   const d = new Doc(name, src.width, src.height);
   d.history.adopt(src.history);
   d.zoom = src.zoom; d.panX = src.panX; d.panY = src.panY; d.fitted = src.fitted; d.autoFit = src.autoFit;
+  d.scale = src.scale;
   d.viewW = src.viewW; d.viewH = src.viewH;
   d.exif = src.exif;
   d.missingFonts = src.missingFonts.map(f => ({ ...f }));

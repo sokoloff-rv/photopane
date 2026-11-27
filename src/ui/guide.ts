@@ -8,10 +8,15 @@ import { el } from '../core/util';
 import { openDialog } from './dialog';
 
 let open: { close: () => void } | null = null;
+let opening = false;
 
 export async function openGuide() {
+  // (a second F1 while the text is still loading opens no second window)
+  if (open || opening) return;
+  opening = true;
+  let GUIDE: typeof import('./guidetext').GUIDE;
+  try { ({ GUIDE } = await import('./guidetext')); } finally { opening = false; }
   if (open) return;
-  const { GUIDE } = await import('./guidetext');
   const L = getLang() === 'en' ? 1 : 0;
   const nav = el('div', { class: 'guide-nav' });
   const content = el('div', { class: 'guide-body' });
@@ -50,8 +55,11 @@ export async function openGuide() {
     nav.querySelectorAll('.guide-link').forEach(b => b.classList.remove('on'));
     content.innerHTML = '';
     let found = 0;
+    const matches = (text: string) => { const s2 = text.toLowerCase().replace(/ё/g, 'е'); return words.every(w => s2.includes(w)); };
     for (const s of GUIDE) {
-      const hits = s.items.filter(it => { const text = (it.t[L] + ' ' + it.d[L] + ' ' + (it.k ?? '')).toLowerCase().replace(/ё/g, 'е'); return words.every(w => text.includes(w)); });
+      // a section's introduction counts as an entry of its own (Ctrl+K is said in the AI one)
+      const intro = s.intro && matches(s.t[L] + ' ' + s.intro[L]) ? [{ t: s.t, d: s.intro }] : [];
+      const hits = [...intro, ...s.items.filter(it => matches(it.t[L] + ' ' + it.d[L] + ' ' + (it.k ?? '')))];
       if (!hits.length) continue;
       found += hits.length;
       content.append(el('div', { class: 'guide-found-in' }, s.t[L]));

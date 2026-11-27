@@ -251,7 +251,7 @@ export class LassoTool extends Tool<LassoOpts> {
   }
 
   hover(e: PEvent) {
-    if (!this.pts.length) return;
+    if (!this.pts.length) { if (this.editing) { this.editing = false; this.hot = -1; this.setEditCursor(false); } return; }
     if (this.o.type !== 'free' && e.ctrl) {
       // the outline waits while Ctrl is held; the point under the cursor is shown
       this.editing = true;
@@ -301,6 +301,7 @@ export class LassoTool extends Tool<LassoOpts> {
       if (!this.editing) { this.editing = true; this.wire = []; this.hoverPt = null; app.update('overlay'); }
       return false;
     }
+    if (this.grab !== null && (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete')) this.grab = null;
     if (e.key === 'Enter') { this.close(); return true; }
     if (e.key === 'Escape') { this.cancel(); return true; }
     if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -351,6 +352,7 @@ export class LassoTool extends Tool<LassoOpts> {
    * anchors after it shift by the change in the number of points.
    */
   private moveHandle(h: number, p: P) {
+    if (h < 0 || h >= this.handles().length) { this.grab = null; return; }
     if (this.o.type === 'poly') { this.pts[h] = p; return; }
     const A = this.anchors, last = A.length - 1;
     const before = h > 0 ? this.pts.slice(0, A[h - 1] + 1) : [];
@@ -373,6 +375,7 @@ export class LassoTool extends Tool<LassoOpts> {
     }
     const pts = this.pts;
     this.pts = []; this.anchors = []; this.wire = []; this.hoverPt = null;
+    this.editing = false; this.hot = -1; this.grab = null; this.setEditCursor(false);
     if (pts.length < 3) { app.update('overlay'); return; }
     const d = app.doc!;
     const shape = Selection.fromDraw(d.width, d.height, g => {

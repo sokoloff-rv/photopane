@@ -597,6 +597,7 @@ const D: Record<string, [string, string]> = {
   'ai.outpaintRatioWhole': ['Дорисовка через ИИ: снимок слишком вытянутый ({0} : 1). Stability AI принимает не длиннее 2,5 : 1.', 'AI fill: the picture is too long ({0} : 1). Stability AI takes up to 2.5 : 1.'],
   'ai.outpaintSmall': ['Дорисовка через ИИ: часть снимка в рамке слишком маленькая для такого расширения — нужно хотя бы 64 px по каждой стороне.', 'AI fill: the part of the picture in the frame is too small for so large an extension — at least 64 px on each side is needed.'],
   'ai.err.key': ['ключ не подошёл — проверьте его в настройках ИИ', 'the key was not accepted — check it in AI settings'],
+  'ai.err.access': ['у ключа нет доступа к этой функции или модели: {0}', 'the key has no access to this feature or model: {0}'],
   'ai.err.credits': ['на аккаунте закончились кредиты', 'the account is out of credits'],
   'ai.err.moderated': ['сервис отказался обрабатывать эту картинку (модерация содержимого)', 'the service declined this picture (content moderation)'],
   'ai.err.large': ['файл слишком большой для сервиса', 'the file is too large for the service'],

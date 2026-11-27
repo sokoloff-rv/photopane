@@ -28,14 +28,20 @@ export async function initDesktop() {
   if (!inTauri()) return;
   // the window starts hidden, already in place (main.rs): shown once the interface is drawn, it appears
   // whole, at its size, without a white frame first
-  requestAnimationFrame(() => requestAnimationFrame(async () => {
+  // (after two frames, or a moment, whichever comes first: a hidden window may get no animation frames, macOS)
+  let shown = false;
+  const show = async () => {
+    if (shown) return;
+    shown = true;
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const w = getCurrentWindow();
       await w.show();
       await w.setFocus();
     } catch (e) { console.warn('PhotoPane: show window', e); }
-  }));
+  };
+  requestAnimationFrame(() => requestAnimationFrame(() => void show()));
+  setTimeout(() => void show(), 120);
   try {
     const { invoke } = await import('@tauri-apps/api/core');
     const { listen } = await import('@tauri-apps/api/event');

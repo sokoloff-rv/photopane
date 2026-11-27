@@ -71,7 +71,8 @@ async function upscaleCanvas(src: HTMLCanvasElement, scale: 2 | 4, engine: 'loca
     return half;
   }
   ui.set(t('ai.sending'));
-  const blob = await sendableBlob(src);
+  // Stability takes at most 10 MiB a request (WebP or JPEG beyond that); Topaz takes no WebP, and no such limit
+  const blob = engine === 'stability' ? await sendableBlob(src) : await canvasBlob(src);
   if (engine === 'stability') {
     const why = upscaleProblem('stability', src.width, src.height);
     if (why) throw new Error(why);
@@ -132,6 +133,9 @@ export function upscaleDialog() {
       if (engine !== 'local' && !hasKey(engine as Service)) { guarded(() => Promise.reject(new NeedKeyError(engine as Service))); return false; }
       const W = d.width * scale, H = d.height * scale;
       if (W > MAX_SIDE || H > MAX_SIDE || W * H > MAX_PX) { toast(t('ai.tooBig'), 'error', 4000); return false; }
+      // (Enter reaches here even while OK is off)
+      const why = upscaleProblem(engine, d.width, d.height);
+      if (why) { toast(why, 'error', 6000); return false; }
       runUpscale(engine, scale);
     },
   });
@@ -145,8 +149,15 @@ async function runUpscale(engine: 'local' | 'topaz' | 'stability', scale: 2 | 4)
   let stop = false;
   const ui = busy(t('ai.preparing'), () => { stop = true; });
   try {
-    // cloud engines work on the whole picture: one call instead of one per layer
-    if (engine !== 'local' && d.layers.filter(l => !l.isGroup).length > 1) { flatten(d, t('layers.background')); app.commit('cmd.flatten', d); }
+    // cloud engines work on the whole picture, the size the window checked and named the Topaz model for: one
+    // call instead of one per layer, and a single layer smaller than the canvas (or off it) made whole first
+    if (engine !== 'local') {
+      const why = upscaleProblem(engine, d.width, d.height);
+      if (why) { toast(why, 'error', 6000); return; }
+      const rs = d.layers.filter(l => !l.isGroup);
+      const whole = rs.length === 1 && rs[0].kind !== 'text' && rs[0].x === 0 && rs[0].y === 0 && rs[0].canvas.width === d.width && rs[0].canvas.height === d.height;
+      if (rs.length && !whole) { flatten(d, t('layers.background')); app.commit('cmd.flatten', d); }
+    }
     const rasters = d.layers.filter(l => !l.isGroup && l.kind !== 'text' && l.canvas.width > 0);
     const results: { l: Layer; c: HTMLCanvasElement; x: number; y: number }[] = [];
     for (let i = 0; i < rasters.length; i++) {
@@ -234,7 +245,11 @@ export async function selectSubject() {
  * the crop, `r` the crop rectangle in its coordinates.
  */
 type Frame = { x: number; y: number; w: number; h: number };
-type OutpaintPlan = { ix: number; iy: number; iw: number; ih: number; ext: { left: number; up: number; right: number; down: number }; k: number };
+type OutpaintPlan = {
+  ix: number; iy: number; iw: number; ih: number;
+  /** the size the part in the frame is sent at, and how far it is extended on each side (as sent) */
+  sw: number; sh: number; ext: { left: number; up: number; right: number; down: number };
+};
 
 /**
  * The outpainting request for a crop frame `r` over a W × H picture: the part of the picture in the frame, how
@@ -248,30 +263,35 @@ export function outpaintPlan(W: number, H: number, r: Frame): OutpaintPlan | str
   const ix1 = Math.min(W, Math.round(r.x + r.w)), iy1 = Math.min(H, Math.round(r.y + r.h));
   const iw = ix1 - ix, ih = iy1 - iy;
   if (iw <= 0 || ih <= 0) return t('ai.outpaintNothing');
-  const ext = { left: ix - Math.round(r.x), up: iy - Math.round(r.y), right: Math.round(r.x + r.w) - ix1, down: Math.round(r.y + r.h) - iy1 };
-  const totalW = iw + ext.left + ext.right, totalH = ih + ext.up + ext.down;
-  const k = Math.min(1, Math.sqrt(9_000_000 / (totalW * totalH)), o.maxExtend / Math.max(ext.left, ext.right, ext.up, ext.down, 1));
+  const e0 = { left: ix - Math.round(r.x), up: iy - Math.round(r.y), right: Math.round(r.x + r.w) - ix1, down: Math.round(r.y + r.h) - iy1 };
+  const totalW = iw + e0.left + e0.right, totalH = ih + e0.up + e0.down;
+  const k = Math.min(1, Math.sqrt(9_000_000 / (totalW * totalH)), o.maxExtend / Math.max(e0.left, e0.right, e0.up, e0.down, 1));
   const ratio = Math.max(iw, ih) / Math.min(iw, ih);
   // (the whole picture in the frame: it is the picture that is too long, a frame cannot help)
   if (ratio > o.maxRatio) return t(iw === W && ih === H ? 'ai.outpaintRatioWhole' : 'ai.outpaintRatio', ratio.toFixed(1).replace('.', t('num.dot')));
-  if (Math.min(iw, ih) * k < o.minSide) return t('ai.outpaintSmall');
-  return { ix, iy, iw, ih, ext, k };
+  // the numbers as sent, rounded: a side extended stays extended by at least a pixel, and rounding never takes
+  // the part in the frame past 2.5 : 1 (the short side is rounded up when it would)
+  let sw = Math.max(1, Math.round(iw * k)), sh = Math.max(1, Math.round(ih * k));
+  if (sw / sh > o.maxRatio) sh = Math.ceil(sw / o.maxRatio);
+  if (sh / sw > o.maxRatio) sw = Math.ceil(sh / o.maxRatio);
+  if (Math.min(sw, sh) < o.minSide) return t('ai.outpaintSmall');
+  const side = (v: number) => (v > 0 ? Math.min(o.maxExtend, Math.max(1, Math.round(v * k))) : 0);
+  const ext = { left: side(e0.left), up: side(e0.up), right: side(e0.right), down: side(e0.down) };
+  return { ix, iy, iw, ih, sw, sh, ext };
 }
 
 export async function outpaintAfterCrop(before: HTMLCanvasElement, r: Frame) {
   const d = app.doc!;
   const plan = outpaintPlan(before.width, before.height, r);
   if (typeof plan === 'string') { toast(plan, 'error', 6000); return; }
-  const { ix, iy, iw, ih, ext, k } = plan;
+  const { ix, iy, iw, ih, sw, sh, ext } = plan;
   const inner = createCanvas(iw, ih);
   ctx2d(inner).drawImage(before, -ix, -iy);
   let src = inner;
-  if (k < 1) { src = createCanvas(Math.round(inner.width * k), Math.round(inner.height * k)); const g = ctx2d(src); g.imageSmoothingQuality = 'high'; g.drawImage(inner, 0, 0, src.width, src.height); }
+  if (sw !== iw || sh !== ih) { src = createCanvas(sw, sh); const g = ctx2d(src); g.imageSmoothingQuality = 'high'; g.drawImage(inner, 0, 0, sw, sh); }
   const ui = busy(t('ai.outpainting'));
   try {
-    const res = await guarded(async () => blobCanvas(await stabilityOutpaint(await sendableBlob(src), {
-      left: Math.round(ext.left * k), right: Math.round(ext.right * k), up: Math.round(ext.up * k), down: Math.round(ext.down * k),
-    })));
+    const res = await guarded(async () => blobCanvas(await stabilityOutpaint(await sendableBlob(src), ext)));
     if (!res) return;
     // on top of the others: Stability redraws the whole frame a little, the old picture's edges too, so under
     // the old layers its result showed their hard edge instead of its smooth join

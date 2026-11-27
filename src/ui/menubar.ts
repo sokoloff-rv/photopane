@@ -12,7 +12,7 @@ type Item = string | { sub: string; items: Item[] };
 const DESKTOP_ONLY = new Set(['psdAssoc']);
 
 const MENUS: { key: string; items: Item[] }[] = [
-  { key: 'menu.file', items: ['new', 'newFromClipboard', 'open', '-', 'place', '-', 'save', 'saveAs', 'export', '-', 'print', '-', 'batch', '-', 'close'] },
+  { key: 'menu.file', items: ['new', 'newFromClipboard', 'open', '-', 'place', '-', 'save', 'saveAs', 'export', '-', 'print', '-', 'batch', '-', 'psdAssoc', '-', 'close'] },
   { key: 'menu.edit', items: ['undo', 'redo', '-', 'cut', 'copy', 'copyMerged', 'paste', 'clear', '-', 'settings'] },
   { key: 'menu.image', items: [
     'enhance', 'levels', 'curves', 'hslMixer', 'toning', '-',
@@ -28,7 +28,7 @@ const MENUS: { key: string; items: Item[] }[] = [
     'desaturate', 'sepia', 'invert', 'posterize', 'threshold', 'gradientMap', 'lut',
   ] },
   { key: 'menu.view', items: ['zoomIn', 'zoomOut', 'fit', 'actual', '-', 'compare', '-', 'rulers', 'showGuides', 'snap', 'clearGuides', '-', 'resetLayout'] },
-  { key: 'menu.help', items: ['guide', 'shortcuts', 'psdAssoc', '-', 'about'] },
+  { key: 'menu.help', items: ['guide', 'shortcuts', '-', 'about'] },
 ];
 
 export function prettyKey(k: string) {

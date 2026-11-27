@@ -1,67 +1,92 @@
-# PhotoPane
+<p align="center">
+  <img src="src-tauri/icons/icon.png" width="104" alt="">
+</p>
 
-Лёгкий и понятный редактор изображений — доступная альтернатива Photoshop: привычные инструменты,
-но у каждого действия один очевидный путь. Интерфейс на русском и английском.
+<h1 align="center">PhotoPane</h1>
 
-## Запуск в браузере
+<p align="center">
+  A lightweight, modern image editor for Windows, macOS and Linux.<br>
+  The familiar tools — with one obvious way to do each thing.
+</p>
 
-```powershell
-npm install
-npm start
-```
+<p align="center">
+  <a href="https://github.com/sokoloff-rv/photopane/releases/latest"><b>Download</b></a> ·
+  <a href="README.ru.md">Русская версия</a>
+</p>
 
-Откроется `http://localhost:5178`.
+![PhotoPane: a picture made of seven layers, with the Layers panel](docs/screenshots/en/main.jpg)
 
-## Настольная версия (Windows и macOS)
+PhotoPane does what most people open a big photo editor for — fixing light and colour, retouching, cutting out,
+combining layers, adding text — without the weight and the clutter. It opens Photoshop files with their layers,
+works offline, and is about an 18 MB download on Windows and macOS. Your pictures never leave your computer unless
+you ask an AI service for help with your own key.
 
-Приложение упаковано через [Tauri 2](https://tauri.app). Установщики собираются на GitHub Actions
-(workflow **Desktop builds**) при каждом пуше и доступны во вкладке Actions как артефакты:
+## What it can do
 
-- `PhotoPane-Windows` — установщик `.exe` (NSIS) и `.msi`;
-- `PhotoPane-macOS` — универсальный `.dmg` (Apple Silicon и Intel).
+**Layers.** Groups, layer masks, clipping masks, 17 blend modes, opacity and locked transparency. Layer styles:
+drop shadow, stroke, bevel and emboss, colour and gradient overlay. Free transform with distortion and perspective.
+Text stays editable.
 
-Сборка macOS не подписана: при первом запуске откройте приложение через правый клик → «Открыть».
+**Light and colour.** One Correction window for light, colour, skin tone, clarity, grain and vignette, with an Auto
+button and your own presets — plus Levels, Curves, an HSL mixer and toning. Every adjustment shows its result on the
+picture as you move the sliders, and several can be open at once.
 
-Локальная сборка требует [Rust](https://rustup.rs) и зависимостей Tauri для вашей системы:
+![The Correction window beside the picture](docs/screenshots/en/adjust.jpg)
 
-```powershell
-npm run desktop          # запуск в окне приложения
-npm run desktop:build    # установщик для текущей системы
-```
+**Retouching.** Spot healing brush, clone stamp and content-aware fill: select something you don't want and it is
+rebuilt from the picture around it, right on your computer. Blur, sharpen and smudge brushes, dodge and burn, colour
+replacement.
 
-## Возможности
+**Filters.** Gaussian, motion, radial and surface blur, and field, iris and tilt-shift blur with bokeh, adjusted with
+handles right on the photo. Unsharp mask, dehaze, noise reduction, glow, halftone, emboss, colour LUTs (.cube) and
+more, with a before/after split. Heavy work runs on the graphics card.
 
-- **Слои:** группы, маски, обтравочные маски, режимы наложения, стили слоя (тень, обводка, тиснение,
-  наложение цвета и градиента), редактируемый текст с несколькими стилями. Все команды слоёв — на панели слоёв
-  и в её контекстном меню.
-- **Выделение:** прямоугольник и эллипс, лассо (обычное, прямолинейное, магнитное), волшебная палочка, режимы
-  выделения; команды выделения — в контекстном меню холста.
-- **Инструменты:** кисть, ластик, заливка, градиент, штамп, замена цвета, размытие, резкость, палец, осветлитель
-  и затемнитель (с защитой тонов), текст, фигуры, кадрирование с наборами пропорций и размеров в пикселях
-  (в том числе своими), кадрирование перспективы. Правый клик с кистевым инструментом — быстрые ползунки.
-- **Трансформирование:** свободное (масштаб, поворот, наклон, искажение, перспектива); текст остаётся
-  редактируемым.
-- **Коррекция:** свет, цвет (температура, оттенок, оттенок кожи, цветовой тон; сочность бережёт кожу), детали
-  (резкость, чёткость, зернистость), виньетка; кнопка «Авто» в духе Camera Raw и свои пресеты с названиями;
-  уровни, кривые. Всё считается на видеокарте.
-- **Фильтры:** размытие (по Гауссу, в движении, радиальное, по поверхности, поле, диафрагма, наклон-смещение),
-  резкость и шум (контурная резкость, цветовой контраст, удаление дымки, шумоподавление, добавить шум), эффекты (свечение,
-  хроматическая аберрация, тиснение, выделение краёв, пикселизация, полутоновый растр), цвет (обесцвечивание, сепия,
-  инверсия, постеризация, порог, карта градиента, LUT `.cube`). В каждом фильтре — шторка «До / после» прямо на холсте;
-  на больших снимках превью тяжёлых фильтров сразу показывается эскизом, а полный результат считается в фоне.
-- **Коррекции и фильтры вместе:** разные окна (например, «Коррекция», «Уровни» и «Размытие») можно открыть одновременно —
-  они складываются по порядку открытия, и каждое можно крутить, пока открыты остальные. OK записывает окно отдельным шагом
-  истории, «Отмена» убирает только его. «Коррекция», «Уровни» и «Кривые» считаются на видеокарте.
-- **Текст:** редактируемые слои с несколькими стилями: начертание от Thin до Black, курсив, подчёркивание,
-  зачёркивание, интерлиньяж и межбуквенный интервал. Встроены шрифты Google Fonts с кириллицей — скачиваются при
-  первом выборе и дальше работают без интернета, устанавливать в систему ничего не нужно.
-- **Пакетная обработка:** папка или набор файлов — уменьшить до размера, «Авто» или пресет коррекции, перевод в
-  JPEG, PNG или WebP; результат в отдельную папку или вместо оригиналов.
-- **Дублировать:** окно делится на две копии документа с независимой историей.
-- **Файлы:** PSD (слои, маски, текст, стили, ICC-профиль), PNG, JPEG (с EXIF), WebP; цветовое управление
-  для документов в Adobe RGB и других профилях; масштаб 100% — пиксель в пиксель с учётом масштабирования экрана.
-- **Ретушь:** точечная восстанавливающая кисть — закрасьте дефект, и он заполнится подходящей текстурой рядом.
-- **ИИ:** увеличение разрешения 2× и 4× — бесплатно на этом компьютере (Real-ESRGAN на WebGPU, модель 5 МБ
-  загружается при первом запуске) или через Topaz Labs / Stability AI; удаление фона маской, выделение предмета,
-  удаление выделенного объекта, дорисовка при кадрировании за пределы холста. Облачные функции работают с вашим
-  ключом API (Правка → Настройки ИИ), ключи хранятся только на компьютере.
+![Tilt-shift blur with its handles on the picture](docs/screenshots/en/blur.jpg)
+
+**Selections.** Rectangle and ellipse, freehand, polygonal and magnetic lasso, magic wand; feather, expand,
+contract and smooth.
+
+**Crop.** Ratios, exact sizes in pixels and your own presets, perspective crop. Take the frame past the edges and
+the new area is filled with a colour, from the picture itself or by AI.
+
+**Compare.** Split the window into two independent copies of the document — step one back in history or edit it
+differently and see both side by side.
+
+![Two versions of the picture side by side](docs/screenshots/en/compare.jpg)
+
+**Files.** Opens PNG, JPEG, WebP, GIF, BMP, AVIF and PSD. Saves PSD with layers, masks and text; exports JPEG, PNG,
+WebP and PDF and shows the file size as you choose the quality. Batch processing for many files at once. Colour
+profiles: sRGB, Display P3, Adobe RGB.
+
+**AI, if you want it.** Upscale 2× or 4× with a local model that works offline, or with Topaz Labs and Stability AI
+using your own keys (PhotoPane picks the right Topaz model for the photo). Remove the background, select the subject,
+fill in the new area when cropping. Before anything is sent, PhotoPane checks the picture fits and tells you plainly
+if it doesn't.
+
+**Learn as you go.** Help → Learn (F1) explains every tool, adjustment and filter in a few lines, with a search, in a
+window that stays open beside your work.
+
+![Help → Learn](docs/screenshots/en/learn.jpg)
+
+The interface is in English and Russian, and the keyboard shortcuts are the ones you already know from Photoshop.
+
+## Download
+
+Get the latest version from the [Releases](https://github.com/sokoloff-rv/photopane/releases/latest) page:
+
+| System | File |
+| --- | --- |
+| Windows 10 and 11 | `…-setup.exe` (installer) or `.msi` |
+| macOS 11 and newer, Apple Silicon and Intel | `.dmg` |
+| Linux | `.deb`, `.rpm` or `.AppImage` |
+
+On macOS the app is not notarized by Apple yet. The first time you open it, macOS asks you to confirm: open
+**System Settings → Privacy & Security** and click **Open Anyway** next to the message about PhotoPane. This is
+needed only once.
+
+## Privacy
+
+PhotoPane has no account and collects no data. Pictures are opened and saved on your computer. Fonts from Google
+Fonts are downloaded the first time you choose one. The AI features that use Stability AI or Topaz Labs send the
+picture you are working on to that service, with your own key, only when you start them; the keys are stored only
+on your computer.

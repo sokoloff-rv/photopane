@@ -286,6 +286,7 @@ export class CropTool extends Tool<CropOpts> {
       // (after the content-aware fill another document may have been opened meanwhile, from outside)
       app.commit('tool.crop', d);
       if (app.doc === d) app.viewport.place(z, sx, sy);
+      else { d.zoom = z; d.panX = sx; d.panY = sy; d.fitted = true; d.autoFit = false; }
       // done: the frame goes (a new one is dragged out, or a preset puts one); it used to come back at once
       // around the whole picture, as if the crop were still waiting
       this.rect = null; this.drag = null; this.docId = d.id;

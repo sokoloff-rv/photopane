@@ -136,17 +136,20 @@ export async function extendWithContent(d: Doc, inner: Rect) {
   const img = readRegion(d.composite(), 0, 0, W, H);
   const hole = new Uint8Array(W * H);
   const x1 = inner.x + inner.w, y1 = inner.y + inner.h;
+  let n = 0;
   for (let y = 0; y < H; y++) {
     const inY = y >= inner.y && y < y1;
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
-      if (!inY || x < inner.x || x >= x1) hole[i] = 1;
+      if (!inY || x < inner.x || x >= x1) { hole[i] = 1; n++; }
       else if (!img[i * 4 + 3]) hole[i] = 2;   // transparent parts of the picture: not taken from
     }
   }
   const res = await fillInWorker(img, W, H, hole);
   if (!res) return;
-  if (!res.ok) { toast(t('fill.nothingToTake'), 'error'); return; }
+  // a side with nothing to take from (only transparency next to it) stays transparent; the others are kept
+  if (!res.ok) toast(t('fill.nothingToTake'), 'error');
+  if (res.left === n) return;
   const l = new Layer('raster', t('layers.contentFill'), W, H);
   const g = l.content.ctx;
   g.putImageData(new ImageData(res.img as Uint8ClampedArray<ArrayBuffer>, W, H), 0, 0);

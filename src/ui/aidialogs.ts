@@ -19,9 +19,9 @@ import {
 import { spentOver } from '../ai/usage';
 
 /* ---------------- credits ---------------- */
-/** «1 234,5 кредита (≈ $12,35)» for Stability, whose credit has a price; «57 кредитов» for Topaz */
+/** «1 234,5 кредита» */
 const creditsText = (credits: number, digits = 0) => tn('ai.credits', credits, digits);
-/** «Стоимость: 5 кредитов (≈ $0,05)»: said where a cloud operation is called, and while it runs */
+/** «Стоимость: 5 кредитов»: said where a cloud operation is called, and while it runs */
 export const costText = (credits: number) => t('ai.cost', creditsText(credits));
 const balanceText = (b: Balance) => creditsText(b.credits, 1) + (b.reserved ? `, ${t('ai.reserved', fmtNum(b.reserved))}` : '');
 /** an error said under the service's name: without the name again */
@@ -30,15 +30,16 @@ const withoutName = (s: Service, e: unknown) => {
   return m === t('ai.err.key') ? t('ai.keyRejected') : m.charAt(0).toUpperCase() + m.slice(1);
 };
 
-// every charge said as it happens, with what is left after it (asked of the service; a cancelled request is
-// charged too, the service has done it)
-// (a balance that comes after the one of a later charge is older than what was said: left out)
-const charges: Record<Service, { n: number; shown: number }> = { stability: { n: 0, shown: 0 }, topaz: { n: 0, shown: 0 } };
-onSpent((s, credits) => {
-  const c = charges[s], my = ++c.n;
-  void within(accountBalance(s)).catch(() => null).then(b => {
-    if (b && my < c.shown) b = null;
-    if (b) c.shown = my;
+/** the spending shown in the open AI settings, redrawn as a charge is recorded */
+let usageView: (() => void) | null = null;
+
+// every charge said as it happens, with what is left on the key it was made with (a cancelled request is charged
+// too, the service has done it). The balances are asked at once, the notices given in the order of the charges.
+const said: Record<Service, Promise<void>> = { stability: Promise.resolve(), topaz: Promise.resolve() };
+onSpent((s, credits, key) => {
+  usageView?.();
+  const balance = within(accountBalance(s, key)).catch(() => null);
+  said[s] = said[s].then(() => balance).then(b => {
     const what = credits == null ? t('ai.spentUnknown') : t('ai.spent', tn('ai.credits', credits));
     toast(`${NAME[s]}: ${what}${b ? ', ' + t('ai.left', tn('ai.credits', b.credits, 1)) : ''}`, 'info', 5000);
   });
@@ -111,6 +112,7 @@ export function aiSettingsDialog(onSaved?: () => void) {
     }
   };
   showUsage();
+  usageView = showUsage;
 
   const body = el('div', { class: 'form ai-settings' },
     el('p', { class: 'dlg-text' }, t('ai.intro')),
@@ -136,8 +138,10 @@ export function aiSettingsDialog(onSaved?: () => void) {
       s.usagePeriod = period;
       app.saveSettings();
       app.update('all');
+      usageView = null;
       onSaved?.();
     },
+    onCancel: () => { usageView = null; },
   });
 }
 
@@ -233,8 +237,11 @@ export function upscaleDialog() {
     let price: number | null = STABILITY_PRICE.upscale;
     if (s === 'topaz') {
       cost.textContent = t('ai.costLoading');
-      price = await within(topazEstimate(d.width, d.height, d.width * scale, d.height * scale, topazPick!.model)).catch(() => null);
+      // (OK waits for the price: nothing paid is sent before it is said; the estimate gives up by itself)
+      pricing = true; updateOk();
+      price = await topazEstimate(d.width, d.height, d.width * scale, d.height * scale, topazPick!.model).catch(() => null);
       if (my !== costSeq) return;
+      pricing = false; updateOk();
     }
     const priceText = price == null ? t('ai.costUnknown') : costText(price);
     cost.textContent = priceText;
@@ -245,6 +252,8 @@ export function upscaleDialog() {
     if (price != null && b.credits < price) { short.textContent = t('ai.notEnough'); short.style.display = ''; }
   };
   let okBtn: HTMLButtonElement | null = null;
+  let blocked = false, pricing = false;
+  const updateOk = () => { if (okBtn) okBtn.disabled = blocked || pricing; };
   let topazPick: ReturnType<typeof topazModelFor> | undefined;
   const refresh = () => {
     size.textContent = `${d.width} × ${d.height} → ${d.width * scale} × ${d.height * scale} ${t('dlg.px')}`;
@@ -256,7 +265,7 @@ export function upscaleDialog() {
     const why = upscaleProblem(engine, d.width, d.height) ?? sizeProblem(d, engine, scale);
     problem.textContent = why ?? '';
     problem.style.display = why ? '' : 'none';
-    if (okBtn) okBtn.disabled = !!why;
+    blocked = !!why; pricing = false; updateOk();
     void showCost(why);
   };
   const body = el('div', { class: 'form' },
@@ -276,6 +285,7 @@ export function upscaleDialog() {
         return false;
       }
       // (Enter reaches here even while OK is off)
+      if (pricing) return false;
       const why = upscaleProblem(engine, d.width, d.height) ?? sizeProblem(d, engine, scale);
       if (why) { toast(why, 'error', 6000); return false; }
       // the document of this window (another may have been opened from outside meanwhile)

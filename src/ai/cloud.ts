@@ -129,12 +129,16 @@ export function within<T>(p: Promise<T>, ms = 8000): Promise<T> {
   return Promise.race([p, late]).finally(() => clearTimeout(timer));
 }
 
-let spentListener: ((s: Service, credits: number | null) => void) | null = null;
-/** Told of every charge as it happens (`null`: the price could not be found out). */
-export const onSpent = (fn: (s: Service, credits: number | null) => void) => { spentListener = fn; };
-function spent(s: Service, credits: number | null) {
-  recordSpent(s, credits ?? 0);
-  spentListener?.(s, credits);
+type SpentListener = (s: Service, credits: number | null, key: string) => void;
+let spentListener: SpentListener | null = null;
+/** Told of every charge (`null`: the price could not be found out), with the key it was made with. */
+export const onSpent = (fn: SpentListener) => { spentListener = fn; };
+/** A charge made with `key`: the request counted at once, the credits when known (`price` may still be asked). */
+function spent(s: Service, key: string, price: number | Promise<number>) {
+  if (typeof price === 'number') { recordSpent(s, price); spentListener?.(s, price, key); return; }
+  // (the request is counted now: a reload before the price comes keeps it at least)
+  recordSpent(s, 0);
+  price.then(c => { recordSpent(s, c, false); spentListener?.(s, c, key); }, () => spentListener?.(s, null, key));
 }
 
 export interface Balance { credits: number; reserved: number }
@@ -162,7 +166,7 @@ async function stability(path: string, op: keyof typeof STABILITY_PRICE, fields:
   }
   const r = await send('stability', path, { method: 'POST', headers: { Authorization: `Bearer ${key}`, Accept: 'image/*' }, body: fd });
   // charged once it has answered with a result, whatever is done with it here
-  spent('stability', STABILITY_PRICE[op]);
+  spent('stability', key, STABILITY_PRICE[op]);
   return r.blob();
 }
 
@@ -220,8 +224,7 @@ const estimates = new Map<string, Promise<number>>();
  * What Topaz will charge for enlarging an iw × ih picture to ow × oh with a model, in credits: its own estimate
  * (it charges by the size of the result, at a rate of the model). Asked once for each size, model and key.
  */
-export function topazEstimate(iw: number, ih: number, ow: number, oh: number, model: TopazModel): Promise<number> {
-  const key = aiSettings().topazKey;
+export function topazEstimate(iw: number, ih: number, ow: number, oh: number, model: TopazModel, key = aiSettings().topazKey): Promise<number> {
   if (!key) return Promise.reject(new NeedKeyError('topaz'));
   const id = [iw, ih, ow, oh, model, key].join('|');
   let p = estimates.get(id);
@@ -248,9 +251,9 @@ export function topazEstimate(iw: number, ih: number, ow: number, oh: number, mo
 export async function topazUpscale(image: Blob, iw: number, ih: number, ow: number, oh: number, model: TopazModel): Promise<Blob> {
   const key = aiSettings().topazKey;
   if (!key) throw new NeedKeyError('topaz');
-  // the price is asked meanwhile (the window has usually asked already); the charge is recorded once it is known,
-  // asked once more if the first answer failed
-  const price = topazEstimate(iw, ih, ow, oh, model);
+  // the price is asked meanwhile (the window has usually asked already), with the key the work is charged to; the
+  // credits are recorded once it is known, asked once more if the first answer failed
+  const price = topazEstimate(iw, ih, ow, oh, model, key);
   price.catch(() => {});
   const fd = new FormData();
   fd.append('image', image, 'image.png');
@@ -259,6 +262,6 @@ export async function topazUpscale(image: Blob, iw: number, ih: number, ow: numb
   fd.append('output_height', String(oh));
   fd.append('output_format', 'png');
   const r = await send('topaz', '/image/v1/enhance', { method: 'POST', headers: { 'X-API-Key': key, Accept: 'image/png' }, body: fd });
-  void price.catch(() => topazEstimate(iw, ih, ow, oh, model)).then(c => spent('topaz', c), () => spent('topaz', null));
+  spent('topaz', key, price.catch(() => topazEstimate(iw, ih, ow, oh, model, key)));
   return r.blob();
 }

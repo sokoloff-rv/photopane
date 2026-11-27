@@ -35,7 +35,7 @@ export function resample(src: HTMLCanvasElement, w: number, h: number, method: M
 
 export function resizeDocument(d: Doc, W: number, H: number, method: Method) {
   const sx = W / d.width, sy = H / d.height;
-  d.scale *= (sx + sy) / 2;
+  d.scaleX *= sx; d.scaleY *= sy;
   const scaleSurface = (s: Surface) => {
     const nx = Math.round(s.x * sx), ny = Math.round(s.y * sy);
     const nw = Math.max(1, Math.round((s.x + s.w) * sx) - nx), nh = Math.max(1, Math.round((s.y + s.h) * sy) - ny);

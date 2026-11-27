@@ -45,7 +45,11 @@ async function errorText(r: Response): Promise<string> {
   try {
     const j = await r.clone().json();
     return (Array.isArray(j.errors) ? j.errors.join('; ') : '') || j.message || j.detail || j.error || j.name || r.statusText;
-  } catch { return (await r.text().catch(() => '')).slice(0, 200) || r.statusText; }
+  } catch {
+    // a page instead of an answer (a firewall in front of the service): its HTML is no message
+    const text = (await r.text().catch(() => '')).trim();
+    return (text && !text.startsWith('<') ? text.slice(0, 200) : '') || r.statusText || `HTTP ${r.status}`;
+  }
 }
 
 /** A refused request in words: the usual causes by status; what the service said only where it adds something. */

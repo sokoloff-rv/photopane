@@ -1,10 +1,11 @@
 import { app } from '../app';
-import { el, createCanvas, ctx2d } from '../core/util';
+import { el, createCanvas, ctx2d, cloneCanvas } from '../core/util';
 import { t } from '../i18n';
 import { openDialog, toast, confirmDialog, busy } from './dialog';
 export { busy };
 import { select } from './controls';
-import { Layer } from '../core/layer';
+import { Layer, hasEffects } from '../core/layer';
+import type { Doc } from '../core/document';
 import { Selection } from '../core/selection';
 import { flatten } from '../core/ops';
 import { resizeDocument } from './docdialogs';
@@ -63,12 +64,8 @@ const MAX_SIDE = 16384, MAX_PX = 120e6;
 
 async function upscaleCanvas(src: HTMLCanvasElement, scale: 2 | 4, engine: 'local' | 'topaz' | 'stability', ui: ReturnType<typeof busy>, cancelled: () => boolean): Promise<HTMLCanvasElement | null> {
   if (engine === 'local') {
-    const { esrgan4x } = await import('../ai/esrgan');
-    const big = await esrgan4x(src, (stage, p) => ui.set(stage === 'download' ? t('ai.downloading') : t('ai.upscaling'), p), cancelled);
-    if (!big || scale === 4) return big;
-    const half = createCanvas(src.width * 2, src.height * 2);
-    const g = ctx2d(half); g.imageSmoothingQuality = 'high'; g.drawImage(big, 0, 0, half.width, half.height);
-    return half;
+    const { esrganUpscale } = await import('../ai/esrgan');
+    return esrganUpscale(src, scale, (stage, p) => ui.set(stage === 'download' ? t('ai.downloading') : t('ai.upscaling'), p), cancelled);
   }
   ui.set(t('ai.sending'));
   // Stability takes at most 10 MiB a request (WebP or JPEG beyond that); Topaz takes no WebP, and no such limit
@@ -87,6 +84,27 @@ async function upscaleCanvas(src: HTMLCanvasElement, scale: 2 | 4, engine: 'loca
  * Why an engine cannot take a picture of this size, or null: Stability's fast upscaler takes 32–1536 px per
  * side and at most 1 MP (it gives 4×; 2× is that result halved).
  */
+/**
+ * A cloud engine is sent what is seen (masks, opacity, hidden layers, styles as shown), and its result
+ * replaces the picture: the document is flattened, after the result has come. A single plain layer covering
+ * the canvas needs no flattening.
+ */
+function cloudFlattens(d: Doc): boolean {
+  const rs = d.layers.filter(l => !l.isGroup);
+  if (rs.length !== 1) return true;
+  const l = rs[0];
+  return l.kind === 'text' || !!l.mask || !l.visible || l.opacity !== 1 || l.blend !== 'normal' || hasEffects(l.effects)
+    || l.x !== 0 || l.y !== 0 || l.canvas.width !== d.width || l.canvas.height !== d.height;
+}
+
+/** The result too large for a canvas: the document's for the cloud, every layer's for the local model. */
+function sizeProblem(d: Doc, engine: 'local' | 'topaz' | 'stability', scale: number): string | null {
+  const big = (w: number, h: number) => w * scale > MAX_SIDE || h * scale > MAX_SIDE || w * h * scale * scale > MAX_PX;
+  if (big(d.width, d.height)) return t('ai.tooBig');
+  if (engine === 'local' && d.layers.some(l => !l.isGroup && l.kind !== 'text' && big(l.canvas.width, l.canvas.height))) return t('ai.tooBig');
+  return null;
+}
+
 function upscaleProblem(engine: 'local' | 'topaz' | 'stability', w: number, h: number): string | null {
   if (engine !== 'stability') return null;
   const u = STABILITY.upscale, size = `${w} × ${h}`;
@@ -109,13 +127,11 @@ export function upscaleDialog() {
   let topazPick: ReturnType<typeof topazModelFor> | undefined;
   const refresh = () => {
     size.textContent = `${d.width} × ${d.height} → ${d.width * scale} × ${d.height * scale} ${t('dlg.px')}`;
-    const layers = d.layers.filter(l => !l.isGroup).length;
-    note.textContent = engine === 'local' ? t('ai.localNote') : (layers > 1 ? t('ai.cloudFlatten') + ' ' : '') + t(engine === 'topaz' ? 'ai.topazNote' : 'ai.stabilityNote');
+    note.textContent = engine === 'local' ? t('ai.localNote') : (cloudFlattens(d) ? t('ai.cloudFlatten') + ' ' : '') + t(engine === 'topaz' ? 'ai.topazNote' : 'ai.stabilityNote');
     // Topaz: the model it picks for this picture, and why
     model.textContent = engine === 'topaz' ? t('ai.topazModel.' + (topazPick ??= topazModelFor(d.composite())).why) : '';
     model.style.display = engine === 'topaz' ? '' : 'none';
-    const W = d.width * scale, H = d.height * scale;
-    const why = upscaleProblem(engine, d.width, d.height) ?? (W > MAX_SIDE || H > MAX_SIDE || W * H > MAX_PX ? t('ai.tooBig') : null);
+    const why = upscaleProblem(engine, d.width, d.height) ?? sizeProblem(d, engine, scale);
     problem.textContent = why ?? '';
     problem.style.display = why ? '' : 'none';
     if (okBtn) okBtn.disabled = !!why;
@@ -131,32 +147,39 @@ export function upscaleDialog() {
     title: t('cmd.upscale'), body, width: 400,
     onOk: () => {
       if (engine !== 'local' && !hasKey(engine as Service)) { guarded(() => Promise.reject(new NeedKeyError(engine as Service))); return false; }
-      const W = d.width * scale, H = d.height * scale;
-      if (W > MAX_SIDE || H > MAX_SIDE || W * H > MAX_PX) { toast(t('ai.tooBig'), 'error', 4000); return false; }
       // (Enter reaches here even while OK is off)
-      const why = upscaleProblem(engine, d.width, d.height);
+      const why = upscaleProblem(engine, d.width, d.height) ?? sizeProblem(d, engine, scale);
       if (why) { toast(why, 'error', 6000); return false; }
-      runUpscale(engine, scale);
+      // the document of this window (another may have been opened from outside meanwhile)
+      if (!app.docs.includes(d)) return;
+      void runUpscale(d, engine, scale);
     },
   });
   okBtn = dlg.root.querySelector('.dlg-foot .btn.primary');
   refresh();
 }
 
-async function runUpscale(engine: 'local' | 'topaz' | 'stability', scale: 2 | 4) {
-  const d = app.doc!;
-  app.tool.cancel();
+async function runUpscale(d: Doc, engine: 'local' | 'topaz' | 'stability', scale: 2 | 4) {
+  if (app.doc === d) app.tool.cancel();
   let stop = false;
   const ui = busy(t('ai.preparing'), () => { stop = true; });
   try {
-    // cloud engines work on the whole picture, the size the window checked and named the Topaz model for: one
-    // call instead of one per layer, and a single layer smaller than the canvas (or off it) made whole first
+    const why = upscaleProblem(engine, d.width, d.height) ?? sizeProblem(d, engine, scale);
+    if (why) { toast(why, 'error', 6000); return; }
+    // cloud engines: one call with the picture as seen (the size the window checked and named the Topaz model
+    // for, nothing a mask hides); the document is flattened only once the result has come
     if (engine !== 'local') {
-      const why = upscaleProblem(engine, d.width, d.height);
-      if (why) { toast(why, 'error', 6000); return; }
-      const rs = d.layers.filter(l => !l.isGroup);
-      const whole = rs.length === 1 && rs[0].kind !== 'text' && rs[0].x === 0 && rs[0].y === 0 && rs[0].canvas.width === d.width && rs[0].canvas.height === d.height;
-      if (rs.length && !whole) { flatten(d, t('layers.background')); app.commit('cmd.flatten', d); }
+      const c = await guarded(() => upscaleCanvas(cloneCanvas(d.composite()), scale, engine, ui, () => stop));
+      if (!c) { ui.close(); if (stop) toast(t('ai.cancelled')); return; }
+      if (!app.docs.includes(d)) return;
+      if (cloudFlattens(d)) { flatten(d, t('layers.background')); app.commit('cmd.flatten', d); }
+      resizeDocument(d, d.width * scale, d.height * scale, 'bicubic');
+      const l = d.layers.find(x => !x.isGroup)!;
+      l.content.replace(c, 0, 0); l.touch();
+      app.commit('cmd.upscale', d);
+      if (app.doc === d) app.viewport.fit(false);
+      toast(t('ai.done'));
+      return;
     }
     const rasters = d.layers.filter(l => !l.isGroup && l.kind !== 'text' && l.canvas.width > 0);
     const results: { l: Layer; c: HTMLCanvasElement; x: number; y: number }[] = [];
@@ -167,11 +190,12 @@ async function runUpscale(engine: 'local' | 'topaz' | 'stability', scale: 2 | 4)
       if (!c) { ui.close(); if (stop) toast(t('ai.cancelled')); return; }
       results.push({ l, c, x: l.x, y: l.y });
     }
+    if (!app.docs.includes(d)) return;
     // text, masks and the selection are scaled exactly; raster layers get the AI result
     resizeDocument(d, d.width * scale, d.height * scale, 'bicubic');
     for (const r of results) { r.l.content.replace(r.c, Math.round(r.x * scale), Math.round(r.y * scale)); r.l.touch(); }
     app.commit('cmd.upscale', d);
-    app.viewport.fit(false);
+    if (app.doc === d) app.viewport.fit(false);
     toast(t('ai.done'));
   } finally { ui.close(); }
 }
@@ -267,8 +291,9 @@ export function outpaintPlan(W: number, H: number, r: Frame): OutpaintPlan | str
   const totalW = iw + e0.left + e0.right, totalH = ih + e0.up + e0.down;
   const k = Math.min(1, Math.sqrt(9_000_000 / (totalW * totalH)), o.maxExtend / Math.max(e0.left, e0.right, e0.up, e0.down, 1));
   const ratio = Math.max(iw, ih) / Math.min(iw, ih);
-  // (the whole picture in the frame: it is the picture that is too long, a frame cannot help)
-  if (ratio > o.maxRatio) return t(iw === W && ih === H ? 'ai.outpaintRatioWhole' : 'ai.outpaintRatio', ratio.toFixed(1).replace('.', t('num.dot')));
+  // (the whole picture in the frame: it is the picture that is too long, a frame cannot help; a hair past the
+  // limit is let through: the rounding below brings it to exactly 2.5 : 1)
+  if (ratio > o.maxRatio * 1.002) return t(iw === W && ih === H ? 'ai.outpaintRatioWhole' : 'ai.outpaintRatio', ratio.toFixed(1).replace('.', t('num.dot')));
   // the numbers as sent, rounded: a side extended stays extended by at least a pixel, and rounding never takes
   // the part in the frame past 2.5 : 1 (the short side is rounded up when it would)
   let sw = Math.max(1, Math.round(iw * k)), sh = Math.max(1, Math.round(ih * k));

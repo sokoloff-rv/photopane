@@ -323,14 +323,15 @@ export class App {
   /**
    * The inactive pane follows the active one's zoom and position. When one side was resampled (upscaled 2× or
    * 4×, Image Size), it is shown at the zoom that makes both pictures the same size on screen, so they still
-   * match point for point. It goes by Doc.scale, not by the sizes: a crop to half is no 2× enlargement.
+   * match point for point. It goes by Doc.scaleX/scaleY, not by the sizes: a crop to half is no 2×
+   * enlargement. Stretched unevenly, the zoom matches the two directions on average.
    */
   private syncPartner() {
     const s = this.split!;
     const other = this.viewport === this.viewportA ? this.viewportB : this.viewportA;
     const d = this.doc, od = other.doc;
     if (d && od && (d === s.a || d === s.b)) {
-      const k = od.scale / d.scale || 1;
+      const k = (od.scaleX / d.scaleX + od.scaleY / d.scaleY) / 2 || 1;
       od.zoom = d.zoom / k; od.panX = d.panX; od.panY = d.panY; od.autoFit = d.autoFit; od.fitted = true;
       od.viewW = d.viewW; od.viewH = d.viewH;
     }

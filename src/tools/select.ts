@@ -305,7 +305,7 @@ export class LassoTool extends Tool<LassoOpts> {
     if (e.key === 'Enter') { this.close(); return true; }
     if (e.key === 'Escape') { this.cancel(); return true; }
     if (e.key === 'Backspace' || e.key === 'Delete') {
-      if (this.o.type === 'poly') this.pts.pop();
+      if (this.o.type === 'poly') { this.pts.pop(); if (!this.pts.length) this.cancel(); }
       else if (this.anchors.length > 1) { this.anchors.pop(); this.pts.length = this.anchors[this.anchors.length - 1] + 1; this.wire = []; }
       else this.cancel();
       app.update('overlay');

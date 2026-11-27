@@ -66,17 +66,21 @@ async function session(onDownload: (p: number) => void) {
 }
 
 /**
- * Upscale a canvas 4× (colour by the network, alpha bicubic). Processed in tiles with overlap so large
- * images fit in memory; `onProgress` gets 0..1, `cancelled()` stops between tiles.
+ * Upscale a canvas 2× or 4× (colour by the network, which gives 4×; alpha bicubic). Processed in tiles with
+ * overlap so large images fit in memory; for 2× each tile's 4× result is halved straight into the 2× picture
+ * (a whole 4× canvas first was 384 MP for a 6000 × 4000 photo, past what a browser canvas holds).
+ * `onProgress` gets 0..1, `cancelled()` stops between tiles.
  */
-export async function esrgan4x(src: HTMLCanvasElement, onProgress: (stage: 'download' | 'run', p: number) => void, cancelled: () => boolean): Promise<HTMLCanvasElement | null> {
+export async function esrganUpscale(src: HTMLCanvasElement, factor: 2 | 4, onProgress: (stage: 'download' | 'run', p: number) => void, cancelled: () => boolean): Promise<HTMLCanvasElement | null> {
   let sess = await session(p => onProgress('download', p));
   const { ort } = sess;
   const W = src.width, H = src.height;
   const data = src.getContext('2d')!.getImageData(0, 0, W, H).data;
   const out = document.createElement('canvas');
-  out.width = W * 4; out.height = H * 4;
+  out.width = W * factor; out.height = H * factor;
   const og = out.getContext('2d')!;
+  og.imageSmoothingQuality = 'high';
+  const tileCanvas = document.createElement('canvas');
   const T = 256, P = 12;
   const tiles: { x: number; y: number; w: number; h: number }[] = [];
   for (let y = 0; y < H; y += T) for (let x = 0; x < W; x += T) tiles.push({ x, y, w: Math.min(T, W - x), h: Math.min(T, H - y) });
@@ -116,7 +120,12 @@ export async function esrgan4x(src: HTMLCanvasElement, onProgress: (stage: 'down
       const k = (cy + y) * OW + cx + x, p = (y * cw + x) * 4;
       img.data[p] = o[k] * 255; img.data[p + 1] = o[plane + k] * 255; img.data[p + 2] = o[2 * plane + k] * 255; img.data[p + 3] = 255;
     }
-    og.putImageData(img, tl.x * 4, tl.y * 4);
+    if (factor === 4) og.putImageData(img, tl.x * 4, tl.y * 4);
+    else {
+      tileCanvas.width = cw; tileCanvas.height = ch;
+      tileCanvas.getContext('2d')!.putImageData(img, 0, 0);
+      og.drawImage(tileCanvas, tl.x * 2, tl.y * 2, tl.w * 2, tl.h * 2);
+    }
     res[outName].dispose?.();
     onProgress('run', (ti + 1) / tiles.length);
     await yieldToUi();

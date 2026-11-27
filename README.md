@@ -61,7 +61,8 @@ profiles: sRGB, Display P3, Adobe RGB.
 **AI, if you want it.** Upscale 2× or 4× with a local model that works offline, or with Topaz Labs and Stability AI
 using your own keys (PhotoPane picks the right Topaz model for the photo). Remove the background, select the subject,
 fill in the new area when cropping. Before anything is sent, PhotoPane checks the picture fits and tells you plainly
-if it doesn't.
+if it doesn't. It shows what is left on each key, what an operation costs before you send it, and how many credits
+PhotoPane itself has spent.
 
 **Learn as you go.** Help → Learn (F1) explains every tool, adjustment and filter in a few lines, with a search, in a
 window that stays open beside your work.

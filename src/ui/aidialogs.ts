@@ -1,6 +1,6 @@
 import { app } from '../app';
 import { el, createCanvas, ctx2d, cloneCanvas } from '../core/util';
-import { t } from '../i18n';
+import { t, tn, fmtNum, getLang } from '../i18n';
 import { openDialog, toast, confirmDialog, busy } from './dialog';
 export { busy };
 import { select } from './controls';
@@ -14,7 +14,29 @@ import { applySelection } from '../tools/select';
 import {
   aiSettings, hasKey, NeedKeyError, canvasBlob, blobCanvas, stabilityRemoveBg, stabilityUpscale,
   topazUpscale, topazModelFor, stabilityOutpaint, Service, STABILITY, sendableBlob,
+  NAME, STABILITY_PRICE, STABILITY_CREDIT_USD, accountBalance, topazEstimate, onSpent, within, Balance,
 } from '../ai/cloud';
+import { spentOver, usageSince } from '../ai/usage';
+
+/* ---------------- credits ---------------- */
+const usd = (credits: number) => '$' + (credits * STABILITY_CREDIT_USD).toLocaleString(getLang() === 'ru' ? 'ru-RU' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** «1 234,5 кредита (≈ $12,35)» for Stability, whose credit has a price; «57 кредитов» for Topaz */
+const creditsText = (s: Service, credits: number, digits = 0) => tn('ai.credits', credits, digits) + (s === 'stability' ? ` (≈ ${usd(credits)})` : '');
+const balanceText = (s: Service, b: Balance) => creditsText(s, b.credits, 1) + (b.reserved ? `, ${t('ai.reserved', fmtNum(b.reserved))}` : '');
+/** an error said under the service's name: without the name again */
+const withoutName = (s: Service, e: unknown) => {
+  const m = String((e as Error)?.message ?? e).replace(NAME[s] + ': ', '');
+  return m === t('ai.err.key') ? t('ai.keyRejected') : m.charAt(0).toUpperCase() + m.slice(1);
+};
+
+// every charge said as it happens, with what is left after it (asked of the service; a cancelled request is
+// charged too, the service has done it)
+onSpent((s, credits) => {
+  void within(accountBalance(s)).catch(() => null).then(b => {
+    const what = credits == null ? t('ai.spentUnknown') : t('ai.spent', tn('ai.credits', credits));
+    toast(`${NAME[s]}: ${what}${b ? ', ' + t('ai.left', tn('ai.credits', b.credits, 1)) : ''}`, 'info', 5000);
+  });
+});
 
 /** Run a cloud call; a missing key opens the settings, errors become a toast. */
 async function guarded<T>(fn: () => Promise<T>): Promise<T | null> {
@@ -38,22 +60,69 @@ export function aiSettingsDialog() {
   };
   const st = keyInput(s.stabilityKey, 'sk-…'), tz = keyInput(s.topazKey, '');
   let engine = s.upscaleEngine || 'local';
+
+  // what is left on each key, asked when the window opens and when a key is changed (a check of the key too)
+  const balanceLine = (svc: Service, input: HTMLInputElement) => {
+    const text = el('span', {});
+    const again = el('button', { class: 'btn sm', type: 'button' }, t('ai.refresh'));
+    const line = el('div', { class: 'ai-balance sm' }, text, again);
+    let seq = 0;
+    const load = () => {
+      const key = input.value.trim();
+      line.style.display = key ? '' : 'none';
+      const my = ++seq;
+      if (!key) return;
+      text.className = 'muted';
+      text.textContent = t('ai.balanceLoading');
+      within(accountBalance(svc, key)).then(
+        b => { if (my === seq) text.textContent = t('ai.balance', balanceText(svc, b)); },
+        e => { if (my === seq) { text.className = 'warn-text'; text.textContent = withoutName(svc, e); } });
+    };
+    input.addEventListener('change', load);
+    again.addEventListener('click', load);
+    load();
+    return line;
+  };
+
+  // what PhotoPane has spent, counted here (the services' figures are the whole account's)
+  let period = s.usagePeriod ?? '30';
+  const usage = el('div', { class: 'ai-usage sm' });
+  const showUsage = () => {
+    usage.innerHTML = '';
+    for (const svc of ['stability', 'topaz'] as Service[]) {
+      const u = spentOver(svc, period === 'all' ? null : +period);
+      usage.append(el('div', {}, el('span', { class: 'muted' }, NAME[svc] + ': '),
+        u.requests ? `${creditsText(svc, u.credits)}, ${tn('ai.requests', u.requests)}` : t('ai.usageNone')));
+    }
+  };
+  showUsage();
+  const since = usageSince().split('-').reverse().join('.');
+
   const body = el('div', { class: 'form ai-settings' },
     el('p', { class: 'dlg-text' }, t('ai.intro')),
     el('div', { class: 'adj-section' }, t('ai.keys')),
     el('label', { class: 'ai-label' }, 'Stability AI'), st.row,
+    balanceLine('stability', st.i),
     el('div', { class: 'muted sm' }, t('ai.stabilityUse')),
     el('label', { class: 'ai-label' }, 'Topaz Labs'), tz.row,
+    balanceLine('topaz', tz.i),
     el('div', { class: 'muted sm' }, t('ai.topazUse')),
+    el('div', { class: 'adj-section' }, t('ai.usage')),
+    el('div', { class: 'form-row' }, el('label', {}, t('ai.period')),
+      select([{ value: '7', label: t('ai.period.7') }, { value: '30', label: t('ai.period.30') }, { value: 'all', label: t('ai.period.all') }], period, v => { period = v as typeof period; showUsage(); })),
+    usage,
+    el('div', { class: 'muted sm' }, t('ai.usageNote', since)),
+    el('div', { class: 'muted sm' }, t('ai.prices')),
     el('div', { class: 'adj-section' }, t('ai.upscaleDefault')),
     select([{ value: 'local', label: t('ai.engine.local') }, { value: 'topaz', label: 'Topaz Labs' }, { value: 'stability', label: 'Stability AI' }], engine, v => { engine = v as any; }),
     el('div', { class: 'muted sm' }, t('ai.privacy')));
   openDialog({
-    title: t('cmd.settings'), body, width: 420,
+    title: t('cmd.settings'), body, width: 440,
     onOk: () => {
       s.stabilityKey = st.i.value.trim() || undefined;
       s.topazKey = tz.i.value.trim() || undefined;
       s.upscaleEngine = engine;
+      s.usagePeriod = period;
       app.saveSettings();
       app.update('all');
     },
@@ -78,7 +147,7 @@ async function upscaleCanvas(src: HTMLCanvasElement, scale: 2 | 4, engine: 'loca
     if (scale === 2) { const half = createCanvas(src.width * 2, src.height * 2); const g = ctx2d(half); g.imageSmoothingQuality = 'high'; g.drawImage(out, 0, 0, half.width, half.height); out = half; }
     return out;
   }
-  return blobCanvas(await topazUpscale(blob, src.width * scale, src.height * scale, topazModelFor(src).model));
+  return blobCanvas(await topazUpscale(blob, src.width, src.height, src.width * scale, src.height * scale, topazModelFor(src).model));
 }
 
 /**
@@ -126,6 +195,37 @@ export function upscaleDialog() {
   const model = el('div', { class: 'muted sm' });
   // what keeps the chosen engine from taking this picture, said before anything is sent (OK waits)
   const problem = el('div', { class: 'warn-text sm' });
+  // what the cloud engine will charge, and what is left on the account; said, not enforced (the balance may be
+  // a moment old)
+  const cost = el('div', { class: 'muted sm' });
+  const short = el('div', { class: 'warn-text sm' });
+  const balances = new Map<Service, Promise<Balance | null>>();
+  const balanceOf = (s: Service) => {
+    let p = balances.get(s);
+    if (!p) { p = within(accountBalance(s)).catch(() => null); balances.set(s, p); }
+    return p;
+  };
+  let costSeq = 0;
+  const showCost = async (why: string | null) => {
+    const my = ++costSeq;
+    short.style.display = 'none';
+    const s = engine;
+    if (s === 'local' || why || (s === 'topaz' && !hasKey('topaz'))) { cost.style.display = 'none'; return; }
+    cost.style.display = '';
+    let price: number | null = STABILITY_PRICE.upscale;
+    if (s === 'topaz') {
+      cost.textContent = t('ai.costLoading');
+      price = await within(topazEstimate(d.width, d.height, d.width * scale, d.height * scale, topazPick!.model)).catch(() => null);
+      if (my !== costSeq) return;
+    }
+    const priceText = price == null ? t('ai.costUnknown') : t('ai.cost', creditsText(s, price));
+    cost.textContent = priceText;
+    if (!hasKey(s)) return;
+    const b = await balanceOf(s);
+    if (my !== costSeq || !b) return;
+    cost.textContent = `${priceText} · ${t('ai.left', tn('ai.credits', b.credits, 1))}`;
+    if (price != null && b.credits < price) { short.textContent = t('ai.notEnough'); short.style.display = ''; }
+  };
   let okBtn: HTMLButtonElement | null = null;
   let topazPick: ReturnType<typeof topazModelFor> | undefined;
   const refresh = () => {
@@ -139,13 +239,14 @@ export function upscaleDialog() {
     problem.textContent = why ?? '';
     problem.style.display = why ? '' : 'none';
     if (okBtn) okBtn.disabled = !!why;
+    void showCost(why);
   };
   const body = el('div', { class: 'form' },
     el('div', { class: 'form-row' }, el('label', {}, t('ai.engine')),
       select([{ value: 'local', label: t('ai.engine.local') }, { value: 'topaz', label: 'Topaz Labs' }, { value: 'stability', label: 'Stability AI' }], engine, v => { engine = v as any; refresh(); })),
     el('div', { class: 'form-row' }, el('label', {}, t('ai.scale')),
       select([{ value: '2', label: '2×' }, { value: '4', label: '4×' }], '2', v => { scale = +v as 2 | 4; refresh(); })),
-    size, model, problem, note);
+    size, model, problem, cost, short, note);
   refresh();
   const dlg = openDialog({
     title: t('cmd.upscale'), body, width: 400,
@@ -197,7 +298,7 @@ async function runUpscale(d: Doc, engine: 'local' | 'topaz' | 'stability', scale
       l.content.replace(c, 0, 0); l.touch();
       app.commit('cmd.upscale', d);
       if (app.doc === d) app.viewport.fit(false);
-      toast(t('ai.done'));
+      // (no «Done»: the charge is said as it is made, with what is left)
       return;
     }
     const rasters = d.layers.filter(l => !l.isGroup && l.kind !== 'text' && l.canvas.width > 0);

@@ -616,6 +616,29 @@ const D: Record<string, [string, string]> = {
   'ai.layerOf': ['Слой {0} из {1}', 'Layer {0} of {1}'],
   'ai.cancelled': ['Отменено', 'Cancelled'],
   'ai.done': ['Готово', 'Done'],
+  'ai.credits': ['кредит|кредита|кредитов', 'credit|credits'],
+  'ai.requests': ['запрос|запроса|запросов', 'request|requests'],
+  'ai.balance': ['Остаток: {0}', 'Balance: {0}'],
+  'ai.balanceLoading': ['Остаток: загрузка…', 'Balance: loading…'],
+  'ai.reserved': ['{0} в резерве', '{0} reserved'],
+  'ai.keyRejected': ['Ключ не подошёл', 'The key was not accepted'],
+  'ai.refresh': ['Обновить', 'Refresh'],
+  'ai.err.answer': ['непонятный ответ сервиса', 'an answer the app does not understand'],
+  'ai.usage': ['Расход в PhotoPane', 'Spent in PhotoPane'],
+  'ai.period': ['Период', 'Period'],
+  'ai.period.7': ['7 дней', '7 days'],
+  'ai.period.30': ['30 дней', '30 days'],
+  'ai.period.all': ['Всё время', 'All time'],
+  'ai.usageNone': ['ничего', 'nothing'],
+  'ai.usageNote': ['Учитываются запросы, сделанные в PhotoPane на этом компьютере, с {0}; траты других программ с тем же ключом сюда не входят.', 'Counts the requests made in PhotoPane on this computer since {0}; other programs using the same key are not included.'],
+  'ai.prices': ['Цены Stability AI: увеличение разрешения — 2 кредита, удаление фона и выделение объекта — 5, дорисовка — 4 (1 кредит = $0,01). Topaz Labs считает по размеру результата — цена видна в окне увеличения до отправки.', 'Stability AI prices: upscaling 2 credits, background removal and select subject 5, generative fill 4 (1 credit = $0.01). Topaz Labs charges by the size of the result — the price shows in the Upscale window before sending.'],
+  'ai.cost': ['Стоимость: {0}', 'Cost: {0}'],
+  'ai.costLoading': ['Стоимость: считается…', 'Cost: estimating…'],
+  'ai.costUnknown': ['Стоимость: узнать не удалось', 'Cost: could not be estimated'],
+  'ai.left': ['на счёте {0}', '{0} left'],
+  'ai.notEnough': ['На счёте меньше кредитов, чем нужно для этой операции.', 'The account has fewer credits than this operation needs.'],
+  'ai.spent': ['потрачено {0}', 'spent {0}'],
+  'ai.spentUnknown': ['запрос выполнен, сколько списано — узнать не удалось', 'done; how much was charged could not be found out'],
   'ai.needRaster': ['Выберите слой с изображением', 'Select an image layer'],
   'ai.replaceMask': ['У слоя уже есть маска. Заменить её маской без фона?', 'The layer already has a mask. Replace it with the background mask?'],
   'ai.removingBg': ['Удаление фона…', 'Removing the background…'],
@@ -822,6 +845,28 @@ const D: Record<string, [string, string]> = {
 let lang: Lang = (localStorage.getItem('pp.lang') as Lang) || (navigator.language.startsWith('ru') ? 'ru' : 'en');
 
 export function getLang(): Lang { return lang; }
+
+/** A number as the language writes it: «1 234,5» / «1,234.5». */
+export function fmtNum(n: number, digits = 0): string {
+  return n.toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US', { maximumFractionDigits: digits });
+}
+
+/**
+ * A count with its noun in the right form, the forms in the key as «one|few|many» («кредит|кредита|кредитов»;
+ * English «one|other»): «1 кредит», «3 кредита», «5 кредитов», «1,5 кредита» — by the number as shown.
+ */
+export function tn(key: string, n: number, digits = 0): string {
+  const forms = t(key).split('|');
+  const shown = Math.round(n * 10 ** digits) / 10 ** digits;
+  let f: string;
+  if (lang === 'ru') {
+    const a = Math.abs(shown), m10 = a % 10, m100 = a % 100;
+    f = !Number.isInteger(a) ? forms[1]
+      : m10 === 1 && m100 !== 11 ? forms[0]
+      : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? forms[1] : forms[2];
+  } else f = shown === 1 ? forms[0] : forms[1];
+  return `${fmtNum(shown, digits)} ${f ?? forms[forms.length - 1]}`;
+}
 export function setLang(l: Lang) {
   const from = lang;
   lang = l; try { localStorage.setItem('pp.lang', l); } catch {} document.documentElement.lang = l;

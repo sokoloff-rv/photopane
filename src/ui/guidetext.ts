@@ -261,6 +261,9 @@ export const GUIDE: GuideSection[] = [
       { t: ['Дорисовка при кадрировании', 'AI fill when cropping'],
         d: ['Выведите рамку кадрирования за края и выберите «Расширение: дорисовать через ИИ» — новое поле дорисуется отдельным слоем поверх. Часть снимка в рамке должна быть не длиннее 2,5 : 1. Без ключа и интернета — вариант «с учётом содержимого».',
           'Take the crop frame past the edges and choose Extend: Fill in with AI — the new area is generated on a layer on top. The part of the photo in the frame must be no longer than 2.5 : 1. Without a key or the internet use Content-Aware.'] },
+      { t: ['Кредиты: остаток и расход', 'Credits: balance and spending'], k: 'Ctrl+K',
+        d: ['В «Настройках ИИ» под каждым ключом виден остаток на счёте (заодно это проверка ключа), а ниже — сколько кредитов и запросов потратил сам PhotoPane за 7 или 30 дней и за всё время; это считается на этом компьютере, траты других программ с тем же ключом туда не входят. Цена увеличения разрешения видна в его окне до отправки, а после каждой облачной операции приходит уведомление: сколько списано и сколько осталось.',
+          'In AI Settings each key shows what is left on its account (which checks the key too), and below that, how many credits and requests PhotoPane itself has spent over 7 or 30 days and all time; this is counted on this computer, so other programs using the same key are not included. The Upscale window shows the price before anything is sent, and every cloud operation is followed by a notice of what was charged and what is left.'] },
     ],
   },
   {

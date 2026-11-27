@@ -5,9 +5,10 @@
  */
 import { app } from '../app';
 import { t } from '../i18n';
+import { recordSpent } from './usage';
 
 export type Service = 'stability' | 'topaz';
-const NAME: Record<Service, string> = { stability: 'Stability AI', topaz: 'Topaz Labs' };
+export const NAME: Record<Service, string> = { stability: 'Stability AI', topaz: 'Topaz Labs' };
 
 /**
  * What Stability AI accepts (its API reference). Pictures are made to fit before they are sent where that can
@@ -26,9 +27,14 @@ export class NeedKeyError extends Error {
   constructor(public service: Service) { super('API key needed: ' + service); }
 }
 
-export interface AiSettings { stabilityKey?: string; topazKey?: string; upscaleEngine?: 'local' | 'topaz' | 'stability' }
+export interface AiSettings {
+  stabilityKey?: string; topazKey?: string; upscaleEngine?: 'local' | 'topaz' | 'stability';
+  /** the period the settings show PhotoPane's spending for: days, or 'all' */
+  usagePeriod?: '7' | '30' | 'all';
+}
 export const aiSettings = (): AiSettings => (app.settings.ai ||= {});
-export const hasKey = (s: Service) => !!(s === 'stability' ? aiSettings().stabilityKey : aiSettings().topazKey);
+const keyOf = (s: Service) => (s === 'stability' ? aiSettings().stabilityKey : aiSettings().topazKey);
+export const hasKey = (s: Service) => !!keyOf(s);
 
 const inTauri = () => !!(window as any).__TAURI_INTERNALS__;
 
@@ -112,8 +118,40 @@ export async function blobCanvas(b: Blob): Promise<HTMLCanvasElement> {
   return c;
 }
 
+/* ---------------- credits: what is left, what an operation costs, what PhotoPane spent ---------------- */
+/** Stability's price of each operation in credits, from its price list (2× upscaling is the 4× result halved). */
+export const STABILITY_PRICE = { upscale: 2, removeBg: 5, outpaint: 4 } as const;
+/** a Stability credit in dollars (Topaz's depends on the plan) */
+export const STABILITY_CREDIT_USD = 0.01;
+
+/** a request that may hang (no answer) given up after a while: for the figures around the work, not the work */
+export const within = <T>(p: Promise<T>, ms = 8000) =>
+  Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`timeout ${ms} ms`)), ms))]);
+
+let spentListener: ((s: Service, credits: number | null) => void) | null = null;
+/** Told of every charge as it happens (`null`: the price could not be found out). */
+export const onSpent = (fn: (s: Service, credits: number | null) => void) => { spentListener = fn; };
+function spent(s: Service, credits: number | null) {
+  recordSpent(s, credits ?? 0);
+  spentListener?.(s, credits);
+}
+
+export interface Balance { credits: number; reserved: number }
+
+/** What is left on the account of a key: the one saved, or one typed in the settings and not saved yet. */
+export async function accountBalance(s: Service, key = keyOf(s)): Promise<Balance> {
+  if (!key) throw new NeedKeyError(s);
+  const r = s === 'stability'
+    ? await send(s, '/v1/user/balance', { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' } })
+    : await send(s, '/account/v1/credits/balance', { headers: { 'X-API-Key': key, Accept: 'application/json' } });
+  const j = await r.json().catch(() => null);
+  const credits = Number(s === 'stability' ? j?.credits : j?.available_credits);
+  if (j == null || !Number.isFinite(credits)) throw new Error(`${NAME[s]}: ${t('ai.err.answer')}`);
+  return { credits, reserved: s === 'topaz' ? Number(j.reserved_credits) || 0 : 0 };
+}
+
 /* ---------------- Stability AI (v2beta) ---------------- */
-async function stability(path: string, fields: Record<string, Blob | string | number | undefined>): Promise<Blob> {
+async function stability(path: string, op: keyof typeof STABILITY_PRICE, fields: Record<string, Blob | string | number | undefined>): Promise<Blob> {
   const key = aiSettings().stabilityKey;
   if (!key) throw new NeedKeyError('stability');
   const fd = new FormData();
@@ -122,16 +160,18 @@ async function stability(path: string, fields: Record<string, Blob | string | nu
     if (v instanceof Blob) fd.append(k, v, k + (v.type === 'image/webp' ? '.webp' : v.type === 'image/jpeg' ? '.jpg' : '.png')); else fd.append(k, String(v));
   }
   const r = await send('stability', path, { method: 'POST', headers: { Authorization: `Bearer ${key}`, Accept: 'image/*' }, body: fd });
+  // charged once it has answered with a result, whatever is done with it here
+  spent('stability', STABILITY_PRICE[op]);
   return r.blob();
 }
 
 /** Image with the background made transparent. */
-export const stabilityRemoveBg = (image: Blob) => stability('/v2beta/stable-image/edit/remove-background', { image, output_format: 'png' });
+export const stabilityRemoveBg = (image: Blob) => stability('/v2beta/stable-image/edit/remove-background', 'removeBg', { image, output_format: 'png' });
 /** Extend the image by the given number of pixels on each side. */
 export const stabilityOutpaint = (image: Blob, d: { left: number; right: number; up: number; down: number }, prompt?: string) =>
-  stability('/v2beta/stable-image/edit/outpaint', { image, ...d, prompt, output_format: 'png' });
+  stability('/v2beta/stable-image/edit/outpaint', 'outpaint', { image, ...d, prompt, output_format: 'png' });
 /** 4× fast upscale. */
-export const stabilityUpscale = (image: Blob) => stability('/v2beta/stable-image/upscale/fast', { image, output_format: 'png' });
+export const stabilityUpscale = (image: Blob) => stability('/v2beta/stable-image/upscale/fast', 'upscale', { image, output_format: 'png' });
 
 /* ---------------- Topaz Labs ---------------- */
 export type TopazModel = 'Low Resolution V2' | 'Standard V2' | 'High Fidelity V2';
@@ -173,15 +213,49 @@ export function topazModelFor(c: HTMLCanvasElement): { model: TopazModel; why: '
   return ratio >= 0.5 ? { model: 'High Fidelity V2', why: 'sharp' } : { model: 'Standard V2', why: 'soft' };
 }
 
-export async function topazUpscale(image: Blob, w: number, h: number, model: TopazModel): Promise<Blob> {
+const estimates = new Map<string, Promise<number>>();
+
+/**
+ * What Topaz will charge for enlarging an iw × ih picture to ow × oh with a model, in credits: its own estimate
+ * (it charges by the size of the result, at a rate of the model). Asked once for each size and model.
+ */
+export function topazEstimate(iw: number, ih: number, ow: number, oh: number, model: TopazModel): Promise<number> {
+  const id = [iw, ih, ow, oh, model].join('|');
+  let p = estimates.get(id);
+  if (!p) {
+    p = (async () => {
+      const key = aiSettings().topazKey;
+      if (!key) throw new NeedKeyError('topaz');
+      const r = await send('topaz', '/image/v1/estimate', {
+        method: 'POST',
+        headers: { 'X-API-Key': key, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ input_width: iw, input_height: ih, output_width: ow, output_height: oh, model, output_format: 'png' }),
+      });
+      const j = await r.json().catch(() => null);
+      const credits = Number(j?.credits);
+      if (j == null || !Number.isFinite(credits)) throw new Error(`Topaz Labs: ${t('ai.err.answer')}`);
+      return credits;
+    })();
+    // (a failed one is asked again next time)
+    p.catch(() => estimates.delete(id));
+    estimates.set(id, p);
+  }
+  return p;
+}
+
+export async function topazUpscale(image: Blob, iw: number, ih: number, ow: number, oh: number, model: TopazModel): Promise<Blob> {
   const key = aiSettings().topazKey;
   if (!key) throw new NeedKeyError('topaz');
+  // the price is asked meanwhile: what the result is charged at
+  const price = within(topazEstimate(iw, ih, ow, oh, model));
+  price.catch(() => {});
   const fd = new FormData();
   fd.append('image', image, 'image.png');
   fd.append('model', model);
-  fd.append('output_width', String(w));
-  fd.append('output_height', String(h));
+  fd.append('output_width', String(ow));
+  fd.append('output_height', String(oh));
   fd.append('output_format', 'png');
   const r = await send('topaz', '/image/v1/enhance', { method: 'POST', headers: { 'X-API-Key': key, Accept: 'image/png' }, body: fd });
+  spent('topaz', await price.catch(() => null));
   return r.blob();
 }

@@ -13,5 +13,6 @@ self.onmessage = (e: MessageEvent) => {
     last = now;
     (self as unknown as Worker).postMessage({ progress: p });
   });
-  (self as unknown as Worker).postMessage({ done: true, ok, img: m.img }, [m.img.buffer]);
+  // the hole comes back too: what is still 1 there could not be filled
+  (self as unknown as Worker).postMessage({ done: true, ok, img: m.img, hole: m.hole }, [m.img.buffer, m.hole.buffer]);
 };

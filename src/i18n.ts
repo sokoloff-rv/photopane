@@ -112,7 +112,7 @@ const D: Record<string, [string, string]> = {
   'dlg.fill.content': ['С учётом содержимого', 'Content-Aware'],
   'fill.contentBusy': ['Заливка с учётом содержимого…', 'Content-aware fill…'],
   'fill.needSel': ['Сначала выделите область, которую нужно заполнить', 'Select the area to fill first'],
-  'fill.nothingToTake': ['Заполнять не из чего: выделена почти вся картинка', 'Nothing to fill from: almost the whole picture is selected'],
+  'fill.nothingToTake': ['Заполнять не из чего: вокруг области слишком мало картинки', 'Nothing to fill from: too little of the picture around the area'],
   'h.contentFill': ['Заливка с учётом содержимого', 'Content-Aware Fill'],
   'layers.contentFill': ['Заливка с учётом содержимого', 'Content-Aware Fill'],
   'dlg.stroke.title': ['Выполнить обводку', 'Stroke'],

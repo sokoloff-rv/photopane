@@ -69,8 +69,10 @@ interface Level {
 }
 
 /**
- * Fill the pixels where hole > 0, in place (`hole` is cleared as areas are done). Returns false when an area had
- * nothing to take its fill from (almost the whole picture selected); the other areas are still filled.
+ * Fill the pixels where hole is 1, in place (cleared to 0 as areas are done); pixels where it is 2 are left as
+ * they are and never taken from (fully transparent ones: outside a layer, around a cut-out). Returns false when
+ * an area had nothing to take its fill from (almost the whole picture selected, a transparent layer around it);
+ * the other areas are still filled.
  */
 export function contentAwareFill(img: Uint8ClampedArray, w: number, h: number, hole: Uint8Array, onProgress?: Progress): boolean {
   const boxes = holeClusters(hole, w, h);
@@ -82,16 +84,20 @@ export function contentAwareFill(img: Uint8ClampedArray, w: number, h: number, h
     const x0 = Math.max(0, b.x - m), y0 = Math.max(0, b.y - m);
     const x1 = Math.min(w, b.x + b.w + m), y1 = Math.min(h, b.y + b.h + m);
     const rw = x1 - x0, rh = y1 - y0;
-    const sub = new Uint8ClampedArray(rw * rh * 4);
+    // the neighbourhood is the whole picture (the crop's new area all round it): worked on in place, without a
+    // copy of a picture that may be tens of megapixels (an area that fails changes nothing before it gives up)
+    const whole = rw === w && rh === h;
+    const sub = whole ? img : new Uint8ClampedArray(rw * rh * 4);
     const mask = new Uint8Array(rw * rh);
     for (let y = 0; y < rh; y++) {
       const row = (y0 + y) * w + x0;
-      sub.set(img.subarray(row * 4, (row + rw) * 4), y * rw * 4);
+      if (!whole) sub.set(img.subarray(row * 4, (row + rw) * 4), y * rw * 4);
       const inY = y0 + y >= b.y && y0 + y < b.y + b.h;
       for (let x = 0; x < rw; x++) {
-        if (!hole[row + x]) continue;
+        const v = hole[row + x];
+        if (!v) continue;
         const gx = x0 + x;
-        mask[y * rw + x] = inY && gx >= b.x && gx < b.x + b.w ? 1 : 2;
+        mask[y * rw + x] = v === 1 && inY && gx >= b.x && gx < b.x + b.w ? 1 : 2;
       }
     }
     const share = b.n / total;
@@ -105,8 +111,10 @@ export function contentAwareFill(img: Uint8ClampedArray, w: number, h: number, h
         for (let x = 0; x < rw; x++) {
           const i = y * rw + x;
           if (mask[i] !== 1) continue;
-          const gi = (row + x) * 4, si = i * 4;
-          img[gi] = sub[si]; img[gi + 1] = sub[si + 1]; img[gi + 2] = sub[si + 2]; img[gi + 3] = sub[si + 3];
+          if (!whole) {
+            const gi = (row + x) * 4, si = i * 4;
+            img[gi] = sub[si]; img[gi + 1] = sub[si + 1]; img[gi + 2] = sub[si + 2]; img[gi + 3] = sub[si + 3];
+          }
           hole[row + x] = 0;
         }
       }
@@ -125,8 +133,12 @@ function holeClusters(hole: Uint8Array, w: number, h: number): Box[] {
   const seen = new Uint8Array(w * h);
   const boxes: Box[] = [];
   const stack: number[] = [];
+  const on = (i: number) => hole[i] === 1 && !seen[i];
+  // a selection of many specks (Magic Wand on noise) is one area: past 400 parts their boxes are merged as they
+  // come (a box for each of a million specks took a lot of memory)
+  let all: Box | null = null;
   for (let i = 0; i < w * h; i++) {
-    if (!hole[i] || seen[i]) continue;
+    if (!on(i)) continue;
     let minX = w, minY = h, maxX = -1, maxY = -1, n = 0;
     stack.push(i);
     while (stack.length) {
@@ -134,8 +146,8 @@ function holeClusters(hole: Uint8Array, w: number, h: number): Box[] {
       if (seen[s]) continue;
       const y = (s / w) | 0, row = y * w;
       let lx = s - row, rx = lx;
-      while (lx > 0 && hole[row + lx - 1] && !seen[row + lx - 1]) lx--;
-      while (rx < w - 1 && hole[row + rx + 1] && !seen[row + rx + 1]) rx++;
+      while (lx > 0 && on(row + lx - 1)) lx--;
+      while (rx < w - 1 && on(row + rx + 1)) rx++;
       for (let x = lx; x <= rx; x++) seen[row + x] = 1;
       n += rx - lx + 1;
       if (lx < minX) minX = lx;
@@ -148,19 +160,20 @@ function holeClusters(hole: Uint8Array, w: number, h: number): Box[] {
         const nrow = ny * w;
         let inRun = false;
         for (let x = Math.max(0, lx - 1); x <= Math.min(w - 1, rx + 1); x++) {
-          const on = !!hole[nrow + x] && !seen[nrow + x];
-          if (on && !inRun) stack.push(nrow + x);
-          inRun = on;
+          const o = on(nrow + x);
+          if (o && !inRun) stack.push(nrow + x);
+          inRun = o;
         }
       }
     }
-    boxes.push({ x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1, n });
+    const box = { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1, n };
+    if (all) all = union(all, box);
+    else {
+      boxes.push(box);
+      if (boxes.length > 400) { all = boxes.reduce(union); boxes.length = 0; }
+    }
   }
-  // a selection of many specks (Magic Wand on noise): one area
-  if (boxes.length > 400) {
-    const u = boxes.reduce((a, b) => union(a, b));
-    return [u];
-  }
+  if (all) return [all];
   const gap = 2 * PATCH;
   for (let merged = true; merged;) {
     merged = false;
@@ -222,6 +235,8 @@ class Region {
       prepare(lv[L]);
       if (lv[L].validList!.length) break;
     }
+    // (none even on the level searched: the known parts are everywhere narrower than a patch there. Searching
+    // a larger level instead, without a pyramid, would take minutes; the area is left and the caller says so)
     if (L < ls) return false;
     lv.length = L + 1;
     // the work: target patches × passes (votes count as passes)

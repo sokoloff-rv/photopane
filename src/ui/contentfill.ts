@@ -10,9 +10,10 @@ import { Layer } from '../core/layer';
 import type { Doc } from '../core/document';
 import { busy, toast } from './dialog';
 
-interface FillResult { img: Uint8ClampedArray; ok: boolean }
+/** The picture with the area filled; `left`: how many of its pixels could not be filled (nothing to take from). */
+interface FillResult { img: Uint8ClampedArray; ok: boolean; left: number }
 
-/** The fill of the pixels where hole > 0, in a worker; null when cancelled or when the worker failed. */
+/** The fill of the pixels where hole is 1 (2: never taken from), in a worker; null when cancelled or failed. */
 function fillInWorker(img: Uint8ClampedArray, w: number, h: number, hole: Uint8Array): Promise<FillResult | null> {
   return new Promise(resolve => {
     let worker: Worker | null = null;
@@ -35,8 +36,12 @@ function fillInWorker(img: Uint8ClampedArray, w: number, h: number, hole: Uint8A
       return;
     }
     worker.onmessage = (e: MessageEvent) => {
-      const m = e.data as { progress?: number; done?: boolean; ok?: boolean; img?: Uint8ClampedArray };
-      if (m.done) finish({ img: m.img!, ok: !!m.ok });
+      const m = e.data as { progress?: number; done?: boolean; ok?: boolean; img?: Uint8ClampedArray; hole?: Uint8Array };
+      if (m.done) {
+        let left = 0;
+        for (const v of m.hole!) if (v === 1) left++;
+        finish({ img: m.img!, ok: !!m.ok, left });
+      }
       else if (m.progress !== undefined) ui.set(text, m.progress);
     };
     worker.onerror = e => { toast(e.message || 'Content-aware fill failed', 'error'); finish(null); };
@@ -75,37 +80,50 @@ export async function contentAwareFillSelection(opacity: number) {
   const sa = readRegion(sel.mask, R.x, R.y, R.w, R.h);
   const hole = new Uint8Array(R.w * R.h);
   let n = 0;
-  // the faintest edge of a soft selection would hardly change: left out (less to compute)
-  for (let i = 0; i < hole.length; i++) if (sa[i * 4 + 3] > 3) { hole[i] = 1; n++; }
+  // the faintest edge of a soft selection would hardly change: left out (less to compute). Fully transparent
+  // pixels (beyond the layer, around a cut-out) are never taken from: the fill would come out transparent
+  for (let i = 0; i < hole.length; i++) {
+    if (sa[i * 4 + 3] > 3) { hole[i] = 1; n++; } else if (!img[i * 4 + 3]) hole[i] = 2;
+  }
   if (!n) return;
   const res = await fillInWorker(img, R.w, R.h, hole);
-  if (!res) return;
+  // (the progress window holds the editor, but a file opened from outside can still arrive meanwhile)
+  if (!res || !app.docs.includes(d) || !d.find(l.id)) return;
   if (!res.ok) toast(t('fill.nothingToTake'), 'error');
-  // the filled pixels, inside the selection only (by its strength)
-  const patch = createCanvas(R.w, R.h), pg = ctx2d(patch);
-  pg.putImageData(new ImageData(res.img as Uint8ClampedArray<ArrayBuffer>, R.w, R.h), 0, 0);
-  pg.globalCompositeOperation = 'destination-in';
-  pg.drawImage(sel.mask, -R.x, -R.y);
+  if (res.left === n) return;   // nothing filled: no History step
   s.ensureCovers(b);
   const g = s.ctx;
-  g.save();
-  g.globalAlpha = opacity;
   if (l.lockAlpha) {
-    // transparency locked: only the colours change
-    g.globalCompositeOperation = 'source-atop';
-    g.drawImage(patch, R.x - s.x, R.y - s.y);
+    // transparency locked: only the colours change, towards the fill's by the selection's strength × opacity
+    // (drawn with source-atop, a half-transparent fill pixel would weaken it once more)
+    const fx = b.x - s.x, fy = b.y - s.y;
+    const cur = g.getImageData(fx, fy, b.w, b.h), cd = cur.data;
+    for (let y = 0; y < b.h; y++) for (let x = 0; x < b.w; x++) {
+      const i = ((b.y - R.y + y) * R.w + (b.x - R.x + x)) * 4, o = (y * b.w + x) * 4;
+      const k = (sa[i + 3] / 255) * opacity;
+      if (!k || !res.img[i + 3]) continue;
+      for (let c = 0; c < 3; c++) cd[o + c] += (res.img[i + c] - cd[o + c]) * k;
+    }
+    g.putImageData(cur, fx, fy);
   } else {
+    // the filled pixels, inside the selection only (by its strength)
+    const patch = createCanvas(R.w, R.h), pg = ctx2d(patch);
+    pg.putImageData(new ImageData(res.img as Uint8ClampedArray<ArrayBuffer>, R.w, R.h), 0, 0);
+    pg.globalCompositeOperation = 'destination-in';
+    pg.drawImage(sel.mask, -R.x, -R.y);
+    g.save();
+    g.globalAlpha = opacity;
     // the layer's pixels give way by the selection's strength, the fill takes their place (a true blend, also
     // where the layer was transparent)
     g.globalCompositeOperation = 'destination-out';
     g.drawImage(sel.mask, R.x, R.y, R.w, R.h, R.x - s.x, R.y - s.y, R.w, R.h);
     g.globalCompositeOperation = 'lighter';
     g.drawImage(patch, R.x - s.x, R.y - s.y);
+    g.restore();
   }
-  g.restore();
   s.markDirtyDoc(b);
   l.touch();
-  app.commit('h.contentFill');
+  app.commit('h.contentFill', d);
 }
 
 /**
@@ -120,7 +138,11 @@ export async function extendWithContent(d: Doc, inner: Rect) {
   const x1 = inner.x + inner.w, y1 = inner.y + inner.h;
   for (let y = 0; y < H; y++) {
     const inY = y >= inner.y && y < y1;
-    for (let x = 0; x < W; x++) if (!inY || x < inner.x || x >= x1) hole[y * W + x] = 1;
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (!inY || x < inner.x || x >= x1) hole[i] = 1;
+      else if (!img[i * 4 + 3]) hole[i] = 2;   // transparent parts of the picture: not taken from
+    }
   }
   const res = await fillInWorker(img, W, H, hole);
   if (!res) return;

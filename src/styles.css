@@ -178,8 +178,9 @@ button { cursor: default; }
 
 .layers .panel-body { flex: 1; padding: 0 6px 6px; }
 .layers-top { display: flex; flex-direction: column; gap: 6px; padding: 0 6px 8px; }
-.layers-top-row { display: flex; align-items: center; gap: 8px; }
-.blend-select { flex: 1; min-width: 0; }
+.layers-top-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* it takes what is left; below about 80 px the opacity and the lock go to a second row */
+.blend-select { flex: 1 1 80px; min-width: 0; }
 .layers-list { flex: 1; overflow-y: auto; padding: 4px 0; min-height: 80px; border-top: 1px solid var(--sep); }
 .lrow { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 8px 0 2px; border-radius: 6px; margin: 1px 0; user-select: none; position: relative; }
 .lrow:hover { background: var(--fill); }

@@ -79,12 +79,13 @@ export class LayersPanel extends Panel {
     }, 'blend-select');
     blend.disabled = !l;
     const opacity = numberField({
-      label: t('layers.opacity'), value: Math.round((l?.opacity ?? 1) * 100), min: 0, max: 100, unit: '%', width: 34,
+      label: t('layers.opacity'), value: Math.round((l?.opacity ?? 1) * 100), min: 0, max: 100, unit: '%', width: 28,
       onChange: (v, final) => { if (!l) return; l.opacity = v / 100; l.touch(); app.update('canvas'); if (final) app.commit('h.layerProps'); },
     });
     const lock = el('button', { class: 'icon-btn toggle' + (l?.lockAlpha ? ' on' : ''), title: t('layers.lockAlpha') }, icon('lock', 15));
     lock.addEventListener('click', () => app.run('lockAlpha'));
-    this.top.append(el('div', { class: 'layers-top-row' }, blend, opacity), el('div', { class: 'layers-top-row' }, el('span', { class: 'muted sm' }, t('layers.lock') + ':'), lock));
+    // one row: blend mode, opacity, lock (its tooltip names it); a narrow panel moves the last ones down
+    this.top.append(el('div', { class: 'layers-top-row' }, blend, opacity, lock));
   }
 
   private renderBottom() {

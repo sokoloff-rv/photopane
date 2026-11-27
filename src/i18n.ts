@@ -692,7 +692,6 @@ const D: Record<string, [string, string]> = {
   'panel.history': ['История', 'History'],
   'panel.layers': ['Слои', 'Layers'],
   'layers.opacity': ['Непрозр.', 'Opacity'],
-  'layers.lock': ['Закрепить', 'Lock'],
   'layers.lockAlpha': ['Закрепить прозрачные пиксели', 'Lock transparent pixels'],
   'layers.new': ['Новый слой', 'New layer'],
   'layers.group': ['Новая группа', 'New group'],

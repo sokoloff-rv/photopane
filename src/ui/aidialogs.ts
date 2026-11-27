@@ -11,7 +11,7 @@ import { resizeDocument } from './docdialogs';
 import { applySelection } from '../tools/select';
 import {
   aiSettings, hasKey, NeedKeyError, canvasBlob, blobCanvas, stabilityRemoveBg, stabilityUpscale,
-  topazUpscale, stabilityOutpaint, Service,
+  topazUpscale, topazModelFor, stabilityOutpaint, Service,
 } from '../ai/cloud';
 
 /** Run a cloud call; a missing key opens the settings, errors become a toast. */
@@ -78,7 +78,7 @@ async function upscaleCanvas(src: HTMLCanvasElement, scale: 2 | 4, engine: 'loca
     if (scale === 2) { const half = createCanvas(src.width * 2, src.height * 2); const g = ctx2d(half); g.imageSmoothingQuality = 'high'; g.drawImage(out, 0, 0, half.width, half.height); out = half; }
     return out;
   }
-  return blobCanvas(await topazUpscale(blob, src.width * scale, src.height * scale));
+  return blobCanvas(await topazUpscale(blob, src.width * scale, src.height * scale, topazModelFor(src).model));
 }
 
 export function upscaleDialog() {
@@ -88,17 +88,22 @@ export function upscaleDialog() {
   let scale: 2 | 4 = 2;
   const note = el('div', { class: 'muted sm' });
   const size = el('div', { class: 'muted' });
+  const model = el('div', { class: 'muted sm' });
+  let topazPick: ReturnType<typeof topazModelFor> | undefined;
   const refresh = () => {
     size.textContent = `${d.width} × ${d.height} → ${d.width * scale} × ${d.height * scale} ${t('dlg.px')}`;
     const layers = d.layers.filter(l => !l.isGroup).length;
     note.textContent = engine === 'local' ? t('ai.localNote') : (layers > 1 ? t('ai.cloudFlatten') + ' ' : '') + t(engine === 'topaz' ? 'ai.topazNote' : 'ai.stabilityNote');
+    // Topaz: the model it picks for this picture, and why
+    model.textContent = engine === 'topaz' ? t('ai.topazModel.' + (topazPick ??= topazModelFor(d.composite())).why) : '';
+    model.style.display = engine === 'topaz' ? '' : 'none';
   };
   const body = el('div', { class: 'form' },
     el('div', { class: 'form-row' }, el('label', {}, t('ai.engine')),
       select([{ value: 'local', label: t('ai.engine.local') }, { value: 'topaz', label: 'Topaz Labs' }, { value: 'stability', label: 'Stability AI' }], engine, v => { engine = v as any; refresh(); })),
     el('div', { class: 'form-row' }, el('label', {}, t('ai.scale')),
       select([{ value: '2', label: '2×' }, { value: '4', label: '4×' }], '2', v => { scale = +v as 2 | 4; refresh(); })),
-    size, note);
+    size, model, note);
   refresh();
   openDialog({
     title: t('cmd.upscale'), body, width: 400,

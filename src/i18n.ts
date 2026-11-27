@@ -630,6 +630,10 @@ const D: Record<string, [string, string]> = {
   'cmd.showGuides': ['Направляющие', 'Guides'],
   'cmd.clearGuides': ['Удалить направляющие', 'Clear Guides'],
   'cmd.language': ['Язык: English', 'Language: Русский'],
+  'cmd.guide': ['Обучение', 'Learn PhotoPane'],
+  'guide.title': ['Обучение', 'Learn PhotoPane'],
+  'guide.search': ['Поиск по справке', 'Search the guide'],
+  'guide.nothing': ['Ничего не найдено', 'Nothing found'],
   'cmd.shortcuts': ['Горячие клавиши', 'Keyboard Shortcuts'],
   'cmd.about': ['О программе', 'About PhotoPane'],
 

@@ -403,6 +403,7 @@ export function registerCommands(app: App) {
   R('language', () => { setLang(getLang() === 'ru' ? 'en' : 'ru'); app.relocalize(); });
 
   /* ---------- Help ---------- */
+  R('guide', () => { void import('./ui/guide').then(m => m.openGuide()); }, ['F1']);
   R('shortcuts', () => shortcutsDialog(app));
   R('psdAssoc', async () => {
     try { await associatePsd(); toast(t('app.psdAssocDone'), 'info', 6000); }

@@ -28,7 +28,7 @@ const MENUS: { key: string; items: Item[] }[] = [
     'desaturate', 'sepia', 'invert', 'posterize', 'threshold', 'gradientMap', 'lut',
   ] },
   { key: 'menu.view', items: ['zoomIn', 'zoomOut', 'fit', 'actual', '-', 'compare', '-', 'rulers', 'showGuides', 'snap', 'clearGuides', '-', 'resetLayout'] },
-  { key: 'menu.help', items: ['shortcuts', 'psdAssoc', '-', 'about'] },
+  { key: 'menu.help', items: ['guide', 'shortcuts', 'psdAssoc', '-', 'about'] },
 ];
 
 export function prettyKey(k: string) {

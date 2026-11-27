@@ -13,7 +13,9 @@ import { arrowBadgeCursor } from '../ui/icons';
 import { openDialog } from '../ui/dialog';
 import { el } from '../core/util';
 import { resizeDocument } from '../ui/docdialogs';
-import { outpaintAfterCrop } from '../ui/aidialogs';
+import { outpaintAfterCrop, outpaintPlan, aiSettingsDialog } from '../ui/aidialogs';
+import { hasKey } from '../ai/cloud';
+import { toast } from '../ui/dialog';
 import { extendWithContent } from '../ui/contentfill';
 import { cloneCanvas } from '../core/util';
 
@@ -268,6 +270,12 @@ export class CropTool extends Tool<CropOpts> {
     const whole = r.x === 0 && r.y === 0 && r.w === d.width && r.h === d.height;
     if (whole && d.width === W && d.height === H) return;
     const extends_ = r.x < 0 || r.y < 0 || r.x + r.w > d.width || r.y + r.h > d.height;
+    // AI outpainting: what Stability would refuse is said before the crop is made, the frame stays to be changed
+    if (extends_ && this.o.fill === 'ai' && !px) {
+      if (!hasKey('stability')) { toast(t('ai.needKey', 'Stability AI'), 'error', 4000); aiSettingsDialog(); return; }
+      const plan = outpaintPlan(d.width, d.height, r);
+      if (typeof plan === 'string') { toast(plan, 'error', 6000); return; }
+    }
     const before = extends_ && this.o.fill === 'ai' ? cloneCanvas(d.composite()) : null;
     const rr = { ...r };
     // the view keeps its zoom, and what is left of the picture stays where it was on the screen

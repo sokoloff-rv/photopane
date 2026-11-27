@@ -4,8 +4,22 @@
  * plugin; otherwise directly.
  */
 import { app } from '../app';
+import { t } from '../i18n';
 
 export type Service = 'stability' | 'topaz';
+const NAME: Record<Service, string> = { stability: 'Stability AI', topaz: 'Topaz Labs' };
+
+/**
+ * What Stability AI accepts (its API reference). Pictures are made to fit before they are sent where that can
+ * be done unnoticed (reduced, re-encoded); otherwise the window says what does not fit before anything is sent.
+ */
+export const STABILITY = {
+  /** a whole request at most */
+  maxBytes: 10 * 1024 * 1024,
+  removeBg: { minSide: 64, maxPx: 4_194_304 },
+  outpaint: { minSide: 64, maxPx: 9_437_184, maxRatio: 2.5, maxExtend: 2000 },
+  upscale: { minSide: 32, maxSide: 1536, maxPx: 1_048_576 },
+};
 const BASE: Record<Service, string> = { stability: 'https://api.stability.ai', topaz: 'https://api.topazlabs.com' };
 
 export class NeedKeyError extends Error {
@@ -34,8 +48,44 @@ async function errorText(r: Response): Promise<string> {
   } catch { return (await r.text().catch(() => '')).slice(0, 200) || r.statusText; }
 }
 
-export const canvasBlob = (c: HTMLCanvasElement, type = 'image/png') =>
-  new Promise<Blob>((res, rej) => c.toBlob(b => (b ? res(b) : rej(new Error('encode'))), type));
+/** A refused request in words: the usual causes by status; what the service said only where it adds something. */
+async function failure(service: Service, r: Response): Promise<Error> {
+  const detail = await errorText(r);
+  const s = r.status;
+  const why = s === 401 ? t('ai.err.key')
+    : s === 402 ? t('ai.err.credits')
+    : s === 403 ? (/moderat|flag/i.test(detail) ? t('ai.err.moderated') : t('ai.err.key'))
+    : s === 413 ? t('ai.err.large')
+    : s === 429 ? t('ai.err.busy')
+    : s >= 500 ? t('ai.err.server')
+    : t('ai.err.rejected', detail);
+  return new Error(`${NAME[service]}: ${why}`);
+}
+
+/** The request, and a failure to reach the service (no connection) in words. */
+async function send(service: Service, path: string, init: RequestInit): Promise<Response> {
+  let r: Response;
+  try { r = await aiFetch(service, path, init); } catch { throw new Error(`${NAME[service]}: ${t('ai.err.network')}`); }
+  if (!r.ok) throw await failure(service, r);
+  return r;
+}
+
+export const canvasBlob = (c: HTMLCanvasElement, type = 'image/png', quality?: number) =>
+  new Promise<Blob>((res, rej) => c.toBlob(b => (b ? res(b) : rej(new Error('encode'))), type, quality));
+
+/**
+ * The picture as a file a service takes: PNG (exact, with transparency); when that is over its limit for a
+ * request (a large photo), WebP, which keeps the transparency, at a quality that fits.
+ */
+export async function sendableBlob(c: HTMLCanvasElement, maxBytes = STABILITY.maxBytes - 64 * 1024): Promise<Blob> {
+  const png = await canvasBlob(c);
+  if (png.size <= maxBytes) return png;
+  for (const q of [0.95, 0.88, 0.8]) {
+    const b = await canvasBlob(c, 'image/webp', q);
+    if (b.size <= maxBytes) return b;
+  }
+  return canvasBlob(c, 'image/webp', 0.7);
+}
 
 export async function blobCanvas(b: Blob): Promise<HTMLCanvasElement> {
   const bmp = await createImageBitmap(b);
@@ -53,16 +103,14 @@ async function stability(path: string, fields: Record<string, Blob | string | nu
   const fd = new FormData();
   for (const [k, v] of Object.entries(fields)) {
     if (v === undefined || v === '') continue;
-    if (v instanceof Blob) fd.append(k, v, k + '.png'); else fd.append(k, String(v));
+    if (v instanceof Blob) fd.append(k, v, k + (v.type === 'image/webp' ? '.webp' : '.png')); else fd.append(k, String(v));
   }
-  const r = await aiFetch('stability', path, { method: 'POST', headers: { Authorization: `Bearer ${key}`, Accept: 'image/*' }, body: fd });
-  if (!r.ok) throw new Error(`Stability AI ${r.status}: ${await errorText(r)}`);
+  const r = await send('stability', path, { method: 'POST', headers: { Authorization: `Bearer ${key}`, Accept: 'image/*' }, body: fd });
   return r.blob();
 }
 
 /** Image with the background made transparent. */
 export const stabilityRemoveBg = (image: Blob) => stability('/v2beta/stable-image/edit/remove-background', { image, output_format: 'png' });
-/** Remove what the mask (white) covers and fill it naturally. */
 /** Extend the image by the given number of pixels on each side. */
 export const stabilityOutpaint = (image: Blob, d: { left: number; right: number; up: number; down: number }, prompt?: string) =>
   stability('/v2beta/stable-image/edit/outpaint', { image, ...d, prompt, output_format: 'png' });
@@ -118,7 +166,6 @@ export async function topazUpscale(image: Blob, w: number, h: number, model: Top
   fd.append('output_width', String(w));
   fd.append('output_height', String(h));
   fd.append('output_format', 'png');
-  const r = await aiFetch('topaz', '/image/v1/enhance', { method: 'POST', headers: { 'X-API-Key': key, Accept: 'image/png' }, body: fd });
-  if (!r.ok) throw new Error(`Topaz ${r.status}: ${await errorText(r)}`);
+  const r = await send('topaz', '/image/v1/enhance', { method: 'POST', headers: { 'X-API-Key': key, Accept: 'image/png' }, body: fd });
   return r.blob();
 }

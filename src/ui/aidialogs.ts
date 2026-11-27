@@ -11,7 +11,7 @@ import { resizeDocument } from './docdialogs';
 import { applySelection } from '../tools/select';
 import {
   aiSettings, hasKey, NeedKeyError, canvasBlob, blobCanvas, stabilityRemoveBg, stabilityUpscale,
-  topazUpscale, topazModelFor, stabilityOutpaint, Service,
+  topazUpscale, topazModelFor, stabilityOutpaint, Service, STABILITY, sendableBlob,
 } from '../ai/cloud';
 
 /** Run a cloud call; a missing key opens the settings, errors become a toast. */
@@ -71,14 +71,27 @@ async function upscaleCanvas(src: HTMLCanvasElement, scale: 2 | 4, engine: 'loca
     return half;
   }
   ui.set(t('ai.sending'));
-  const blob = await canvasBlob(src);
+  const blob = await sendableBlob(src);
   if (engine === 'stability') {
-    if (src.width * src.height > 1048576 || Math.max(src.width, src.height) > 1536) throw new Error(t('ai.stabilityTooBig'));
+    const why = upscaleProblem('stability', src.width, src.height);
+    if (why) throw new Error(why);
     let out = await blobCanvas(await stabilityUpscale(blob));
     if (scale === 2) { const half = createCanvas(src.width * 2, src.height * 2); const g = ctx2d(half); g.imageSmoothingQuality = 'high'; g.drawImage(out, 0, 0, half.width, half.height); out = half; }
     return out;
   }
   return blobCanvas(await topazUpscale(blob, src.width * scale, src.height * scale, topazModelFor(src).model));
+}
+
+/**
+ * Why an engine cannot take a picture of this size, or null: Stability's fast upscaler takes 32–1536 px per
+ * side and at most 1 MP (it gives 4×; 2× is that result halved).
+ */
+function upscaleProblem(engine: 'local' | 'topaz' | 'stability', w: number, h: number): string | null {
+  if (engine !== 'stability') return null;
+  const u = STABILITY.upscale, size = `${w} × ${h}`;
+  if (Math.min(w, h) < u.minSide) return t('ai.stabilityTooSmall', size);
+  if (Math.max(w, h) > u.maxSide || w * h > u.maxPx) return t('ai.stabilityTooBig', size);
+  return null;
 }
 
 export function upscaleDialog() {
@@ -89,6 +102,9 @@ export function upscaleDialog() {
   const note = el('div', { class: 'muted sm' });
   const size = el('div', { class: 'muted' });
   const model = el('div', { class: 'muted sm' });
+  // what keeps the chosen engine from taking this picture, said before anything is sent (OK waits)
+  const problem = el('div', { class: 'warn-text sm' });
+  let okBtn: HTMLButtonElement | null = null;
   let topazPick: ReturnType<typeof topazModelFor> | undefined;
   const refresh = () => {
     size.textContent = `${d.width} × ${d.height} → ${d.width * scale} × ${d.height * scale} ${t('dlg.px')}`;
@@ -97,15 +113,20 @@ export function upscaleDialog() {
     // Topaz: the model it picks for this picture, and why
     model.textContent = engine === 'topaz' ? t('ai.topazModel.' + (topazPick ??= topazModelFor(d.composite())).why) : '';
     model.style.display = engine === 'topaz' ? '' : 'none';
+    const W = d.width * scale, H = d.height * scale;
+    const why = upscaleProblem(engine, d.width, d.height) ?? (W > MAX_SIDE || H > MAX_SIDE || W * H > MAX_PX ? t('ai.tooBig') : null);
+    problem.textContent = why ?? '';
+    problem.style.display = why ? '' : 'none';
+    if (okBtn) okBtn.disabled = !!why;
   };
   const body = el('div', { class: 'form' },
     el('div', { class: 'form-row' }, el('label', {}, t('ai.engine')),
       select([{ value: 'local', label: t('ai.engine.local') }, { value: 'topaz', label: 'Topaz Labs' }, { value: 'stability', label: 'Stability AI' }], engine, v => { engine = v as any; refresh(); })),
     el('div', { class: 'form-row' }, el('label', {}, t('ai.scale')),
       select([{ value: '2', label: '2×' }, { value: '4', label: '4×' }], '2', v => { scale = +v as 2 | 4; refresh(); })),
-    size, model, note);
+    size, model, problem, note);
   refresh();
-  openDialog({
+  const dlg = openDialog({
     title: t('cmd.upscale'), body, width: 400,
     onOk: () => {
       if (engine !== 'local' && !hasKey(engine as Service)) { guarded(() => Promise.reject(new NeedKeyError(engine as Service))); return false; }
@@ -114,6 +135,8 @@ export function upscaleDialog() {
       runUpscale(engine, scale);
     },
   });
+  okBtn = dlg.root.querySelector('.dlg-foot .btn.primary');
+  refresh();
 }
 
 async function runUpscale(engine: 'local' | 'topaz' | 'stability', scale: 2 | 4) {
@@ -143,13 +166,17 @@ async function runUpscale(engine: 'local' | 'topaz' | 'stability', scale: 2 | 4)
 }
 
 /* ---------------- background removal / subject ---------------- */
-/** Stability wants at most ~9.4 MP: send a reduced copy and scale the mask back. */
-function limitSize(c: HTMLCanvasElement, maxPx = 9_000_000, minSide = 64): { c: HTMLCanvasElement; k: number } {
+/**
+ * Background removal takes 64 px per side and at most 4.19 MP (it took 9.4 before, and larger photos were
+ * refused): a reduced copy is sent and the mask scaled back.
+ */
+function limitSize(c: HTMLCanvasElement, maxPx = STABILITY.removeBg.maxPx, minSide = STABILITY.removeBg.minSide): { c: HTMLCanvasElement; k: number } {
   const px = c.width * c.height;
   let k = px > maxPx ? Math.sqrt(maxPx / px) : 1;
   if (Math.min(c.width, c.height) * k < minSide) k = minSide / Math.min(c.width, c.height);
   if (k === 1) return { c, k };
-  const o = createCanvas(Math.max(minSide, Math.round(c.width * k)), Math.max(minSide, Math.round(c.height * k)));
+  // rounded down: rounded to the nearest, 2365 × 1774 came out a few pixels over the limit
+  const o = createCanvas(Math.max(minSide, Math.floor(c.width * k)), Math.max(minSide, Math.floor(c.height * k)));
   const g = ctx2d(o); g.imageSmoothingQuality = 'high'; g.drawImage(c, 0, 0, o.width, o.height);
   return { c: o, k };
 }
@@ -158,7 +185,7 @@ function limitSize(c: HTMLCanvasElement, maxPx = 9_000_000, minSide = 64): { c: 
 async function subjectAlpha(src: HTMLCanvasElement, ui: ReturnType<typeof busy>): Promise<HTMLCanvasElement | null> {
   const { c } = limitSize(src);
   ui.set(t('ai.sending'));
-  const res = await guarded(async () => blobCanvas(await stabilityRemoveBg(await canvasBlob(c))));
+  const res = await guarded(async () => blobCanvas(await stabilityRemoveBg(await sendableBlob(c))));
   if (!res) return null;
   const out = createCanvas(src.width, src.height);
   const g = ctx2d(out); g.imageSmoothingQuality = 'high'; g.drawImage(res, 0, 0, src.width, src.height);
@@ -206,22 +233,43 @@ export async function selectSubject() {
  * After a crop that extended the canvas: generate the new area. `before` is the visible image before
  * the crop, `r` the crop rectangle in its coordinates.
  */
-export async function outpaintAfterCrop(before: HTMLCanvasElement, r: { x: number; y: number; w: number; h: number }) {
+type Frame = { x: number; y: number; w: number; h: number };
+type OutpaintPlan = { ix: number; iy: number; iw: number; ih: number; ext: { left: number; up: number; right: number; down: number }; k: number };
+
+/**
+ * The outpainting request for a crop frame `r` over a W × H picture: the part of the picture in the frame, how
+ * far it is extended on each side, and the scale that keeps the request within Stability's limits (at most 2000
+ * px per side extended, about 9 MP in all); or why it cannot be sent: the part in the frame must be at least
+ * 64 px on each side (once scaled) and no longer than 2.5 : 1. Checked before the crop is made.
+ */
+export function outpaintPlan(W: number, H: number, r: Frame): OutpaintPlan | string {
+  const o = STABILITY.outpaint;
+  const ix = Math.max(0, Math.round(r.x)), iy = Math.max(0, Math.round(r.y));
+  const ix1 = Math.min(W, Math.round(r.x + r.w)), iy1 = Math.min(H, Math.round(r.y + r.h));
+  const iw = ix1 - ix, ih = iy1 - iy;
+  if (iw <= 0 || ih <= 0) return t('ai.outpaintNothing');
+  const ext = { left: ix - Math.round(r.x), up: iy - Math.round(r.y), right: Math.round(r.x + r.w) - ix1, down: Math.round(r.y + r.h) - iy1 };
+  const totalW = iw + ext.left + ext.right, totalH = ih + ext.up + ext.down;
+  const k = Math.min(1, Math.sqrt(9_000_000 / (totalW * totalH)), o.maxExtend / Math.max(ext.left, ext.right, ext.up, ext.down, 1));
+  const ratio = Math.max(iw, ih) / Math.min(iw, ih);
+  // (the whole picture in the frame: it is the picture that is too long, a frame cannot help)
+  if (ratio > o.maxRatio) return t(iw === W && ih === H ? 'ai.outpaintRatioWhole' : 'ai.outpaintRatio', ratio.toFixed(1).replace('.', t('num.dot')));
+  if (Math.min(iw, ih) * k < o.minSide) return t('ai.outpaintSmall');
+  return { ix, iy, iw, ih, ext, k };
+}
+
+export async function outpaintAfterCrop(before: HTMLCanvasElement, r: Frame) {
   const d = app.doc!;
-  const ix = Math.max(0, r.x), iy = Math.max(0, r.y);
-  const ix1 = Math.min(before.width, r.x + r.w), iy1 = Math.min(before.height, r.y + r.h);
-  if (ix1 <= ix || iy1 <= iy) return;
-  const inner = createCanvas(ix1 - ix, iy1 - iy);
+  const plan = outpaintPlan(before.width, before.height, r);
+  if (typeof plan === 'string') { toast(plan, 'error', 6000); return; }
+  const { ix, iy, iw, ih, ext, k } = plan;
+  const inner = createCanvas(iw, ih);
   ctx2d(inner).drawImage(before, -ix, -iy);
-  const ext = { left: ix - r.x, up: iy - r.y, right: r.x + r.w - ix1, down: r.y + r.h - iy1 };
-  // keep the request within the service limits: scale everything down if needed
-  const totalW = inner.width + ext.left + ext.right, totalH = inner.height + ext.up + ext.down;
-  const k = Math.min(1, Math.sqrt(9_000_000 / (totalW * totalH)), 2000 / Math.max(ext.left, ext.right, ext.up, ext.down, 1));
   let src = inner;
   if (k < 1) { src = createCanvas(Math.round(inner.width * k), Math.round(inner.height * k)); const g = ctx2d(src); g.imageSmoothingQuality = 'high'; g.drawImage(inner, 0, 0, src.width, src.height); }
   const ui = busy(t('ai.outpainting'));
   try {
-    const res = await guarded(async () => blobCanvas(await stabilityOutpaint(await canvasBlob(src), {
+    const res = await guarded(async () => blobCanvas(await stabilityOutpaint(await sendableBlob(src), {
       left: Math.round(ext.left * k), right: Math.round(ext.right * k), up: Math.round(ext.up * k), down: Math.round(ext.down * k),
     })));
     if (!res) return;

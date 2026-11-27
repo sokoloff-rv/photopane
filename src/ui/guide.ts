@@ -25,10 +25,13 @@ export async function openGuide() {
   search.addEventListener('keydown', e => { if (e.key !== 'Escape') e.stopPropagation(); });
   let current = (app.settings.guideSection as string) || GUIDE[0].id;
 
+  const paragraphs = (text: string, cls?: string) =>
+    text.split('\n\n').map(p => el('p', cls ? { class: cls } : {}, p));
+
   const item = (it: (typeof GUIDE)[number]['items'][number]) =>
     el('div', { class: 'guide-item' },
       el('div', { class: 'guide-item-head' }, el('h4', {}, it.t[L]), it.k ? el('kbd', {}, it.k) : null),
-      el('p', {}, it.d[L]));
+      ...paragraphs(it.d[L]));
 
   const showSection = (id: string) => {
     current = id;
@@ -37,7 +40,7 @@ export async function openGuide() {
     nav.querySelectorAll('.guide-link').forEach(b => b.classList.toggle('on', (b as HTMLElement).dataset.id === s.id));
     content.innerHTML = '';
     content.append(el('h3', {}, s.t[L]));
-    if (s.intro) content.append(el('p', { class: 'guide-intro' }, s.intro[L]));
+    if (s.intro) content.append(...paragraphs(s.intro[L], 'guide-intro'));
     for (const it of s.items) content.append(item(it));
     if (s.id === 'start') {
       const sc = el('button', { class: 'btn sm' }, t('cmd.shortcuts'));

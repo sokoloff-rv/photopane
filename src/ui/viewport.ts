@@ -225,9 +225,21 @@ export class Viewport {
    */
   keepView(kx: number, ky: number, d: Doc | null = this.doc) {
     if (!d) return;
+    // (the zoom as it will be kept: a Compare partner may have been taken past the limit)
+    const z = clamp(d.zoom, 0.01, 64);
+    if (d === this.doc) {
+      // the middle of what is visible (the rulers cover a band at the top and left)
+      const a = this.area();
+      const cx = a.x + a.w / 2, cy = a.y + a.h / 2;
+      const px = ((cx - d.panX) / d.zoom) * kx, py = ((cy - d.panY) / d.zoom) * ky;
+      this.place(z, cx - px * z, cy - py * z, d);
+      return;
+    }
+    // a document in another tab: kept for the pane it was last shown in, fitted to this one when shown again
     const cx = (d.viewW || this.w) / 2, cy = (d.viewH || this.h) / 2;
     const px = ((cx - d.panX) / d.zoom) * kx, py = ((cy - d.panY) / d.zoom) * ky;
-    this.place(d.zoom, cx - px * d.zoom, cy - py * d.zoom, d);
+    d.zoom = z; d.panX = cx - px * z; d.panY = cy - py * z;
+    d.fitted = true; d.autoFit = false;
   }
 
   setZoom(z: number, sx = this.w / 2, sy = this.h / 2) {

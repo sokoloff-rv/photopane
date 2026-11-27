@@ -343,8 +343,9 @@ export class App {
   private afterLayout(fn: () => void) { requestAnimationFrame(() => requestAnimationFrame(fn)); }
 
   /**
-   * Jump in history. When the document size changed: a resample (an upscale undone or redone) keeps the zoom
-   * and the middle of the view; anything else (a crop, a canvas size) refits the view.
+   * Jump in history. When the document size changed: a resample alone (an upscale undone or redone: the size
+   * changed exactly as the resample factor did) keeps the zoom and the middle of the view; anything else (a crop,
+   * a canvas size, a crop to an exact size in pixels, several steps at once) refits the view.
    */
   historyGo(fn: (d: Doc) => void) {
     const d = this.doc;
@@ -354,7 +355,10 @@ export class App {
     fn(d);
     d.dirty = true;
     if (d.width !== w || d.height !== h) {
-      if (d.scaleX !== sx || d.scaleY !== sy) this.viewport.keepView(d.scaleX / sx, d.scaleY / sy, d);
+      const kx = d.scaleX / sx, ky = d.scaleY / sy;
+      const resample = Number.isFinite(kx) && Number.isFinite(ky) && kx > 0 && ky > 0 && (kx !== 1 || ky !== 1)
+        && Math.abs(d.width - w * kx) <= 1 && Math.abs(d.height - h * ky) <= 1;
+      if (resample) this.viewport.keepView(kx, ky, d);
       else this.viewport.fit(false);
     }
     this.update('canvas', 'layers', 'history', 'overlay', 'tabs');

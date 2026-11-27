@@ -1,6 +1,6 @@
 [package]
 name = "photopane"
-version = "0.7.0"
+version = "0.7.1"
 description = "PhotoPane — a lightweight image editor"
 license = "AGPL-3.0-or-later"
 edition = "2021"

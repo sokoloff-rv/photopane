@@ -258,12 +258,14 @@ button { cursor: default; }
 .text-input.sm { height: 22px; padding: 0 6px; }
 
 /* ---------- dialogs ---------- */
-.dlg-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.38); display: flex; align-items: center; justify-content: center; z-index: 300; animation: fade 0.12s ease-out; }
+/* no window dims the picture behind it (a change made in a window is seen on it as it is); a modal window's
+   overlay still takes the clicks around it, transparent */
+.dlg-overlay { position: fixed; inset: 0; background: transparent; display: flex; align-items: center; justify-content: center; z-index: 300; animation: fade 0.12s ease-out; }
 .dlg-overlay.closing { opacity: 0; transition: opacity 0.12s; }
 /* a closing window takes no more clicks (a double click on OK must not run it twice) */
 .dlg-overlay.closing, .dlg-overlay.closing * { pointer-events: none !important; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-.dlg { background: var(--raised); border-radius: 12px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.12); max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); display: flex; flex-direction: column; animation: dlg 0.16s ease-out; }
+.dlg { background: var(--raised); border-radius: 12px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(255, 255, 255, 0.14); max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); display: flex; flex-direction: column; animation: dlg 0.16s ease-out; }
 @keyframes dlg { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
 .dlg-head { display: flex; align-items: center; padding: 12px 10px 4px 18px; user-select: none; }
 .dlg-title { flex: 1; font-size: 13px; font-weight: 600; }
@@ -344,7 +346,7 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .curves-canvas { width: 280px; height: 280px; display: block; border-radius: 4px; background: rgba(0, 0, 0, 0.25); touch-action: none; cursor: crosshair; margin: 10px 0 8px; }
 .curve-info { display: flex; gap: 14px; color: var(--text2); font-variant-numeric: tabular-nums; margin-top: 2px; }
 .dlg-overlay.pass { background: transparent; pointer-events: none; animation: none; }
-.dlg-overlay.pass .dlg { pointer-events: auto; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(255, 255, 255, 0.14); }
+.dlg-overlay.pass .dlg { pointer-events: auto; }
 .icon-btn:disabled { opacity: 0.35; pointer-events: none; }
 
 /* ---------- stage 4: layer style ---------- */
@@ -391,8 +393,8 @@ kbd { font: 11px var(--font); background: var(--fill-hover); border-radius: 4px;
 .lut-name { color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* busy overlay for long AI operations */
-.busy { position: fixed; inset: 0; z-index: 900; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.35); }
-.busy-card { min-width: 260px; padding: 18px 20px; border-radius: 12px; background: var(--raised); box-shadow: var(--shadow); display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.busy { position: fixed; inset: 0; z-index: 900; display: flex; align-items: center; justify-content: center; background: transparent; }
+.busy-card { min-width: 260px; padding: 18px 20px; border-radius: 12px; background: var(--raised); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(255, 255, 255, 0.14); display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .busy-spin { width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid var(--fill-active); border-top-color: var(--accent); animation: pp-spin 0.8s linear infinite; }
 @keyframes pp-spin { to { transform: rotate(360deg); } }
 .busy-text { color: var(--text); }

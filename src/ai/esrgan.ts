@@ -93,7 +93,12 @@ export async function esrganUpscale(src: HTMLCanvasElement, factor: 2 | 4, onPro
     let empty = true;
     const ex0 = Math.max(0, tl.x - 2), ey0 = Math.max(0, tl.y - 2), ex1 = Math.min(W, tl.x + tl.w + 2), ey1 = Math.min(H, tl.y + tl.h + 2);
     for (let y = ey0; y < ey1 && empty; y++) for (let x = ex0; x < ex1; x++) if (data[(y * W + x) * 4 + 3]) { empty = false; break; }
-    if (empty) { onProgress('run', (ti + 1) / tiles.length); continue; }
+    if (empty) {
+      onProgress('run', (ti + 1) / tiles.length);
+      // (a long run of empty tiles still lets a Cancel click through)
+      if (ti % 32 === 31) await yieldToUi();
+      continue;
+    }
     // tile with context around it
     const x0 = Math.max(0, tl.x - P), y0 = Math.max(0, tl.y - P), x1 = Math.min(W, tl.x + tl.w + P), y1 = Math.min(H, tl.y + tl.h + P);
     const tw = x1 - x0, th = y1 - y0;

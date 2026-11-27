@@ -102,8 +102,10 @@ function cloudFlattens(d: Doc): boolean {
 function sizeProblem(d: Doc, engine: 'local' | 'topaz' | 'stability', scale: number): string | null {
   const big = (w: number, h: number) => w * scale > MAX_SIDE || h * scale > MAX_SIDE || w * h * scale * scale > MAX_PX;
   if (big(d.width, d.height)) return t('ai.tooBig');
-  // (every surface the resize makes, layers, text and masks, kept beyond the canvas by a crop too)
-  if (d.layers.some(l => (!l.isGroup && big(l.canvas.width, l.canvas.height)) || (l.mask && big(l.mask.w, l.mask.h)))) return t('ai.tooBig');
+  // the local model enlarges every surface the resize makes, layers, text and masks, kept beyond the canvas by
+  // a crop too, and a paragraph's box as the text is drawn again (the cloud flattens to the document first)
+  if (engine === 'local' && d.layers.some(l => (!l.isGroup && big(l.canvas.width, l.canvas.height)) || (l.mask && big(l.mask.w, l.mask.h))
+    || (l.text?.box && big(l.text.box.w, l.text.box.h)))) return t('ai.tooBig');
   return null;
 }
 
@@ -131,7 +133,8 @@ export function upscaleDialog() {
     size.textContent = `${d.width} × ${d.height} → ${d.width * scale} × ${d.height * scale} ${t('dlg.px')}`;
     note.textContent = engine === 'local' ? t('ai.localNote') : (cloudFlattens(d) ? t('ai.cloudFlatten') + ' ' : '') + t(engine === 'topaz' ? 'ai.topazNote' : 'ai.stabilityNote');
     // Topaz: the model it picks for this picture, and why
-    model.textContent = engine === 'topaz' ? t('ai.topazModel.' + (topazPick ??= topazModelFor(d.composite())).why) : '';
+    // (from the same pixels as are sent: as displayed, for a document in another colour profile)
+    model.textContent = engine === 'topaz' ? t('ai.topazModel.' + (topazPick ??= topazModelFor(d.colorProfile ? d.displayComposite() : d.composite())).why) : '';
     model.style.display = engine === 'topaz' ? '' : 'none';
     const why = upscaleProblem(engine, d.width, d.height) ?? sizeProblem(d, engine, scale);
     problem.textContent = why ?? '';
@@ -207,7 +210,8 @@ async function runUpscale(d: Doc, engine: 'local' | 'topaz' | 'stability', scale
       if (!c) { ui.close(); if (stop) toast(t('ai.cancelled')); return; }
       results.push({ l, c, x: l.x, y: l.y });
     }
-    // (Cancel pressed after the last tile)
+    // (Cancel pressed after the last tile: a click waiting in the queue is taken first)
+    await new Promise(r => setTimeout(r, 0));
     if (stop) { toast(t('ai.cancelled')); return; }
     if (!app.docs.includes(d)) return;
     // text, masks and the selection are scaled exactly; raster layers get the AI result
@@ -314,9 +318,11 @@ export function outpaintPlan(W: number, H: number, r: Frame): OutpaintPlan | str
   // never takes the part past it (the short side is rounded up when it would); beyond it, the request is
   // refused unless its rounded size is within (321 × 128 sent as 320 × 128)
   let sw = Math.max(1, Math.round(iw * k)), sh = Math.max(1, Math.round(ih * k));
-  if (ratio > o.maxRatio && Math.max(sw, sh) / Math.min(sw, sh) > o.maxRatio) {
-    // (the whole picture in the frame: it is the picture that is too long, a frame cannot help)
-    return t(iw === W && ih === H ? 'ai.outpaintRatioWhole' : 'ai.outpaintRatio', ratio.toFixed(1).replace('.', t('num.dot')));
+  const sent = Math.max(sw, sh) / Math.min(sw, sh);
+  if (ratio > o.maxRatio && sent > o.maxRatio) {
+    // (the whole picture in the frame: it is the picture that is too long, a frame cannot help; two decimals,
+    // so that 2.51 is not shown as the 2.5 that is allowed)
+    return t(iw === W && ih === H ? 'ai.outpaintRatioWhole' : 'ai.outpaintRatio', sent.toFixed(2).replace('.', t('num.dot')));
   }
   if (sw / sh > o.maxRatio) sh = Math.ceil(sw / o.maxRatio);
   if (sh / sw > o.maxRatio) sw = Math.ceil(sh / o.maxRatio);

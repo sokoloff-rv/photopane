@@ -48,7 +48,8 @@ async function errorText(r: Response): Promise<string> {
   } catch {
     // a page instead of an answer (a firewall or proxy in front of the service): its HTML is no message
     const text = (await r.text().catch(() => '')).trim();
-    const html = /html/i.test(r.headers.get('content-type') ?? '') || /<[a-z!/][^>]*>/i.test(text);
+    // (by its type, or by page markup: «Invalid value for <left>» is a message, not a page)
+    const html = /html/i.test(r.headers.get('content-type') ?? '') || /<(!doctype|html|head|body|title|div|p|br|h1|center)\b/i.test(text);
     return (text && !html ? text.slice(0, 200) : '') || r.statusText || `HTTP ${r.status}`;
   }
 }

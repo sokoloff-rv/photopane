@@ -57,6 +57,12 @@ export async function associatePsd(): Promise<void> {
   await invoke('associate_psd');
 }
 
+/** Help → About: the source code page, in the system's browser (a link in the app's window goes nowhere). */
+export async function openSourcePage(): Promise<void> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('open_source_page');
+}
+
 /** The window buttons of the app's own title bar (Windows). */
 export async function windowControls(): Promise<HTMLElement | null> {
   if (!windowsDesktop()) return null;

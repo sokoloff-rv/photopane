@@ -18,7 +18,7 @@ import { printDoc } from './io/print';
 import { metadataDialog } from './ui/metadialog';
 import { colorProfileDialog } from './ui/profiledialog';
 import { applyImageDialog } from './ui/applyimagedialog';
-import { associatePsd } from './io/desktop';
+import { associatePsd, openSourcePage, inTauri } from './io/desktop';
 import { hslMixerDialog, toningDialog } from './ui/colordialogs';
 import { aiSettingsDialog, upscaleDialog, removeBackground, selectSubject } from './ui/aidialogs';
 import {
@@ -409,7 +409,18 @@ export function registerCommands(app: App) {
     try { await associatePsd(); toast(t('app.psdAssocDone'), 'info', 6000); }
     catch (e: any) { toast(`${t('app.error')}: ${e?.message || e}`, 'error', 5000); }
   });
-  R('about', () => openDialog({ title: 'PhotoPane', body: el('p', { class: 'dlg-text' }, t('about.text', __APP_VERSION__)), cancelLabel: null, width: 360 }));
+  R('about', () => {
+    const SOURCE = 'https://github.com/sokoloff-rv/photopane';
+    const link = el('a', { href: SOURCE, target: '_blank', rel: 'noopener' }, 'GitHub') as HTMLAnchorElement;
+    // (the desktop app's window opens no links: the system's browser does)
+    if (inTauri()) link.addEventListener('click', e => { e.preventDefault(); void openSourcePage().catch(err => toast(String(err), 'error')); });
+    const body = el('div', { class: 'about' },
+      el('div', { class: 'about-name' }, 'PhotoPane'),
+      el('div', {}, t('about.kind')),
+      el('div', {}, t('about.version', __APP_VERSION__)),
+      el('div', {}, t('about.source'), link));
+    openDialog({ title: t('cmd.about'), body, cancelLabel: null, width: 360 });
+  });
 
   void placeImage;
 }

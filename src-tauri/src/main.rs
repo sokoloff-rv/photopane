@@ -42,6 +42,19 @@ fn associate_psd() -> Result<(), String> {
     }
 }
 
+/// Help → About: the source code page in the system's browser (this one address only; the page asks no other).
+#[tauri::command]
+fn open_source_page() -> Result<(), String> {
+    const URL: &str = "https://github.com/sokoloff-rv/photopane";
+    #[cfg(windows)]
+    let r = std::process::Command::new("explorer").arg(URL).spawn();
+    #[cfg(target_os = "macos")]
+    let r = std::process::Command::new("open").arg(URL).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let r = std::process::Command::new("xdg-open").arg(URL).spawn();
+    r.map(|_| ()).map_err(|e| e.to_string())
+}
+
 fn main() {
     tauri::Builder::default()
         // a second launch (a file opened from Explorer while PhotoPane runs) brings this window forward and
@@ -80,7 +93,7 @@ fn main() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![startup_files, associate_psd])
+        .invoke_handler(tauri::generate_handler![startup_files, associate_psd, open_source_page])
         .build(tauri::generate_context!())
         .expect("error while building PhotoPane")
         .run(|_app, _event| {

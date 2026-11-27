@@ -13,7 +13,7 @@ import { arrowBadgeCursor } from '../ui/icons';
 import { openDialog } from '../ui/dialog';
 import { el } from '../core/util';
 import { resizeDocument } from '../ui/docdialogs';
-import { outpaintAfterCrop, outpaintPlan, aiSettingsDialog } from '../ui/aidialogs';
+import { outpaintAfterCrop, outpaintPlan, aiSettingsDialog, confirmCloud } from '../ui/aidialogs';
 import { hasKey, STABILITY_PRICE } from '../ai/cloud';
 import { tn } from '../i18n';
 import { toast } from '../ui/dialog';
@@ -259,6 +259,9 @@ export class CropTool extends Tool<CropOpts> {
     return false;
   }
 
+  /** the AI fill's price has been accepted for this frame: the crop goes ahead */
+  private aiConfirmed = false;
+
   apply() {
     if (!this.ensure()) return;
     const d = app.doc!;
@@ -276,6 +279,15 @@ export class CropTool extends Tool<CropOpts> {
       if (!hasKey('stability')) { toast(t('ai.needKey', 'Stability AI'), 'error', 4000); aiSettingsDialog(); return; }
       const plan = outpaintPlan(d.width, d.height, r);
       if (typeof plan === 'string') { toast(plan, 'error', 6000); return; }
+      // what it costs, asked before the crop is made (cancelled, the frame stays as it was)
+      if (!this.aiConfirmed) {
+        void confirmCloud(t('cmd.outpaint'), 'stability', STABILITY_PRICE.outpaint).then(ok => {
+          if (!ok || this.rect !== r || app.doc !== d) return;
+          this.aiConfirmed = true;
+          try { this.apply(); } finally { this.aiConfirmed = false; }
+        });
+        return;
+      }
     }
     const before = extends_ && this.o.fill === 'ai' ? cloneCanvas(d.composite()) : null;
     const rr = { ...r };

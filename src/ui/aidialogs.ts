@@ -45,6 +45,27 @@ onSpent((s, credits, key) => {
   });
 });
 
+/**
+ * Before a cloud operation that has no window of its own: where the picture goes, what it costs and what is left
+ * on the account (asked meanwhile); OK sends it. The upscale window says the same itself.
+ */
+export function confirmCloud(title: string, s: Service, price: number): Promise<boolean> {
+  return new Promise(res => {
+    const left = el('div', { class: 'muted' }, t('ai.balanceLoading'));
+    const short = el('div', { class: 'warn-text sm' });
+    short.style.display = 'none';
+    const body = el('div', { class: 'form' },
+      el('p', { class: 'dlg-text' }, t('ai.confirmSend', NAME[s])),
+      el('div', {}, costText(price)),
+      left, short);
+    openDialog({ title, body, width: 380, onOk: () => res(true), onCancel: () => res(false) });
+    within(accountBalance(s)).then(b => {
+      left.textContent = t('ai.balance', balanceText(b));
+      if (b.credits < price) { short.textContent = t('ai.notEnough'); short.style.display = ''; }
+    }, () => { left.style.display = 'none'; });
+  });
+}
+
 /** Run a cloud call; a missing key opens the settings, errors become a toast. */
 async function guarded<T>(fn: () => Promise<T>): Promise<T | null> {
   try { return await fn(); }
@@ -153,7 +174,7 @@ async function upscaleCanvas(src: HTMLCanvasElement, scale: 2 | 4, engine: 'loca
     const { esrganUpscale } = await import('../ai/esrgan');
     return esrganUpscale(src, scale, (stage, p) => ui.set(stage === 'download' ? t('ai.downloading') : t('ai.upscaling'), p), cancelled);
   }
-  ui.set(t('ai.sending'));
+  ui.set(t('ai.sending', NAME[engine]));
   // Stability takes at most 10 MiB a request (WebP or JPEG beyond that); Topaz takes no WebP, and no such limit
   const blob = engine === 'stability' ? await sendableBlob(src) : await canvasBlob(src);
   if (engine === 'stability') {
@@ -375,7 +396,7 @@ function limitSize(c: HTMLCanvasElement, maxPx = STABILITY.removeBg.maxPx, minSi
 /** Alpha of the subject (document-sized canvas whose alpha is the mask). */
 async function subjectAlpha(src: HTMLCanvasElement, ui: ReturnType<typeof busy>): Promise<HTMLCanvasElement | null> {
   const { c } = limitSize(src);
-  ui.set(t('ai.sending'));
+  ui.set(t('ai.sending', NAME.stability));
   const res = await guarded(async () => blobCanvas(await stabilityRemoveBg(await sendableBlob(c))));
   if (!res) return null;
   const out = createCanvas(src.width, src.height);
@@ -390,6 +411,8 @@ export async function removeBackground() {
   if (l.isGroup || l.kind === 'text') { toast(t('ai.needRaster'), 'error'); return; }
   if (!hasKey('stability')) { guarded(() => Promise.reject(new NeedKeyError('stability'))); return; }
   if (l.mask && !(await confirmDialog(t('ai.replaceMask')))) return;
+  if (!(await confirmCloud(t('cmd.removeBg'), 'stability', STABILITY_PRICE.removeBg))) return;
+  if (app.doc !== d || d.active !== l) return;
   const ui = busy(t('ai.removingBg'));
   ui.note(costText(STABILITY_PRICE.removeBg));
   try {
@@ -412,6 +435,8 @@ export async function selectSubject() {
   const d = app.doc;
   if (!d) return;
   if (!hasKey('stability')) { guarded(() => Promise.reject(new NeedKeyError('stability'))); return; }
+  if (!(await confirmCloud(t('cmd.selectSubject'), 'stability', STABILITY_PRICE.removeBg))) return;
+  if (app.doc !== d) return;
   const ui = busy(t('ai.selecting'));
   // (the same request as background removal)
   ui.note(costText(STABILITY_PRICE.removeBg));
@@ -480,7 +505,7 @@ export async function outpaintAfterCrop(before: HTMLCanvasElement, r: Frame) {
   ctx2d(inner).drawImage(before, -ix, -iy);
   let src = inner;
   if (sw !== iw || sh !== ih) { src = createCanvas(sw, sh); const g = ctx2d(src); g.imageSmoothingQuality = 'high'; g.drawImage(inner, 0, 0, sw, sh); }
-  const ui = busy(t('ai.outpainting'));
+  const ui = busy(t('ai.sending', NAME.stability));
   ui.note(costText(STABILITY_PRICE.outpaint));
   try {
     const res = await guarded(async () => blobCanvas(await stabilityOutpaint(await sendableBlob(src), ext)));

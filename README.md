@@ -5,8 +5,8 @@
 <h1 align="center">PhotoPane</h1>
 
 <p align="center">
-  A lightweight, modern image editor for Windows, macOS and Linux.<br>
-  The familiar tools — with one obvious way to do each thing.
+  A lightweight, modern image editor for Windows, macOS, and Linux.<br>
+  All the familiar tools, without the clutter.
 </p>
 
 <p align="center">
@@ -14,80 +14,77 @@
   <a href="README.ru.md">Русская версия</a>
 </p>
 
-![PhotoPane: a picture made of seven layers, with the Layers panel](docs/screenshots/en/main.jpg)
+![PhotoPane workspace showing a layered photo composition with masks, editable text, and layer styles](docs/screenshots/en/main.jpg)
 
-PhotoPane does what most people open a big photo editor for — fixing light and colour, retouching, cutting out,
-combining layers, adding text — without the weight and the clutter. It opens Photoshop files with their layers,
-works offline, and is about an 18 MB download on Windows and macOS. Your pictures never leave your computer unless
-you ask an AI service for help with your own key.
+PhotoPane handles everything most people open a heavy photo editor for — fixing light and color, retouching, making clean cutouts, combining layers, and adding editable text — without the bloat. It opens layered Photoshop files, runs offline, and comes in at around an 18 MB download on Windows and macOS. Your images stay on your computer and are never uploaded unless you explicitly run a cloud AI tool with your own API key.
+
+## Why PhotoPane
+
+- **Lightweight and offline:** Roughly an 18 MB download on Windows and macOS, starts fast, opens layered `.psd` files, and needs no account or subscription.
+- **Live GPU adjustment chains:** Keep multiple adjustment and filter windows open at the same time — they stack into a live pipeline with a Before / After split and render smoothly on your graphics card.
+- **Local retouching and upscaling:** Content-Aware Fill and a built-in 2×/4× AI upscaler run directly on your machine with no cloud uploads required.
+- **True side-by-side Compare:** Split the workspace into two independent copies of your document, each with its own full history, synced pan/zoom, and automatic scale matching after upscaling.
+- **Optional, transparent AI:** Bring your own Stability AI or Topaz Labs keys only when you want them — PhotoPane validates limits before uploading, shows account balances and operation costs up front, and tracks local credit usage.
 
 ## What it can do
 
-**Layers.** Groups, layer masks, clipping masks, 17 blend modes, opacity and locked transparency. Layer styles:
-drop shadow, stroke, bevel and emboss, colour and gradient overlay. Free transform with distortion and perspective.
-Text stays editable.
+**Layers & typography.** Work freely with layer groups, layer masks, clipping masks, 17 blend modes, opacity, and locked transparency. Add live layer styles — drop shadow, stroke, bevel and emboss, color and gradient overlays — that update as you edit. Free Transform includes distortion and perspective, and text layers stay editable with system fonts and Google Fonts.
 
-**Light and colour.** One Correction window for light, colour, skin tone, clarity, grain and vignette, with an Auto
-button and your own presets — plus Levels, Curves, an HSL mixer and toning. Every adjustment shows its result on the
-picture as you move the sliders, and several can be open at once.
+**Light and color.** A single **Adjust** window brings together light, color, skin tone, clarity, grain, and vignette — complete with an Auto button and custom presets. For finer control, open Levels, Curves, the HSL Mixer, or Toning. Every adjustment previews live as you move the sliders, and several windows can stay open at once.
 
-![The Correction window beside the picture](docs/screenshots/en/adjust.jpg)
+![Curves and Adjust open together in a live adjustment chain with a Before / After split](docs/screenshots/en/adjust.jpg)
 
-**Retouching.** Spot healing brush, clone stamp and content-aware fill: select something you don't want and it is
-rebuilt from the picture around it, right on your computer. Blur, sharpen and smudge brushes, dodge and burn, colour
-replacement.
+**Retouching.** Remove distractions with the Spot Healing Brush, Clone Stamp, and local Content-Aware Fill — just select what you want gone and PhotoPane rebuilds the area from surrounding textures right on your computer. You also get Blur, Sharpen, Smudge, Dodge, Burn, and Color Replacement brushes.
 
-**Filters.** Gaussian, motion, radial and surface blur, and field, iris and tilt-shift blur with bokeh, adjusted with
-handles right on the photo. Unsharp mask, dehaze, noise reduction, glow, halftone, emboss, colour LUTs (.cube) and
-more, with a before/after split. Heavy work runs on the graphics card.
+**Filters.** Apply Gaussian, Motion, Radial, and Surface blur, or shape depth of field directly on the photo with Field Blur, Iris Blur, and Tilt-Shift with bokeh highlights. Unsharp Mask, Dehaze, Reduce Noise, Glow, Halftone, Emboss, 3D color LUTs (`.cube`), and more all support a Before / After split, with heavy filters accelerated on your GPU.
 
-![Tilt-shift blur with its handles on the picture](docs/screenshots/en/blur.jpg)
+![Tilt-Shift blur with bokeh highlights and on-canvas handles over a twilight coastal town](docs/screenshots/en/blur.jpg)
 
-**Selections.** Rectangle and ellipse, freehand, polygonal and magnetic lasso, magic wand; feather, expand,
-contract and smooth.
+**Selections & crop.** Make precise cutouts with rectangular and elliptical marquees, freehand, polygonal, and magnetic lassos (with Ctrl+drag point tweaking), and the Magic Wand, then refine edges with feather, expand, contract, and smooth. Crop freely, lock to ratios or exact pixel sizes, straighten angled shots with Perspective Crop, or expand past the canvas edges and fill the new space with a solid color, local content-aware fill, or AI.
 
-**Crop.** Ratios, exact sizes in pixels and your own presets, perspective crop. Take the frame past the edges and
-the new area is filled with a colour, from the picture itself or by AI.
+**Compare.** Split the workspace into two independent copies of your document with their full history intact. Step one version back or try a different edit and inspect both side by side with synced zoom and pan.
 
-**Compare.** Split the window into two independent copies of the document — step one back in history or edit it
-differently and see both side by side.
+![Side-by-side comparison of the original photograph and an edited version](docs/screenshots/en/compare.jpg)
 
-![Two versions of the picture side by side](docs/screenshots/en/compare.jpg)
+**Files & color profiles.** Open PNG, JPEG, WebP, GIF, BMP, AVIF, and PSD files. Save PSD with layers, masks, styles, and editable text, or export to JPEG, PNG, WebP, and PDF with a live file-size preview as you choose the quality. Batch-process folders or groups of files in one go, and work accurately across sRGB, Display P3, and Adobe RGB color profiles.
 
-**Files.** Opens PNG, JPEG, WebP, GIF, BMP, AVIF and PSD. Saves PSD with layers, masks and text; exports JPEG, PNG,
-WebP and PDF and shows the file size as you choose the quality. Batch processing for many files at once. Colour
-profiles: sRGB, Display P3, Adobe RGB.
+**Optional AI.** Upscale images 2× or 4× offline with a built-in local model, or connect Topaz Labs and Stability AI using your own API keys (PhotoPane picks the right Topaz model for your photo automatically). Remove backgrounds onto a non-destructive mask, select subjects, or extend images while cropping — with upfront size checks, key balances, per-operation cost previews, and local spending tracking.
 
-**AI, if you want it.** Upscale 2× or 4× with a local model that works offline, or with Topaz Labs and Stability AI
-using your own keys (PhotoPane picks the right Topaz model for the photo). Remove the background, select the subject,
-fill in the new area when cropping. Before anything is sent, PhotoPane checks the picture fits and tells you plainly
-if it doesn't. It shows what is left on each key, what an operation costs where you call it, and how many credits
-PhotoPane itself has spent.
+**Learn as you go.** Open **Help → Learn PhotoPane** (`F1`) for a searchable, plain-language guide to every tool, adjustment, and filter in a floating window that stays beside your work.
 
-**Learn as you go.** Help → Learn (F1) explains every tool, adjustment and filter in a few lines, with a search, in a
-window that stays open beside your work.
+![The built-in Help → Learn PhotoPane window open beside the canvas](docs/screenshots/en/learn.jpg)
 
-![Help → Learn](docs/screenshots/en/learn.jpg)
-
-The interface is in English and Russian, and the keyboard shortcuts are the ones you already know from Photoshop.
+The interface is available in English and Russian, with the keyboard shortcuts you already know from Photoshop.
 
 ## Download
 
-Get the latest version from the [Releases](https://github.com/sokoloff-rv/photopane/releases/latest) page:
+Grab the latest release from the [Releases](https://github.com/sokoloff-rv/photopane/releases/latest) page:
 
 | System | File |
 | --- | --- |
 | Windows 10 and 11 | `…-setup.exe` (installer) or `.msi` |
-| macOS 11 and newer, Apple Silicon and Intel | `.dmg` |
-| Linux | `.deb`, `.rpm` or `.AppImage` |
+| macOS 11 and newer (Apple Silicon and Intel) | `.dmg` |
+| Linux | `.deb`, `.rpm`, or `.AppImage` |
 
-On macOS the app is not notarized by Apple yet. The first time you open it, macOS asks you to confirm: open
-**System Settings → Privacy & Security** and click **Open Anyway** next to the message about PhotoPane. This is
-needed only once.
+- **Windows:** The installer isn't code-signed yet, so Windows SmartScreen may show a *"Windows protected your PC"* prompt the first time you run it. Click **More info** and then **Run anyway** (only needed once).
+- **macOS:** The app isn't notarized by Apple yet. On the first launch, open **System Settings → Privacy & Security** and click **Open Anyway** next to the notice for PhotoPane (only needed once).
 
 ## Privacy
 
-PhotoPane has no account and collects no data. Pictures are opened and saved on your computer. Fonts from Google
-Fonts are downloaded the first time you choose one. The AI features that use Stability AI or Topaz Labs send the
-picture you are working on to that service, with your own key, only when you start them; the keys are stored only
-on your computer.
+PhotoPane requires no account and collects no telemetry or usage data. All your images are opened, edited, and saved locally on your computer. Google Fonts are downloaded only the first time you pick a font. Cloud AI features (Stability AI and Topaz Labs) send your active image using your own API key only when you explicitly start them; the keys themselves are stored only on your device.
+
+<details>
+<summary><b>Building from source</b></summary>
+
+PhotoPane is written in plain TypeScript (no UI framework) using Canvas 2D, WebGL2 shaders, Web Workers, ONNX Runtime Web for local upscaling, and [Tauri 2](https://v2.tauri.app/) for the native desktop wrapper — which keeps the desktop download around 18 MB.
+
+**Requirements:** Node.js 22+ (plus Rust 1.77+ and Tauri system dependencies for desktop builds).
+
+```bash
+npm install
+npm run dev            # run the web version on http://localhost:5178
+npm run desktop        # run the Tauri desktop app in dev mode
+npm run desktop:build  # build native installers
+```
+
+</details>

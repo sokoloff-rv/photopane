@@ -10,8 +10,11 @@ import { Layer } from '../core/layer';
 import type { Doc } from '../core/document';
 import { busy, toast } from './dialog';
 
-/** The picture with the area filled; `left`: how many of its pixels could not be filled (nothing to take from). */
-interface FillResult { img: Uint8ClampedArray; ok: boolean; left: number }
+/**
+ * The picture with the area filled; `hole`: still 1 where a pixel could not be filled (nothing to take from),
+ * `left` how many.
+ */
+interface FillResult { img: Uint8ClampedArray; ok: boolean; hole: Uint8Array; left: number }
 
 /** The fill of the pixels where hole is 1 (2: never taken from), in a worker; null when cancelled or failed. */
 function fillInWorker(img: Uint8ClampedArray, w: number, h: number, hole: Uint8Array): Promise<FillResult | null> {
@@ -40,7 +43,7 @@ function fillInWorker(img: Uint8ClampedArray, w: number, h: number, hole: Uint8A
       if (m.done) {
         let left = 0;
         for (const v of m.hole!) if (v === 1) left++;
-        finish({ img: m.img!, ok: !!m.ok, left });
+        finish({ img: m.img!, ok: !!m.ok, hole: m.hole!, left });
       }
       else if (m.progress !== undefined) ui.set(text, m.progress);
     };
@@ -134,6 +137,8 @@ export async function contentAwareFillSelection(opacity: number) {
 export async function extendWithContent(d: Doc, inner: Rect) {
   const W = d.width, H = d.height;
   const img = readRegion(d.composite(), 0, 0, W, H);
+  // the new area: what is transparent outside the old picture (pixels kept there from an earlier crop with
+  // «Delete cropped pixels» off are picture, not area); transparent parts of the picture are never taken from
   const hole = new Uint8Array(W * H);
   const x1 = inner.x + inner.w, y1 = inner.y + inner.h;
   let n = 0;
@@ -141,20 +146,22 @@ export async function extendWithContent(d: Doc, inner: Rect) {
     const inY = y >= inner.y && y < y1;
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
-      if (!inY || x < inner.x || x >= x1) { hole[i] = 1; n++; }
-      else if (!img[i * 4 + 3]) hole[i] = 2;   // transparent parts of the picture: not taken from
+      if (img[i * 4 + 3]) continue;
+      if (!inY || x < inner.x || x >= x1) { hole[i] = 1; n++; } else hole[i] = 2;
     }
   }
+  if (!n) return;
+  const wanted = hole.slice();
   const res = await fillInWorker(img, W, H, hole);
   if (!res) return;
   // a side with nothing to take from (only transparency next to it) stays transparent; the others are kept
   if (!res.ok) toast(t('fill.nothingToTake'), 'error');
   if (res.left === n) return;
+  // the layer holds only what was filled: the picture itself stays on its layers
+  const out = res.img;
+  for (let i = 0; i < W * H; i++) if (wanted[i] !== 1 || res.hole[i] === 1) out[i * 4 + 3] = 0;
   const l = new Layer('raster', t('layers.contentFill'), W, H);
-  const g = l.content.ctx;
-  g.putImageData(new ImageData(res.img as Uint8ClampedArray<ArrayBuffer>, W, H), 0, 0);
-  // only the new area: the picture itself stays on its layers
-  g.clearRect(inner.x, inner.y, inner.w, inner.h);
+  l.content.ctx.putImageData(new ImageData(out as Uint8ClampedArray<ArrayBuffer>, W, H), 0, 0);
   d.root.children.unshift(l); l.parent = d.root;
   if (d.root.children[1]) d.root.children[1].clipped = false;
   l.touch();

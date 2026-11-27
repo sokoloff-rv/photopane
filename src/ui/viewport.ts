@@ -169,8 +169,7 @@ export class Viewport {
     return { x: r, y: r, w: this.w - r, h: this.h - r };
   }
 
-  private constrainPan() {
-    const d = this.doc;
+  private constrainPan(d: Doc | null = this.doc) {
     if (!d || this.w < 10 || this.h < 10) return;
     const m = 32;
     const a = this.area();
@@ -188,10 +187,9 @@ export class Viewport {
   }
 
   /** Keep the view within bounds and align the image to physical pixels so 100% is perfectly sharp. */
-  snapPan() {
-    const d = this.doc;
+  snapPan(d: Doc | null = this.doc) {
     if (!d) return;
-    this.constrainPan();
+    this.constrainPan(d);
     d.panX = Math.round(d.panX * this.dpr) / this.dpr;
     d.panY = Math.round(d.panY * this.dpr) / this.dpr;
     if (this.w >= 10 && this.h >= 10) { d.viewW = this.w; d.viewH = this.h; }
@@ -209,14 +207,14 @@ export class Viewport {
   /**
    * After a crop: the zoom stays as it was and the picture is placed at panX, panY (kept within the usual
    * bounds; centred if it now fits). Fitting the picture to the window instead changed the zoom every time.
+   * `d`: another document than the one shown (a crop that finished after another tab was opened).
    */
-  place(zoom: number, panX: number, panY: number) {
-    const d = this.doc;
+  place(zoom: number, panX: number, panY: number, d: Doc | null = this.doc) {
     if (!d) return;
     d.zoom = clamp(zoom, 0.01, 64);
     d.panX = panX; d.panY = panY;
     d.fitted = true; d.autoFit = false;
-    this.snapPan();
+    this.snapPan(d);
     app.update('view');
   }
 

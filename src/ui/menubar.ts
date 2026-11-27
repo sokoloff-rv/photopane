@@ -93,7 +93,16 @@ export class MenuBar {
 
   private buildList(items: Item[], noKeys = false): HTMLElement {
     const list = el('div', { class: 'menu-drop' });
+    // the items this app has (Open PSD Files in PhotoPane only in the Windows app), and a separator only between
+    // two groups: one left alone by a missing item would draw a double line
+    const shown: Item[] = [];
     for (const it of items) {
+      if (typeof it === 'string' && DESKTOP_ONLY.has(it) && !windowsDesktop()) continue;
+      if (it === '-' && (!shown.length || shown[shown.length - 1] === '-')) continue;
+      shown.push(it);
+    }
+    if (shown[shown.length - 1] === '-') shown.pop();
+    for (const it of shown) {
       if (it === '-') { list.append(el('div', { class: 'menu-sep' })); continue; }
       if (typeof it === 'object') {
         const sub = el('div', { class: 'menu-item has-sub' }, el('span', { class: 'mi-check' }), el('span', { class: 'mi-label' }, t(it.sub)), icon('chevronRight', 14));
@@ -103,7 +112,6 @@ export class MenuBar {
         list.append(sub);
         continue;
       }
-      if (DESKTOP_ONLY.has(it) && !windowsDesktop()) continue;
       const c = app.commands.get(it);
       const enabled = !!c && (!c.enabled || c.enabled()) && !app.commandLocked(it);
       const checked = !!c?.checked?.();

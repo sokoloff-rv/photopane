@@ -63,7 +63,6 @@ async function stability(path: string, fields: Record<string, Blob | string | nu
 /** Image with the background made transparent. */
 export const stabilityRemoveBg = (image: Blob) => stability('/v2beta/stable-image/edit/remove-background', { image, output_format: 'png' });
 /** Remove what the mask (white) covers and fill it naturally. */
-export const stabilityErase = (image: Blob, mask: Blob) => stability('/v2beta/stable-image/edit/erase', { image, mask, output_format: 'png' });
 /** Extend the image by the given number of pixels on each side. */
 export const stabilityOutpaint = (image: Blob, d: { left: number; right: number; up: number; down: number }, prompt?: string) =>
   stability('/v2beta/stable-image/edit/outpaint', { image, ...d, prompt, output_format: 'png' });

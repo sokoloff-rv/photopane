@@ -20,7 +20,7 @@ import { colorProfileDialog } from './ui/profiledialog';
 import { applyImageDialog } from './ui/applyimagedialog';
 import { associatePsd } from './io/desktop';
 import { hslMixerDialog, toningDialog } from './ui/colordialogs';
-import { aiSettingsDialog, upscaleDialog, removeBackground, selectSubject, removeObject } from './ui/aidialogs';
+import { aiSettingsDialog, upscaleDialog, removeBackground, selectSubject } from './ui/aidialogs';
 import {
   motionBlurDialog, radialBlurDialog, surfaceBlurDialog, highPassDialog, dehazeDialog, denoiseDialog, glowDialog,
   chromaticDialog, pixelateDialog, halftoneDialog, gradientMapDialog, lutDialog,
@@ -166,7 +166,6 @@ export function registerCommands(app: App) {
   R('settings', () => aiSettingsDialog(), ['Ctrl+K']);
   R('upscale', () => upscaleDialog(), [], hasDoc);
   R('removeBg', () => removeBackground(), [], hasPixelLayer);
-  R('removeObject', () => removeObject(), [], () => hasPixelLayer() && hasSel());
   R('selectSubject', () => selectSubject(), [], hasDoc);
   R('motionBlur', () => motionBlurDialog(), [], hasPixelLayer);
   R('radialBlur', () => radialBlurDialog(), [], hasPixelLayer);

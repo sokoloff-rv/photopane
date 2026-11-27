@@ -19,7 +19,7 @@ const MENUS: { key: string; items: Item[] }[] = [
     'imageSize', 'canvasSize',
     { sub: 'cmd.rotation', items: ['rot180', 'rotCW', 'rotCCW', 'rotArbitrary', '-', 'flipCanvasH', 'flipCanvasV'] }, 'cropToSel', '-',
     'applyImage', '-',
-    'upscale', 'removeBg', 'selectSubject', 'removeObject', '-', 'colorProfile', 'metadata'] },
+    'upscale', 'removeBg', 'selectSubject', '-', 'colorProfile', 'metadata'] },
   // all filters at once, in four groups as people look for them: blur, sharpness & noise, effects, colour (LUT last)
   { key: 'menu.filter', items: [
     'gaussian', 'motionBlur', 'radialBlur', 'surfaceBlur', 'fieldBlur', 'irisBlur', 'tiltShift', '-',

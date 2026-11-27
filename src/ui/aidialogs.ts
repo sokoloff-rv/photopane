@@ -10,7 +10,7 @@ import { flatten } from '../core/ops';
 import { resizeDocument } from './docdialogs';
 import { applySelection } from '../tools/select';
 import {
-  aiSettings, hasKey, NeedKeyError, canvasBlob, blobCanvas, stabilityRemoveBg, stabilityErase, stabilityUpscale,
+  aiSettings, hasKey, NeedKeyError, canvasBlob, blobCanvas, stabilityRemoveBg, stabilityUpscale,
   topazUpscale, stabilityOutpaint, Service,
 } from '../ai/cloud';
 
@@ -193,45 +193,6 @@ export async function selectSubject() {
     const alpha = await subjectAlpha(d.composite(), ui);
     if (!alpha) return;
     applySelection(Selection.fromMask(alpha), 'new');
-  } finally { ui.close(); }
-}
-
-/* ---------------- object removal ---------------- */
-/** Remove Object: what is selected disappears and the area is filled naturally (active layer). */
-export async function removeObject() {
-  const d = app.doc, l = d?.active;
-  if (!d || !l) return;
-  if (!d.selection) { toast(t('ai.selectFirst'), 'error', 4000); return; }
-  if (l.isGroup || l.kind === 'text') { toast(t('ai.needRaster'), 'error'); return; }
-  if (!hasKey('stability')) { guarded(() => Promise.reject(new NeedKeyError('stability'))); return; }
-  const ui = busy(t('ai.removingObject'));
-  try {
-    const src = createCanvas(d.width, d.height);
-    ctx2d(src).drawImage(l.canvas, l.x, l.y);
-    // mask: the selection grown a little, white on black
-    const mk = createCanvas(d.width, d.height), mg = ctx2d(mk);
-    mg.fillStyle = '#000'; mg.fillRect(0, 0, d.width, d.height);
-    const grown = d.selection.grow(4) ?? d.selection;
-    const white = createCanvas(d.width, d.height), wg = ctx2d(white);
-    wg.drawImage(grown.mask, 0, 0); wg.globalCompositeOperation = 'source-in'; wg.fillStyle = '#fff'; wg.fillRect(0, 0, d.width, d.height);
-    mg.drawImage(white, 0, 0);
-    const a = limitSize(src), b = limitSize(mk);
-    ui.set(t('ai.sending'));
-    const res = await guarded(async () => blobCanvas(await stabilityErase(await canvasBlob(a.c), await canvasBlob(b.c))));
-    if (!res) return;
-    // put the result back only inside the (grown) selection
-    const patch = createCanvas(d.width, d.height), pg = ctx2d(patch);
-    pg.imageSmoothingQuality = 'high'; pg.drawImage(res, 0, 0, d.width, d.height);
-    pg.globalCompositeOperation = 'destination-in'; pg.drawImage(grown.mask, 0, 0);
-    l.content.ensureCovers({ x: 0, y: 0, w: d.width, h: d.height });
-    const g = l.content.ctx;
-    g.save();
-    g.globalCompositeOperation = 'destination-out'; g.drawImage(grown.mask, -l.x, -l.y);
-    g.globalCompositeOperation = 'source-over'; g.drawImage(patch, -l.x, -l.y);
-    g.restore();
-    l.content.markDirty();
-    l.touch();
-    app.commit('cmd.removeObject', d);
   } finally { ui.close(); }
 }
 

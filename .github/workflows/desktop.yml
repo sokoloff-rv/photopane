@@ -3,6 +3,11 @@ name: Desktop builds
 # Builds the PhotoPane desktop app (Tauri) for Windows, macOS and Linux and attaches the installers
 # to the workflow run as artifacts. Runs only on request: the "Run workflow" button in Actions
 # or a version tag (v1.0.0 …), not on every push.
+#
+# macOS: the app is signed ad hoc (bundle.macOS.signingIdentity "-" in tauri.conf.json). Without any
+# signature of the whole bundle, current macOS calls a downloaded app damaged and will not open it; signed
+# ad hoc it asks once to allow it in System Settings > Privacy & Security > Open Anyway. Hardened runtime is
+# off: it is only needed for notarization (a Developer ID certificate), which would turn it back on.
 on:
   workflow_dispatch:
   push:
@@ -64,6 +69,14 @@ jobs:
       - run: npm ci
 
       - run: npx tauri build ${{ matrix.args }}
+
+      # the bundle must carry a valid signature as a whole, not only its executable (the linker's)
+      - name: Check the macOS signature
+        if: runner.os == 'macOS'
+        run: |
+          APP=$(ls -d src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app)
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | grep -E 'Identifier|Format|Signature|flags|Sealed'
 
       - uses: actions/upload-artifact@v4
         with:

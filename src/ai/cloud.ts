@@ -33,7 +33,7 @@ export interface AiSettings {
   usagePeriod?: '7' | '30' | 'all';
 }
 export const aiSettings = (): AiSettings => (app.settings.ai ||= {});
-const keyOf = (s: Service) => (s === 'stability' ? aiSettings().stabilityKey : aiSettings().topazKey);
+export const keyOf = (s: Service) => (s === 'stability' ? aiSettings().stabilityKey : aiSettings().topazKey);
 export const hasKey = (s: Service) => !!keyOf(s);
 
 const inTauri = () => !!(window as any).__TAURI_INTERNALS__;
@@ -125,8 +125,11 @@ export const STABILITY_PRICE = { upscale: 2, removeBg: 5, outpaint: 4 } as const
 export const STABILITY_CREDIT_USD = 0.01;
 
 /** a request that may hang (no answer) given up after a while: for the figures around the work, not the work */
-export const within = <T>(p: Promise<T>, ms = 8000) =>
-  Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`timeout ${ms} ms`)), ms))]);
+export function within<T>(p: Promise<T>, ms = 8000): Promise<T> {
+  let timer = 0;
+  const late = new Promise<never>((_, rej) => { timer = window.setTimeout(() => rej(new Error(`timeout ${ms} ms`)), ms); });
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
+}
 
 let spentListener: ((s: Service, credits: number | null) => void) | null = null;
 /** Told of every charge as it happens (`null`: the price could not be found out). */
@@ -217,15 +220,16 @@ const estimates = new Map<string, Promise<number>>();
 
 /**
  * What Topaz will charge for enlarging an iw × ih picture to ow × oh with a model, in credits: its own estimate
- * (it charges by the size of the result, at a rate of the model). Asked once for each size and model.
+ * (it charges by the size of the result, at a rate of the model). Asked once for each size, model and key.
  */
 export function topazEstimate(iw: number, ih: number, ow: number, oh: number, model: TopazModel): Promise<number> {
-  const id = [iw, ih, ow, oh, model].join('|');
+  const key = aiSettings().topazKey;
+  if (!key) return Promise.reject(new NeedKeyError('topaz'));
+  const id = [iw, ih, ow, oh, model, key].join('|');
   let p = estimates.get(id);
   if (!p) {
-    p = (async () => {
-      const key = aiSettings().topazKey;
-      if (!key) throw new NeedKeyError('topaz');
+    // (given up after a while, so that one left without an answer is not waited for again and again)
+    p = within((async () => {
       const r = await send('topaz', '/image/v1/estimate', {
         method: 'POST',
         headers: { 'X-API-Key': key, 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -235,7 +239,7 @@ export function topazEstimate(iw: number, ih: number, ow: number, oh: number, mo
       const credits = Number(j?.credits);
       if (j == null || !Number.isFinite(credits)) throw new Error(`Topaz Labs: ${t('ai.err.answer')}`);
       return credits;
-    })();
+    })(), 20_000);
     // (a failed one is asked again next time)
     p.catch(() => estimates.delete(id));
     estimates.set(id, p);
@@ -246,8 +250,9 @@ export function topazEstimate(iw: number, ih: number, ow: number, oh: number, mo
 export async function topazUpscale(image: Blob, iw: number, ih: number, ow: number, oh: number, model: TopazModel): Promise<Blob> {
   const key = aiSettings().topazKey;
   if (!key) throw new NeedKeyError('topaz');
-  // the price is asked meanwhile: what the result is charged at
-  const price = within(topazEstimate(iw, ih, ow, oh, model));
+  // the price is asked meanwhile (the window has usually asked already); the charge is recorded once it is known,
+  // asked once more if the first answer failed
+  const price = topazEstimate(iw, ih, ow, oh, model);
   price.catch(() => {});
   const fd = new FormData();
   fd.append('image', image, 'image.png');
@@ -256,6 +261,6 @@ export async function topazUpscale(image: Blob, iw: number, ih: number, ow: numb
   fd.append('output_height', String(oh));
   fd.append('output_format', 'png');
   const r = await send('topaz', '/image/v1/enhance', { method: 'POST', headers: { 'X-API-Key': key, Accept: 'image/png' }, body: fd });
-  spent('topaz', await price.catch(() => null));
+  void price.catch(() => topazEstimate(iw, ih, ow, oh, model)).then(c => spent('topaz', c), () => spent('topaz', null));
   return r.blob();
 }

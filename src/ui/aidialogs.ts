@@ -14,7 +14,7 @@ import { applySelection } from '../tools/select';
 import {
   aiSettings, hasKey, NeedKeyError, canvasBlob, blobCanvas, stabilityRemoveBg, stabilityUpscale,
   topazUpscale, topazModelFor, stabilityOutpaint, Service, STABILITY, sendableBlob,
-  NAME, STABILITY_PRICE, STABILITY_CREDIT_USD, accountBalance, topazEstimate, onSpent, within, Balance,
+  NAME, STABILITY_PRICE, STABILITY_CREDIT_USD, accountBalance, topazEstimate, onSpent, within, Balance, keyOf,
 } from '../ai/cloud';
 import { spentOver } from '../ai/usage';
 
@@ -33,8 +33,13 @@ const withoutName = (s: Service, e: unknown) => {
 
 // every charge said as it happens, with what is left after it (asked of the service; a cancelled request is
 // charged too, the service has done it)
+// (a balance that comes after the one of a later charge is older than what was said: left out)
+const charges: Record<Service, { n: number; shown: number }> = { stability: { n: 0, shown: 0 }, topaz: { n: 0, shown: 0 } };
 onSpent((s, credits) => {
+  const c = charges[s], my = ++c.n;
   void within(accountBalance(s)).catch(() => null).then(b => {
+    if (b && my < c.shown) b = null;
+    if (b) c.shown = my;
     const what = credits == null ? t('ai.spentUnknown') : t('ai.spent', tn('ai.credits', credits));
     toast(`${NAME[s]}: ${what}${b ? ', ' + t('ai.left', tn('ai.credits', b.credits, 1)) : ''}`, 'info', 5000);
   });
@@ -51,7 +56,8 @@ async function guarded<T>(fn: () => Promise<T>): Promise<T | null> {
 }
 
 /* ---------------- settings ---------------- */
-export function aiSettingsDialog() {
+/** `onSaved`: a window waiting under this one, told when the keys may have changed (it shows prices). */
+export function aiSettingsDialog(onSaved?: () => void) {
   const s = aiSettings();
   const keyInput = (v: string | undefined, ph: string) => {
     const i = el('input', { class: 'text-input', type: 'password', value: v || '', placeholder: ph, autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
@@ -80,7 +86,14 @@ export function aiSettingsDialog() {
         b => { if (my === seq) text.textContent = t('ai.balance', balanceText(svc, b)); },
         e => { if (my === seq) { text.className = 'warn-text'; text.textContent = withoutName(svc, e); } });
     };
-    input.addEventListener('change', load);
+    // a key pasted or typed is asked about once it stays the same a moment (a balance asked for the key before
+    // is not shown beside the new one)
+    let wait = 0;
+    input.addEventListener('input', () => {
+      ++seq; clearTimeout(wait); wait = window.setTimeout(load, 700);
+      text.className = 'muted'; text.textContent = t('ai.balanceLoading');
+    });
+    input.addEventListener('change', () => { clearTimeout(wait); load(); });
     again.addEventListener('click', load);
     load();
     return line;
@@ -123,6 +136,7 @@ export function aiSettingsDialog() {
       s.usagePeriod = period;
       app.saveSettings();
       app.update('all');
+      onSaved?.();
     },
   });
 }
@@ -201,10 +215,12 @@ export function upscaleDialog() {
   // a moment old)
   const cost = el('div', { class: 'muted sm' });
   const short = el('div', { class: 'warn-text sm' });
-  const balances = new Map<Service, Promise<Balance | null>>();
+  // (asked once for each key: one replaced in the settings meanwhile is asked about anew)
+  const balances = new Map<string, Promise<Balance | null>>();
   const balanceOf = (s: Service) => {
-    let p = balances.get(s);
-    if (!p) { p = within(accountBalance(s)).catch(() => null); balances.set(s, p); }
+    const id = s + '|' + keyOf(s);
+    let p = balances.get(id);
+    if (!p) { p = within(accountBalance(s)).catch(() => null); balances.set(id, p); }
     return p;
   };
   let costSeq = 0;
@@ -253,7 +269,12 @@ export function upscaleDialog() {
   const dlg = openDialog({
     title: t('cmd.upscale'), body, width: 400,
     onOk: () => {
-      if (engine !== 'local' && !hasKey(engine as Service)) { guarded(() => Promise.reject(new NeedKeyError(engine as Service))); return false; }
+      // no key yet: the settings, and this window shows the price once one is given (before OK can send)
+      if (engine !== 'local' && !hasKey(engine as Service)) {
+        toast(t('ai.needKey', NAME[engine as Service]), 'error', 4000);
+        aiSettingsDialog(refresh);
+        return false;
+      }
       // (Enter reaches here even while OK is off)
       const why = upscaleProblem(engine, d.width, d.height) ?? sizeProblem(d, engine, scale);
       if (why) { toast(why, 'error', 6000); return false; }
